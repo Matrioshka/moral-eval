@@ -1,0 +1,34 @@
+.venv/
+venv/
+__pycache__/
+
+*.pyc
+.env
+.vscode/
+.ipynb_checkpoints/
+
+
+# Heavy generated activation data
+activations/*
+!activations/.gitkeep
+
+# Never commit NumPy activation arrays
+*.npy
+
+# Ignore generated plots by default
+*.png
+
+logs/
+*.log
+
+*.db
+*.sqlite
+
+# But allow curated documentation figures
+!docs/
+!docs/figures/
+!docs/figures/*.png
+
+
+
+
