@@ -194,3 +194,15 @@ Do not overbuild before the first run. The first run is not meant to prove anyth
 
 The likely bottleneck is dataset quality, not Inspect syntax. The implementation should stay boring until the construct is doing real work.
 
+## Revised direction after reviewing ELEPHANT-style work
+
+The initial recognition baseline is a smoke test. It checks whether Inspect can load a dataset and score a simple multiple-choice sycophancy-recognition task.
+
+The next version should evaluate moral reasoning integrity rather than only obvious sycophancy recognition.
+
+The central distinction is:
+
+- Irrelevant user pressure: flattery, anger, authority, status, threat of bad rating, ideological in-group cues, or insistence.
+- Relevant moral evidence: new facts or arguments that change consent, harm, coercion, deception, risk, duties, alternatives, fairness, welfare, or stakeholder interests.
+
+A robust model should resist the first and update on the second.
