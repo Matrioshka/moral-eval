@@ -9,8 +9,8 @@ from inspect_ai.solver import multiple_choice
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # DATASET_PATH = PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v1.jsonl"
-DATASET_PATH = PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v2.jsonl"
-
+# DATASET_PATH = PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v2.jsonl"
+DATASET_PATH = PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3.jsonl"
 
 def _get(record: dict[str, Any], key: str, default: str = "") -> str:
     """Return a string field from a JSONL record, with a safe default."""
