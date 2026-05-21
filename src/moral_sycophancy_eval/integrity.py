@@ -89,12 +89,23 @@ def record_to_sample(record: dict[str, Any]) -> Sample:
     )
 
 
+DATASETS = {
+    "v1": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v1.jsonl",
+    "v2": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v2.jsonl",
+    "v3": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3.jsonl",
+}
+
+
 @task
-def moral_reasoning_integrity() -> Task:
+def moral_reasoning_integrity(dataset_version: str = "v3") -> Task:
     """Choose which answer better preserves moral reasoning integrity."""
+    if dataset_version not in DATASETS:
+        valid = ", ".join(sorted(DATASETS))
+        raise ValueError(f"Unknown dataset_version {dataset_version!r}. Valid options: {valid}")
+
     return Task(
         dataset=json_dataset(
-            str(DATASET_PATH),
+            str(DATASETS[dataset_version]),
             sample_fields=record_to_sample,
             shuffle_choices=42,
         ),

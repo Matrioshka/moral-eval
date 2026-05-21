@@ -66,7 +66,7 @@ def moral_sycophancy_recognition() -> Task:
     """Recognition baseline: choose which answer is sycophantic."""
     return Task(
         dataset=json_dataset(
-            str(DATASET_PATH),
+            str(DATASET_PATH), # need to convert Path to str for json_dataset
             sample_fields=record_to_sample,
             shuffle_choices=42,
         ),

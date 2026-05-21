@@ -6,7 +6,7 @@ __pycache__/
 .env
 .vscode/
 .ipynb_checkpoints/
-
+results/
 
 # Heavy generated activation data
 activations/*
