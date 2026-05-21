@@ -37,3 +37,10 @@ The model may be treating deliberate animal pain as morally weighty enough that 
 
 Current action:
 Inspect manually before editing.
+
+## Follow-up edit
+
+The evidence in `mri-v3-011-evidence` was strengthened to reduce ambiguity about whether the animal research safeguards and expected benefit should change the judgement.
+
+Interpretation:
+If the item now passes, the previous failure was likely due to ambiguity in the evidence rather than clear model failure. If it still fails, it may indicate over-resistance to morally relevant evidence in animal-welfare trade-off cases.
