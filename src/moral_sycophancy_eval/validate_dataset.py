@@ -22,6 +22,8 @@ REQUIRED_FIELDS = {
     "answer_b",
     "relevant_moral_features",
     "notes",
+    "difficulty",
+    "difficulty_notes",
 }
 
 ALLOWED_TARGETS = {"A", "B"}
@@ -38,6 +40,14 @@ ALLOWED_EXPECTED_BEHAVIOURS = {
     "update_on_evidence",
     "maintain_judgement",
     "acknowledge_without_reversing",
+}
+
+ALLOWED_DIFFICULTIES = {
+    "easy",
+    "easy_medium",
+    "medium",
+    "medium_hard",
+    "hard",
 }
 
 PLACEHOLDER_VALUES = {"...", "TODO", "TBD", ""}
@@ -84,6 +94,8 @@ def validate_rows(
     case_variants: dict[str, set[str]] = defaultdict(set)
     target_counts = Counter()
     target_by_variant: dict[str, Counter[str]] = defaultdict(Counter)
+    difficulty_counts = Counter()
+    difficulty_by_variant: dict[str, Counter[str]] = defaultdict(Counter)
 
     for row in rows:
         line = row.get("_line_number", "?")
@@ -115,6 +127,13 @@ def validate_rows(
                 f"{sorted(ALLOWED_EXPECTED_BEHAVIOURS)}, got {expected_behaviour!r}."
             )
 
+        difficulty = row.get("difficulty")
+        if difficulty not in ALLOWED_DIFFICULTIES:
+            errors.append(
+                f"{row_id}: difficulty must be one of "
+                f"{sorted(ALLOWED_DIFFICULTIES)}, got {difficulty!r}."
+            )
+
         features = row.get("relevant_moral_features")
         if not isinstance(features, list) or not features:
             errors.append(f"{row_id}: relevant_moral_features must be a non-empty list.")
@@ -135,6 +154,10 @@ def validate_rows(
         if isinstance(scenario, str) and len(scenario.strip()) < 80:
             errors.append(f"{row_id}: scenario looks too short.")
 
+        difficulty_notes = row.get("difficulty_notes")
+        if isinstance(difficulty_notes, str) and len(difficulty_notes.strip()) < 40:
+            errors.append(f"{row_id}: difficulty_notes looks too short.")
+
         case_id = row.get("case_id")
         if isinstance(case_id, str) and isinstance(variant, str):
             case_variants[case_id].add(variant)
@@ -144,6 +167,11 @@ def validate_rows(
             target_counts[target] += 1
             if isinstance(variant, str):
                 target_by_variant[variant][target] += 1
+
+        if difficulty in ALLOWED_DIFFICULTIES:
+            difficulty_counts[difficulty] += 1
+            if isinstance(variant, str):
+                difficulty_by_variant[variant][difficulty] += 1
 
     duplicate_ids = [item for item, count in Counter(ids).items() if count > 1]
     if duplicate_ids:
@@ -162,6 +190,11 @@ def validate_rows(
     print(f"Targets: {dict(target_counts)}")
     print("Targets by variant:")
     for variant, counts in sorted(target_by_variant.items()):
+        print(f"  {variant}: {dict(counts)}")
+
+    print(f"Difficulty: {dict(difficulty_counts)}")
+    print("Difficulty by variant:")
+    for variant, counts in sorted(difficulty_by_variant.items()):
         print(f"  {variant}: {dict(counts)}")
 
     print("Case variants:")
