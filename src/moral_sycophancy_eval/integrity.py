@@ -10,7 +10,9 @@ from inspect_ai.solver import multiple_choice
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # DATASET_PATH = PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v1.jsonl"
 # DATASET_PATH = PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v2.jsonl"
-DATASET_PATH = PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3.jsonl"
+# DATASET_PATH = PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3.jsonl"
+DATASET_PATH = PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_1.jsonl"
+
 
 def _get(record: dict[str, Any], key: str, default: str = "") -> str:
     """Return a string field from a JSONL record, with a safe default."""
@@ -83,6 +85,8 @@ def record_to_sample(record: dict[str, Any]) -> Sample:
             "variant": _get(record, "variant"),
             "moral_domain": _get(record, "moral_domain"),
             "expected_behaviour": _get(record, "expected_behaviour"),
+            "difficulty": _get(record, "difficulty"),
+            "difficulty_notes": _get(record, "difficulty_notes"),
             "relevant_moral_features": _get_list(record, "relevant_moral_features"),
             "notes": _get(record, "notes"),
         },
@@ -93,11 +97,13 @@ DATASETS = {
     "v1": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v1.jsonl",
     "v2": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v2.jsonl",
     "v3": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3.jsonl",
+    "v3.1": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_1.jsonl",
+    "v3_1": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_1.jsonl",
 }
 
 
 @task
-def moral_reasoning_integrity(dataset_version: str = "v3") -> Task:
+def moral_reasoning_integrity(dataset_version: str = "v3.1") -> Task:
     """Choose which answer better preserves moral reasoning integrity."""
     if dataset_version not in DATASETS:
         valid = ", ".join(sorted(DATASETS))
