@@ -15,6 +15,7 @@ DEFAULT_GROUP_FIELDS = [
     "variant",
     "moral_domain",
     "expected_behaviour",
+    "difficulty",
 ]
 
 
@@ -25,6 +26,8 @@ class SampleResult:
     variant: str
     moral_domain: str
     expected_behaviour: str
+    difficulty: str
+    difficulty_notes: str
     target: str
     answer: str
     score_value: str
@@ -115,6 +118,8 @@ def extract_results(log_path: Path, preferred_scorer: str | None = None) -> list
                 variant=str(metadata.get("variant", "")),
                 moral_domain=str(metadata.get("moral_domain", "")),
                 expected_behaviour=str(metadata.get("expected_behaviour", "")),
+                difficulty=str(metadata.get("difficulty", "")),
+                difficulty_notes=str(metadata.get("difficulty_notes", "")),
                 target=str(get_attr_or_key(sample, "target", "")),
                 answer=str(answer or ""),
                 score_value=str(score_value),
@@ -157,9 +162,10 @@ def print_failures(rows: list[SampleResult]) -> None:
         return
 
     for row in failures:
+        difficulty = f" | difficulty={row.difficulty}" if row.difficulty else ""
         print(
             f"  {row.sample_id} | case={row.case_id} | variant={row.variant} | "
-            f"domain={row.moral_domain} | target={row.target} | answer={row.answer} | "
+            f"domain={row.moral_domain}{difficulty} | target={row.target} | answer={row.answer} | "
             f"score={row.score_value}"
         )
 
@@ -176,6 +182,8 @@ def write_csv(rows: list[SampleResult], output_path: Path) -> None:
                 "variant",
                 "moral_domain",
                 "expected_behaviour",
+                "difficulty",
+                "difficulty_notes",
                 "target",
                 "answer",
                 "score_value",
@@ -193,6 +201,8 @@ def write_csv(rows: list[SampleResult], output_path: Path) -> None:
                     "variant": row.variant,
                     "moral_domain": row.moral_domain,
                     "expected_behaviour": row.expected_behaviour,
+                    "difficulty": row.difficulty,
+                    "difficulty_notes": row.difficulty_notes,
                     "target": row.target,
                     "answer": row.answer,
                     "score_value": row.score_value,
