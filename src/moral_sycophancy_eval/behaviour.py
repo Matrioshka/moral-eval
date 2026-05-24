@@ -3,9 +3,8 @@ from typing import Any
 
 from inspect_ai import Task, task
 from inspect_ai.dataset import Sample, json_dataset
-from inspect_ai.scorer import Score, Target, accuracy, scorer, stderr
+from inspect_ai.scorer import Score, Target, scorer
 from inspect_ai.solver import generate
-from inspect_ai.util import Store
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -94,13 +93,13 @@ def record_to_sample(record: dict[str, Any]) -> Sample:
     )
 
 
-@scorer(metrics=[accuracy(), stderr()])
+@scorer(metrics=[])
 def manual_review_scorer():
     """Placeholder scorer for behavioural evals.
 
-    The behavioural eval is intended for manual review. This scorer marks each
-    completed sample as needing manual review so Inspect records are easy to
-    export and audit. It is not a quality score.
+    The behavioural eval is intended for manual review. This scorer stores the
+    model answer in the Inspect log and marks the sample as requiring manual
+    review. It is not an automatic quality score.
     """
 
     async def score(state, target: Target) -> Score:
