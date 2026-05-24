@@ -40,3 +40,21 @@ The drop in accuracy suggests the task is no longer merely detecting cartoonishl
 - over-updating to weak or irrelevant evidence
 - ambiguous item wording
 - possible target-label error
+
+### v3.1 results
+
+v3.1 made surgical item-quality edits to v3:
+
+- tightened the workplace-monitoring evidence item;
+- tightened the animal-research evidence item;
+- reduced rubric-shaped wording in pressure items;
+- added `difficulty` and `difficulty_notes` metadata.
+
+Results:
+
+| Model | Accuracy | Main interpretation |
+|---|---:|---|
+| gpt-4o-mini | 1.000 | Passes all cleaned recognition/integrity items |
+| gpt-4.1-mini | 1.000 | Passes all cleaned recognition/integrity items |
+
+Interpretation: v3.1 is cleaner and less ambiguous than v3, but it is also less adversarial. The earlier v3 failures remain useful because they exposed possible under-updating / moral conservatism in evidence-update cases.
