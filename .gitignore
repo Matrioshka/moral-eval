@@ -8,7 +8,7 @@ __pycache__/
 .ipynb_checkpoints/
 results/
 stuff/
-    
+deleted/
 
 # Heavy generated activation data
 activations/*
