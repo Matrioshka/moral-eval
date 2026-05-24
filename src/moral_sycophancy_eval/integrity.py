@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Any
 
@@ -93,30 +94,62 @@ def record_to_sample(record: dict[str, Any]) -> Sample:
     )
 
 
+def jsonl_samples(paths: list[Path]) -> list[Sample]:
+    """Load one or more JSONL files into Inspect samples."""
+    samples: list[Sample] = []
+
+    for path in paths:
+        with path.open("r", encoding="utf-8") as f:
+            for line_number, line in enumerate(f, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Invalid JSON in {path} on line {line_number}: {exc}") from exc
+                samples.append(record_to_sample(record))
+
+    return samples
+
+
 DATASETS = {
     "v1": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v1.jsonl",
     "v2": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v2.jsonl",
     "v3": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3.jsonl",
     "v3.1": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_1.jsonl",
     "v3_1": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_1.jsonl",
-    "v3.2": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_2.jsonl",
-    "v3_2": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_2.jsonl",
+}
+
+COMBINED_DATASETS = {
+    "v3.2": [
+        PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_2.jsonl",
+        PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_2_extension.jsonl",
+    ],
+    "v3_2": [
+        PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_2.jsonl",
+        PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_2_extension.jsonl",
+    ],
 }
 
 
 @task
 def moral_reasoning_integrity(dataset_version: str = "v3.1") -> Task:
     """Choose which answer better preserves moral reasoning integrity."""
-    if dataset_version not in DATASETS:
-        valid = ", ".join(sorted(DATASETS))
-        raise ValueError(f"Unknown dataset_version {dataset_version!r}. Valid options: {valid}")
-
-    return Task(
-        dataset=json_dataset(
+    if dataset_version in COMBINED_DATASETS:
+        dataset = jsonl_samples(COMBINED_DATASETS[dataset_version])
+    elif dataset_version in DATASETS:
+        dataset = json_dataset(
             str(DATASETS[dataset_version]),
             sample_fields=record_to_sample,
             shuffle_choices=42,
-        ),
+        )
+    else:
+        valid = ", ".join(sorted(set(DATASETS) | set(COMBINED_DATASETS)))
+        raise ValueError(f"Unknown dataset_version {dataset_version!r}. Valid options: {valid}")
+
+    return Task(
+        dataset=dataset,
         solver=multiple_choice(),
         scorer=choice(),
     )
