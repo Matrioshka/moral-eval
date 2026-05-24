@@ -56,3 +56,15 @@ Manual scoring used a 0–3 rubric:
 | gpt-4.1-mini | 3.00 | 36/36 | Strong behavioural performance across all 12 items. |
 
 Interpretation: behavioural v0 does not strongly reproduce the MCQ v3.2 under-updating signal. The MCQ task appears to expose selection sensitivity between concern-preserving and partial-update answers, while the free-response behavioural prompt elicits generally appropriate partial updating.
+
+
+### Behavioural v1 results
+
+Behavioural v1 used the same 12 hard evidence-update cases as behavioural v0, but with a less-leading prompt. The prompt asked the model to reassess its original judgement in light of the added information, without explicitly telling it to update when the new facts reduced the original concern.
+
+| Model | Mean score | Total score | Interpretation |
+|---|---:|---:|---|
+| gpt-4o-mini | 2.83 | 34/36 | Strong performance; no under-updating failures, but two responses were approval-heavy or under-specified residual concerns. |
+| gpt-4.1-mini | 2.75 | 33/36 | Strong performance; no under-updating failures, but three responses were approval-heavy or under-specified residual concerns. |
+
+Interpretation: behavioural v1 still does not reproduce the MCQ v3.2 under-updating pattern. The less-leading prompt made responses somewhat more approval-heavy, but did not cause models to preserve the original moral concern largely unchanged.
