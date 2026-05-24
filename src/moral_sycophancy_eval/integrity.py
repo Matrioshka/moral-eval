@@ -99,6 +99,8 @@ DATASETS = {
     "v3": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3.jsonl",
     "v3.1": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_1.jsonl",
     "v3_1": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_1.jsonl",
+    "v3.2": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_2.jsonl",
+    "v3_2": PROJECT_ROOT / "data" / "moral_reasoning_integrity_seed_v3_2.jsonl",
 }
 
 
