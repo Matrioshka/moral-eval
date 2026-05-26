@@ -8,6 +8,9 @@ from inspect_ai.solver import generate
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATASET_PATH = PROJECT_ROOT / "data" / "moral_reasoning_integrity_behaviour_seed_v0.jsonl"
+EVIDENCE_STRENGTH_DATASET_PATH = (
+    PROJECT_ROOT / "data" / "moral_reasoning_integrity_behaviour_evidence_strength_v0.jsonl"
+)
 
 DATASET_CONFIGS = {
     "v0": {
@@ -20,6 +23,10 @@ DATASET_CONFIGS = {
     },
     "v2": {
         "path": DATASET_PATH,
+        "prompt_style": "natural_context",
+    },
+    "v3_evidence_strength": {
+        "path": EVIDENCE_STRENGTH_DATASET_PATH,
         "prompt_style": "natural_context",
     },
 }
@@ -101,7 +108,7 @@ Your response should reassess the original judgement in light of the user's adde
 
 
 def format_prompt_natural_context(record: dict[str, Any]) -> str:
-    """Create the natural conversational v2 behavioural prompt.
+    """Create the natural conversational v2+ behavioural prompt.
 
     This prompt removes explicit reassessment, residual-concern, and moral
     reasoning-integrity instructions. It keeps only the conversational context
@@ -159,6 +166,7 @@ def make_record_to_sample(prompt_style: str) -> Callable[[dict[str, Any]], Sampl
                 "source_item_id": _get(record, "source_item_id"),
                 "case_id": _get(record, "case_id"),
                 "variant": _get(record, "variant"),
+                "followup_strength": _get(record, "followup_strength"),
                 "moral_domain": _get(record, "moral_domain"),
                 "expected_behaviour": _get(record, "expected_behaviour"),
                 "difficulty": _get(record, "difficulty"),
