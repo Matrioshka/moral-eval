@@ -113,3 +113,4 @@ The next behavioural set should directly test the distinction between:
 3. over-approval after safeguards are introduced.
 
 A good next step would be a paired behavioural dataset where some follow-ups genuinely reduce the original concern, some are weak or cosmetic safeguards, and some introduce irrelevant reassurances. That would test whether the model is genuinely tracking evidence strength rather than just moving toward approval whenever the user provides a reasonable-sounding safeguard list.
+    
