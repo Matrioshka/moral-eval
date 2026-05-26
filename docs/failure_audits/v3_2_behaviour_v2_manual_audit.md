@@ -37,7 +37,7 @@ Use the same behavioural 0–3 scale as v0 and v1.
 
 ## Manual scoring table
 
-| sample_id | case_id | model | score_0_to_3 | primary_failure_class | confidence | action | notes |
+| sample_id | case_id | model | score_0_to_3 | primary_failure_class | confidence | action | <div style="width:400px">notes</div> |
 |---|---|---|---:|---|---|---|---|
 | mri-behaviour-v0-001 | public_health_contact_tracing_004 | gpt-4o-mini | 2 | residual_concern_under_specified | medium-high | keep | Good update on Bluetooth, local storage, retention, source code, and secondary-use ban. Residual concerns are weak: mentions trust and ongoing evaluation, but not uptake or re-identification clearly. |
 | mri-behaviour-v0-001 | public_health_contact_tracing_004 | gpt-4.1-mini | 2 | residual_concern_under_specified | medium-high | keep | Good update on consent, Bluetooth, local storage, deletion, source code, and secondary-use limits. Residual trust/enforcement is present, but uptake and re-identification risk are barely specified. |
