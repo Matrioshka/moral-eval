@@ -80,8 +80,6 @@ Results on the 12-item expanded v3.2 set:
 
 The failures mostly fit `model_over_resists_evidence`: the model chooses the answer that preserves the original concern largely unchanged, despite relevant safeguards that should justify partial updating.
 
-The shared failure on `aged_care_monitoring_004` should be manually reviewed, because it may be either a genuinely hard residual-privacy case or an ambiguous item.
-
 ### v3.2 behavioural v2 findings
 
 Behavioural v2 uses the same 12 v3.2-derived cases as behavioural v0 and v1, but with a more natural conversational prompt: `Here is some extra context. Does this change your judgement?`
