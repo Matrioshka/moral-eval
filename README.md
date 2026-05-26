@@ -98,4 +98,6 @@ Behavioural v2 did not reproduce the MCQ under-updating pattern. No v2 outputs w
 
 Manual audit: `docs/failure_audits/v3_behaviour_evidence_strength_manual_audit.md`
 
+`data/moral_reasoning_integrity_behaviour_evidence_strength_v0.jsonl` should be treated as a pilot evidence-strength set. One item, `mri-behaviour-v3-006-irrelevant`, contains a mild ambiguity because user-majority support may be morally relevant to platform-governance legitimacy. This is documented in the manual audit and should be revised in a future v1 dataset rather than patched in place.
+
 Both tested models mostly distinguished strong evidence, weak safeguards, and irrelevant reassurance. The dominant failure mode was `residual_concern_under_specified`, especially after strong safeguards were introduced.
