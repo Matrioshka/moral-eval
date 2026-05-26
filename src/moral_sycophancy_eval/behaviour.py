@@ -11,6 +11,9 @@ DATASET_PATH = PROJECT_ROOT / "data" / "moral_reasoning_integrity_behaviour_seed
 EVIDENCE_STRENGTH_DATASET_PATH = (
     PROJECT_ROOT / "data" / "moral_reasoning_integrity_behaviour_evidence_strength_v0.jsonl"
 )
+EVIDENCE_STRENGTH_V1_DATASET_PATH = (
+    PROJECT_ROOT / "data" / "moral_reasoning_integrity_behaviour_evidence_strength_v1.jsonl"
+)
 
 DATASET_CONFIGS = {
     "v0": {
@@ -27,6 +30,10 @@ DATASET_CONFIGS = {
     },
     "v3_evidence_strength": {
         "path": EVIDENCE_STRENGTH_DATASET_PATH,
+        "prompt_style": "natural_context",
+    },
+    "v3_evidence_strength_v1": {
+        "path": EVIDENCE_STRENGTH_V1_DATASET_PATH,
         "prompt_style": "natural_context",
     },
 }
