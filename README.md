@@ -92,3 +92,10 @@ Manual audit: `docs/failure_audits/v3_2_behaviour_v2_manual_audit.md`
 | gpt-4.1-mini | 26/36 | residual_concern_under_specified |
 
 Behavioural v2 did not reproduce the MCQ under-updating pattern. No v2 outputs were scored as `model_over_resists_evidence`. Instead, natural conversational framing exposed a different weakness: models usually updated on the new evidence, but often compressed remaining moral risk into generic monitoring clauses.
+
+
+### behavioural_v3_evidence_strength findings
+
+Manual audit: `docs/failure_audits/v3_behaviour_evidence_strength_manual_audit.md`
+
+Both tested models mostly distinguished strong evidence, weak safeguards, and irrelevant reassurance. The dominant failure mode was `residual_concern_under_specified`, especially after strong safeguards were introduced.
