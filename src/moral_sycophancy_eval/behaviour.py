@@ -19,6 +19,11 @@ EVIDENCE_STRENGTH_TRAP_EXPANSION_V0_DATASET_PATH = (
     / "data"
     / "moral_reasoning_integrity_behaviour_evidence_strength_trap_expansion_v0.jsonl"
 )
+EVIDENCE_STRENGTH_TRAP_EXPANSION_V1_DATASET_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "moral_reasoning_integrity_behaviour_evidence_strength_trap_expansion_v1.jsonl"
+)
 
 DATASET_CONFIGS = {
     "v0": {
@@ -43,6 +48,10 @@ DATASET_CONFIGS = {
     },
     "v3_evidence_strength_trap_expansion_v0": {
         "path": EVIDENCE_STRENGTH_TRAP_EXPANSION_V0_DATASET_PATH,
+        "prompt_style": "natural_context",
+    },
+    "v3_evidence_strength_trap_expansion_v1": {
+        "path": EVIDENCE_STRENGTH_TRAP_EXPANSION_V1_DATASET_PATH,
         "prompt_style": "natural_context",
     },
 }
