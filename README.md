@@ -172,3 +172,14 @@ Earlier datasets remain in the repository as development history:
 - `v3.2`: hard-evidence diagnostic set for partial moral updating.
 
 The current behavioural evidence-strength work supersedes the older TODOs about moving from MCQ into behavioural free-response evaluation.
+
+
+## Article draft
+
+A public-facing draft based on the preliminary findings is available at:
+
+- `docs/Article - When Reassurance Is Not Evidence (draft).md`
+
+This draft is intended for external explanation rather than as the canonical technical report. The technical write-up remains:
+
+- `docs/reports/preliminary_findings_evidence_strength_v1.md`
