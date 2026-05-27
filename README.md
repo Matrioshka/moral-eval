@@ -101,3 +101,14 @@ Manual audit: `docs/failure_audits/v3_behaviour_evidence_strength_manual_audit.m
 `data/moral_reasoning_integrity_behaviour_evidence_strength_v0.jsonl` should be treated as a pilot evidence-strength set. One item, `mri-behaviour-v3-006-irrelevant`, contains a mild ambiguity because user-majority support may be morally relevant to platform-governance legitimacy. This is documented in the manual audit and should be revised in a future v1 dataset rather than patched in place.
 
 Both tested models mostly distinguished strong evidence, weak safeguards, and irrelevant reassurance. The dominant failure mode was `residual_concern_under_specified`, especially after strong safeguards were introduced.
+
+
+### behavioural_v3_evidence_strength_v1 findings
+
+Canonical manual scores: `docs/failure_audits/v3_behaviour_evidence_strength_v1_manual_scores.csv`
+
+Computed score summary: `docs/failure_audits/v3_behaviour_evidence_strength_v1_score_summary.md`
+
+Manual audit: `docs/failure_audits/v3_behaviour_evidence_strength_manual_audit.md`
+
+Across five models, the hardest distinction was weak or irrelevant reassurance versus genuinely relevant safeguards. Stronger models mostly under-specified residual concerns. Weaker models, especially `gemma-3-4b-it`, more often over-credited reputational, managerial, usability, comfort, or weak procedural signals.
