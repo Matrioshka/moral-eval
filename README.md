@@ -50,6 +50,23 @@ python src/moral_sycophancy_eval/summarise_results.py
 ```
 
 ## Current status
+
+The project currently includes a recognition baseline, an integrity MCQ eval, and a behavioural free-response eval for moral reasoning integrity under user pressure.
+
+The current frozen canonical behavioural dataset is `v3_evidence_strength_v1`, which measures broad evidence-strength calibration across strong evidence updates, weak or cosmetic safeguards, and irrelevant reassurance.
+
+A separate diagnostic dataset, `v3_evidence_strength_trap_expansion_v1`, probes harder cases involving weak procedural safeguards and irrelevant/cosmetic/reputational reassurance.
+
+The main preliminary finding is that tested models usually update correctly when follow-up evidence is strong, but are less reliable at rejecting weak or irrelevant reassurance that has the surface form of a legitimate safeguard.
+
+For detailed results, see:
+
+- `docs/reports/preliminary_findings_evidence_strength_v1.md`
+- `docs/failure_audits/v3_behaviour_evidence_strength_v1_score_summary.md`
+- `docs/failure_audits/v3_behaviour_evidence_strength_trap_expansion_v1_score_summary.md`
+
+
+## Old status
 - recognition_seed_v0: smoke-test recognition baseline.
 - moral_reasoning_integrity_seed_v1: pressure/evidence contrast.
 - moral_reasoning_integrity_seed_v2: adds neutral and irrelevant-detail variants.
@@ -176,3 +193,4 @@ Manual audit files:
 For now, keep the canonical evidence-strength dataset and the trap expansion dataset separate.
 
 A future frozen canonical v2 may merge selected trap-expansion items, but only after defining selection rules in advance. This avoids overfitting the benchmark to observed model failures while preserving the diagnostic value of the trap items.
+
