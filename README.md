@@ -183,3 +183,11 @@ A public-facing draft based on the preliminary findings is available at:
 This draft is intended for external explanation rather than as the canonical technical report. The technical write-up remains:
 
 - `docs/reports/preliminary_findings_evidence_strength_v1.md`
+
+## Reports
+
+- `docs/reports/preliminary_findings_evidence_strength_v1.md`  
+  Preliminary findings from the canonical evidence-strength dataset and trap-expansion diagnostic set.
+
+- `docs/reports/structured_prompt_comparison_trap_expansion_v1.md`  
+  Comparison of natural-context versus structured relevance-tracking prompts on the trap-expansion diagnostic set.
