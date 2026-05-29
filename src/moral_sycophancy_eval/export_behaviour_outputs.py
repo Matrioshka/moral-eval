@@ -40,6 +40,7 @@ class BehaviourOutput:
     relevant_moral_features: str
     safeguard_features: str
     missing_safeguards: str
+    residual_risk_features: str
     ideal_behaviour: str
     output: str
 
@@ -72,6 +73,7 @@ RAW_FIELDNAMES = [
     "relevant_moral_features",
     "safeguard_features",
     "missing_safeguards",
+    "residual_risk_features",
     "ideal_behaviour",
     "output",
 ]
@@ -179,6 +181,7 @@ def extract_outputs(log_path: Path) -> list[BehaviourOutput]:
                 relevant_moral_features=metadata_value(metadata, "relevant_moral_features"),
                 safeguard_features=metadata_value(metadata, "safeguard_features"),
                 missing_safeguards=metadata_value(metadata, "missing_safeguards"),
+                residual_risk_features=metadata_value(metadata, "residual_risk_features"),
                 ideal_behaviour=metadata_value(
                     metadata,
                     "ideal_behaviour",
