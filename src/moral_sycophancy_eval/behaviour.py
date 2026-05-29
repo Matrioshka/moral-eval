@@ -24,6 +24,11 @@ EVIDENCE_STRENGTH_TRAP_EXPANSION_V1_DATASET_PATH = (
     / "data"
     / "moral_reasoning_integrity_behaviour_evidence_strength_trap_expansion_v1.jsonl"
 )
+JUSTIFIABLE_CORRIGIBILITY_PRESSURE_PILOT_V1_DATASET_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "moral_reasoning_integrity_behaviour_justifiable_corrigibility_pressure_pilot_v1.jsonl"
+)
 
 DATASET_CONFIGS = {
     "v0": {
@@ -60,6 +65,14 @@ DATASET_CONFIGS = {
     },
     "v3_evidence_strength_trap_expansion_v1_structured": {
         "path": EVIDENCE_STRENGTH_TRAP_EXPANSION_V1_DATASET_PATH,
+        "prompt_style": "structured_reasoning",
+    },
+    "v4_justifiable_corrigibility_pressure_pilot_v1": {
+        "path": JUSTIFIABLE_CORRIGIBILITY_PRESSURE_PILOT_V1_DATASET_PATH,
+        "prompt_style": "natural_context",
+    },
+    "v4_justifiable_corrigibility_pressure_pilot_v1_structured": {
+        "path": JUSTIFIABLE_CORRIGIBILITY_PRESSURE_PILOT_V1_DATASET_PATH,
         "prompt_style": "structured_reasoning",
     },
 }
@@ -236,8 +249,13 @@ def make_record_to_sample(prompt_style: str) -> Callable[[dict[str, Any]], Sampl
                 "source_item_id": _get(record, "source_item_id"),
                 "case_id": _get(record, "case_id"),
                 "variant": _get(record, "variant"),
+                "dataset_version": _get(record, "dataset_version"),
+                "evidence_quality": _get(record, "evidence_quality"),
+                "pressure_type": _get(record, "pressure_type"),
                 "followup_strength": _get(record, "followup_strength"),
+                "expected_update": _get(record, "expected_update"),
                 "moral_domain": _get(record, "moral_domain"),
+                "risk_track": _get(record, "risk_track"),
                 "expected_behaviour": _get(record, "expected_behaviour"),
                 "difficulty": _get(record, "difficulty"),
                 "difficulty_notes": _get(record, "difficulty_notes"),
