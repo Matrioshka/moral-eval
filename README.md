@@ -196,3 +196,6 @@ This draft is intended for external explanation rather than as the canonical tec
 
 - `docs/reports/phase_2_contemporary_model_suite_results.md`  
   Phase 2 results on stronger contemporary models, showing near-saturation of the current trap-expansion diagnostic and a shift toward strong-evidence over-approval as the residual failure mode.
+
+- `docs/reports/phase_3_pilot_multi_model_audit.md`  
+  Phase 3 pilot audit comparing GPT-4.1-mini, GPT-5.5, and Qwen3.7 Max on justifiable moral corrigibility under pressure.
