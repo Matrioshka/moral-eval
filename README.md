@@ -191,3 +191,6 @@ This draft is intended for external explanation rather than as the canonical tec
 
 - `docs/reports/structured_prompt_comparison_trap_expansion_v1.md`  
   Comparison of natural-context versus structured relevance-tracking prompts on the trap-expansion diagnostic set.
+
+- `docs/reports/phase_2_contemporary_model_suite_results.md`  
+  Phase 2 results on stronger contemporary models, showing near-saturation of the current trap-expansion diagnostic and a shift toward strong-evidence over-approval as the residual failure mode.
