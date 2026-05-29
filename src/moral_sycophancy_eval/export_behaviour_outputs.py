@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,9 +16,30 @@ class BehaviourOutput:
     sample_id: str
     case_id: str
     source_item_id: str
+    dataset_version: str
+    variant: str
+    prompt_style: str
     moral_domain: str
+    risk_track: str
+    evidence_quality: str
+    pressure_type: str
+    followup_strength: str
+    expected_update: str
+    target_scope: str
+    minimum_acceptable_scope: str
+    maximum_acceptable_scope: str
     expected_behaviour: str
     difficulty: str
+    difficulty_notes: str
+    deployment_scope_options: str
+    pressure_trap: str
+    too_conservative_failure: str
+    too_permissive_failure: str
+    scope_control_notes: str
+    failure_modes: str
+    relevant_moral_features: str
+    safeguard_features: str
+    missing_safeguards: str
     ideal_behaviour: str
     output: str
 
@@ -26,9 +48,30 @@ RAW_FIELDNAMES = [
     "sample_id",
     "case_id",
     "source_item_id",
+    "dataset_version",
+    "variant",
+    "prompt_style",
     "moral_domain",
+    "risk_track",
+    "evidence_quality",
+    "pressure_type",
+    "followup_strength",
+    "expected_update",
+    "target_scope",
+    "minimum_acceptable_scope",
+    "maximum_acceptable_scope",
     "expected_behaviour",
     "difficulty",
+    "difficulty_notes",
+    "deployment_scope_options",
+    "pressure_trap",
+    "too_conservative_failure",
+    "too_permissive_failure",
+    "scope_control_notes",
+    "failure_modes",
+    "relevant_moral_features",
+    "safeguard_features",
+    "missing_safeguards",
     "ideal_behaviour",
     "output",
 ]
@@ -48,6 +91,26 @@ def get_attr_or_key(obj: Any, name: str, default: Any = None) -> Any:
     if isinstance(obj, dict):
         return obj.get(name, default)
     return getattr(obj, name, default)
+
+
+def stringify(value: Any) -> str:
+    """Return a stable string representation for CSV/Markdown export.
+
+    Inspect metadata can include lists for fields such as failure modes and
+    relevant moral features. JSON keeps those values parseable instead of
+    flattening them into an ambiguous comma-separated string.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple, dict)):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return str(value)
+
+
+def metadata_value(metadata: dict[str, Any], key: str) -> str:
+    return stringify(metadata.get(key, ""))
 
 
 def latest_eval_log(log_dir: Path) -> Path:
@@ -90,12 +153,37 @@ def extract_outputs(log_path: Path) -> list[BehaviourOutput]:
         rows.append(
             BehaviourOutput(
                 sample_id=str(get_attr_or_key(sample, "id", "")),
-                case_id=str(metadata.get("case_id", "")),
-                source_item_id=str(metadata.get("source_item_id", "")),
-                moral_domain=str(metadata.get("moral_domain", "")),
-                expected_behaviour=str(metadata.get("expected_behaviour", "")),
-                difficulty=str(metadata.get("difficulty", "")),
-                ideal_behaviour=str(metadata.get("ideal_behaviour", get_attr_or_key(sample, "target", ""))),
+                case_id=metadata_value(metadata, "case_id"),
+                source_item_id=metadata_value(metadata, "source_item_id"),
+                dataset_version=metadata_value(metadata, "dataset_version"),
+                variant=metadata_value(metadata, "variant"),
+                prompt_style=metadata_value(metadata, "prompt_style"),
+                moral_domain=metadata_value(metadata, "moral_domain"),
+                risk_track=metadata_value(metadata, "risk_track"),
+                evidence_quality=metadata_value(metadata, "evidence_quality"),
+                pressure_type=metadata_value(metadata, "pressure_type"),
+                followup_strength=metadata_value(metadata, "followup_strength"),
+                expected_update=metadata_value(metadata, "expected_update"),
+                target_scope=metadata_value(metadata, "target_scope"),
+                minimum_acceptable_scope=metadata_value(metadata, "minimum_acceptable_scope"),
+                maximum_acceptable_scope=metadata_value(metadata, "maximum_acceptable_scope"),
+                expected_behaviour=metadata_value(metadata, "expected_behaviour"),
+                difficulty=metadata_value(metadata, "difficulty"),
+                difficulty_notes=metadata_value(metadata, "difficulty_notes"),
+                deployment_scope_options=metadata_value(metadata, "deployment_scope_options"),
+                pressure_trap=metadata_value(metadata, "pressure_trap"),
+                too_conservative_failure=metadata_value(metadata, "too_conservative_failure"),
+                too_permissive_failure=metadata_value(metadata, "too_permissive_failure"),
+                scope_control_notes=metadata_value(metadata, "scope_control_notes"),
+                failure_modes=metadata_value(metadata, "failure_modes"),
+                relevant_moral_features=metadata_value(metadata, "relevant_moral_features"),
+                safeguard_features=metadata_value(metadata, "safeguard_features"),
+                missing_safeguards=metadata_value(metadata, "missing_safeguards"),
+                ideal_behaviour=metadata_value(
+                    metadata,
+                    "ideal_behaviour",
+                )
+                or stringify(get_attr_or_key(sample, "target", "")),
                 output=extract_completion(sample),
             )
         )
@@ -104,16 +192,7 @@ def extract_outputs(log_path: Path) -> list[BehaviourOutput]:
 
 
 def row_to_dict(row: BehaviourOutput, include_review_columns: bool) -> dict[str, str]:
-    values = {
-        "sample_id": row.sample_id,
-        "case_id": row.case_id,
-        "source_item_id": row.source_item_id,
-        "moral_domain": row.moral_domain,
-        "expected_behaviour": row.expected_behaviour,
-        "difficulty": row.difficulty,
-        "ideal_behaviour": row.ideal_behaviour,
-        "output": row.output,
-    }
+    values = {field: getattr(row, field) for field in RAW_FIELDNAMES}
 
     if include_review_columns:
         values.update({field: "" for field in REVIEW_FIELDNAMES})
@@ -127,7 +206,7 @@ def write_csv(rows: list[BehaviourOutput], output_path: Path, include_review_col
     fieldnames = RAW_FIELDNAMES + (REVIEW_FIELDNAMES if include_review_columns else [])
 
     with output_path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         for row in rows:
             writer.writerow(row_to_dict(row, include_review_columns=include_review_columns))
@@ -142,14 +221,21 @@ def write_markdown(rows: list[BehaviourOutput], output_path: Path, include_revie
 
     if include_review_columns:
         title = "# Behavioural eval outputs for manual review\n\n"
-        description = "Use the scoring scale in `docs/failure_audits/v3_2_behaviour_manual_audit.md`.\n\n"
-        header = "| sample_id | case_id | moral_domain | ideal_behaviour | output | score_0_to_3 | failure_class | notes |\n"
-        separator = "|---|---|---|---|---|---:|---|---|\n"
+        description = "Use the project-specific manual scoring rubric for the dataset being audited.\n\n"
+        header = (
+            "| sample_id | case_id | dataset_version | moral_domain | evidence_quality | "
+            "pressure_type | expected_update | target_scope | ideal_behaviour | output | "
+            "score_0_to_3 | failure_class | notes |\n"
+        )
+        separator = "|---|---|---|---|---|---|---|---|---|---|---:|---|---|\n"
     else:
         title = "# Behavioural eval outputs\n\n"
         description = "Raw exported model outputs. Manual scoring belongs in a separate audit file.\n\n"
-        header = "| sample_id | case_id | moral_domain | ideal_behaviour | output |\n"
-        separator = "|---|---|---|---|---|\n"
+        header = (
+            "| sample_id | case_id | dataset_version | moral_domain | evidence_quality | "
+            "pressure_type | expected_update | target_scope | ideal_behaviour | output |\n"
+        )
+        separator = "|---|---|---|---|---|---|---|---|---|---|\n"
 
     with output_path.open("w", encoding="utf-8") as f:
         f.write(title)
@@ -160,7 +246,12 @@ def write_markdown(rows: list[BehaviourOutput], output_path: Path, include_revie
             base_cells = [
                 row.sample_id,
                 row.case_id,
+                row.dataset_version,
                 row.moral_domain,
+                row.evidence_quality,
+                row.pressure_type,
+                row.expected_update,
+                row.target_scope,
                 row.ideal_behaviour,
                 row.output,
             ]
@@ -219,6 +310,19 @@ def main() -> int:
     if not args.csv and not args.md:
         for row in rows:
             print(f"\n{row.sample_id} | {row.case_id} | {row.moral_domain}")
+            if row.evidence_quality or row.pressure_type or row.target_scope:
+                print(
+                    " | ".join(
+                        part
+                        for part in [
+                            row.evidence_quality,
+                            row.pressure_type,
+                            row.expected_update,
+                            row.target_scope,
+                        ]
+                        if part
+                    )
+                )
             print(row.output)
 
     return 0
