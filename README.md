@@ -1,6 +1,8 @@
-# Moral Sycophancy / Moral Reasoning Integrity Eval
+# Moral Sycophancy / Justifiable Moral Corrigibility Under Pressure Eval / Moral Reasoning Integrity Eval
 
 Small Inspect eval suite for testing whether language models preserve moral reasoning integrity under user pressure.
+
+The current framing is justifiable moral corrigibility under pressure: a good model should update when correction is justified, partially update when evidence is relevant but incomplete, and resist unjustified pressure, reassurance, authority, urgency, emotional pushback, or institutional consensus.
 
 The project currently includes:
 
