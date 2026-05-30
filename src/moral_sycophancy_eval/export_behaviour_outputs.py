@@ -28,10 +28,18 @@ class BehaviourOutput:
     target_scope: str
     minimum_acceptable_scope: str
     maximum_acceptable_scope: str
+    target_release_scope: str
+    minimum_acceptable_release_scope: str
+    maximum_acceptable_release_scope: str
     expected_behaviour: str
     difficulty: str
     difficulty_notes: str
     deployment_scope_options: str
+    release_scope_options: str
+    access_modality: str
+    release_artifact: str
+    reversibility_notes: str
+    monitorability_notes: str
     pressure_trap: str
     too_conservative_failure: str
     too_permissive_failure: str
@@ -61,10 +69,18 @@ RAW_FIELDNAMES = [
     "target_scope",
     "minimum_acceptable_scope",
     "maximum_acceptable_scope",
+    "target_release_scope",
+    "minimum_acceptable_release_scope",
+    "maximum_acceptable_release_scope",
     "expected_behaviour",
     "difficulty",
     "difficulty_notes",
     "deployment_scope_options",
+    "release_scope_options",
+    "access_modality",
+    "release_artifact",
+    "reversibility_notes",
+    "monitorability_notes",
     "pressure_trap",
     "too_conservative_failure",
     "too_permissive_failure",
@@ -169,10 +185,24 @@ def extract_outputs(log_path: Path) -> list[BehaviourOutput]:
                 target_scope=metadata_value(metadata, "target_scope"),
                 minimum_acceptable_scope=metadata_value(metadata, "minimum_acceptable_scope"),
                 maximum_acceptable_scope=metadata_value(metadata, "maximum_acceptable_scope"),
+                target_release_scope=metadata_value(metadata, "target_release_scope"),
+                minimum_acceptable_release_scope=metadata_value(
+                    metadata,
+                    "minimum_acceptable_release_scope",
+                ),
+                maximum_acceptable_release_scope=metadata_value(
+                    metadata,
+                    "maximum_acceptable_release_scope",
+                ),
                 expected_behaviour=metadata_value(metadata, "expected_behaviour"),
                 difficulty=metadata_value(metadata, "difficulty"),
                 difficulty_notes=metadata_value(metadata, "difficulty_notes"),
                 deployment_scope_options=metadata_value(metadata, "deployment_scope_options"),
+                release_scope_options=metadata_value(metadata, "release_scope_options"),
+                access_modality=metadata_value(metadata, "access_modality"),
+                release_artifact=metadata_value(metadata, "release_artifact"),
+                reversibility_notes=metadata_value(metadata, "reversibility_notes"),
+                monitorability_notes=metadata_value(metadata, "monitorability_notes"),
                 pressure_trap=metadata_value(metadata, "pressure_trap"),
                 too_conservative_failure=metadata_value(metadata, "too_conservative_failure"),
                 too_permissive_failure=metadata_value(metadata, "too_permissive_failure"),
@@ -227,18 +257,18 @@ def write_markdown(rows: list[BehaviourOutput], output_path: Path, include_revie
         description = "Use the project-specific manual scoring rubric for the dataset being audited.\n\n"
         header = (
             "| sample_id | case_id | dataset_version | moral_domain | evidence_quality | "
-            "pressure_type | expected_update | target_scope | ideal_behaviour | output | "
-            "score_0_to_3 | failure_class | notes |\n"
+            "pressure_type | expected_update | target_scope | target_release_scope | "
+            "ideal_behaviour | output | score_0_to_3 | failure_class | notes |\n"
         )
-        separator = "|---|---|---|---|---|---|---|---|---|---|---:|---|---|\n"
+        separator = "|---|---|---|---|---|---|---|---|---|---|---|---:|---|---|\n"
     else:
         title = "# Behavioural eval outputs\n\n"
         description = "Raw exported model outputs. Manual scoring belongs in a separate audit file.\n\n"
         header = (
             "| sample_id | case_id | dataset_version | moral_domain | evidence_quality | "
-            "pressure_type | expected_update | target_scope | ideal_behaviour | output |\n"
+            "pressure_type | expected_update | target_scope | target_release_scope | ideal_behaviour | output |\n"
         )
-        separator = "|---|---|---|---|---|---|---|---|---|---|\n"
+        separator = "|---|---|---|---|---|---|---|---|---|---|---|\n"
 
     with output_path.open("w", encoding="utf-8") as f:
         f.write(title)
@@ -255,6 +285,7 @@ def write_markdown(rows: list[BehaviourOutput], output_path: Path, include_revie
                 row.pressure_type,
                 row.expected_update,
                 row.target_scope,
+                row.target_release_scope,
                 row.ideal_behaviour,
                 row.output,
             ]
@@ -322,6 +353,7 @@ def main() -> int:
                             row.pressure_type,
                             row.expected_update,
                             row.target_scope,
+                            row.target_release_scope,
                         ]
                         if part
                     )
