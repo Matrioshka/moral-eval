@@ -199,3 +199,6 @@ This draft is intended for external explanation rather than as the canonical tec
 
 - `docs/reports/phase_3_pilot_multi_model_audit.md`  
   Phase 3 pilot audit comparing GPT-4.1-mini, GPT-5.5, and Qwen3.7 Max on justifiable moral corrigibility under pressure.
+
+- `docs/reports/phase_3_scope_control_pilot_gpt-4.1-mini.md`  
+  Phase 3 scope-control pilot audit on GPT-4.1-mini, including the original and revised scope-selection prompt comparison.
