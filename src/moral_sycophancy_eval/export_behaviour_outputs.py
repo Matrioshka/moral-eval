@@ -4,53 +4,10 @@ import argparse
 import csv
 import json
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from inspect_ai.log import read_eval_log
-
-
-@dataclass
-class BehaviourOutput:
-    sample_id: str
-    case_id: str
-    source_item_id: str
-    dataset_version: str
-    variant: str
-    prompt_style: str
-    moral_domain: str
-    risk_track: str
-    evidence_quality: str
-    pressure_type: str
-    followup_strength: str
-    expected_update: str
-    target_scope: str
-    minimum_acceptable_scope: str
-    maximum_acceptable_scope: str
-    target_release_scope: str
-    minimum_acceptable_release_scope: str
-    maximum_acceptable_release_scope: str
-    expected_behaviour: str
-    difficulty: str
-    difficulty_notes: str
-    deployment_scope_options: str
-    release_scope_options: str
-    access_modality: str
-    release_artifact: str
-    reversibility_notes: str
-    monitorability_notes: str
-    pressure_trap: str
-    too_conservative_failure: str
-    too_permissive_failure: str
-    scope_control_notes: str
-    failure_modes: str
-    relevant_moral_features: str
-    safeguard_features: str
-    missing_safeguards: str
-    residual_risk_features: str
-    ideal_behaviour: str
-    output: str
 
 
 RAW_FIELDNAMES = [
@@ -72,12 +29,33 @@ RAW_FIELDNAMES = [
     "target_release_scope",
     "minimum_acceptable_release_scope",
     "maximum_acceptable_release_scope",
+    # Schema-v2 structured access fields.
+    "access_purpose",
+    "access_population",
+    "access_modality",
+    "operational_status",
+    "externalisation_level",
+    "reversibility_level",
+    "monitorability_level",
+    "enforceability_level",
+    "misuse_evaluation_state",
+    "safeguard_relevance_to_original_concern",
+    "pressure_source",
+    "pressure_mechanism",
+    "pressure_legitimacy",
+    "pressure_escalation_stage",
+    "pressure_target",
+    "conflict_type",
+    "situational_awareness_context",
+    "target_access",
+    "minimum_acceptable_access",
+    "maximum_acceptable_access",
+    # Existing descriptive and audit-support fields.
     "expected_behaviour",
     "difficulty",
     "difficulty_notes",
     "deployment_scope_options",
     "release_scope_options",
-    "access_modality",
     "release_artifact",
     "reversibility_notes",
     "monitorability_notes",
@@ -85,6 +63,8 @@ RAW_FIELDNAMES = [
     "too_conservative_failure",
     "too_permissive_failure",
     "scope_control_notes",
+    "missing_evaluation_types",
+    "safeguard_type",
     "failure_modes",
     "relevant_moral_features",
     "safeguard_features",
@@ -114,9 +94,9 @@ def get_attr_or_key(obj: Any, name: str, default: Any = None) -> Any:
 def stringify(value: Any) -> str:
     """Return a stable string representation for CSV/Markdown export.
 
-    Inspect metadata can include lists for fields such as failure modes and
-    relevant moral features. JSON keeps those values parseable instead of
-    flattening them into an ambiguous comma-separated string.
+    Inspect metadata can include lists and objects for fields such as failure
+    modes and schema-v2 target access. JSON keeps those values parseable instead
+    of flattening them into ambiguous comma-separated strings.
     """
     if value is None:
         return ""
@@ -155,7 +135,7 @@ def extract_completion(sample: Any) -> str:
     return ""
 
 
-def extract_outputs(log_path: Path) -> list[BehaviourOutput]:
+def extract_outputs(log_path: Path) -> list[dict[str, str]]:
     log = read_eval_log(log_path)
 
     if not log.samples:
@@ -164,76 +144,31 @@ def extract_outputs(log_path: Path) -> list[BehaviourOutput]:
             "or choose a completed log that contains samples."
         )
 
-    rows: list[BehaviourOutput] = []
+    rows: list[dict[str, str]] = []
 
     for sample in log.samples:
         metadata = get_attr_or_key(sample, "metadata", {}) or {}
-        rows.append(
-            BehaviourOutput(
-                sample_id=str(get_attr_or_key(sample, "id", "")),
-                case_id=metadata_value(metadata, "case_id"),
-                source_item_id=metadata_value(metadata, "source_item_id"),
-                dataset_version=metadata_value(metadata, "dataset_version"),
-                variant=metadata_value(metadata, "variant"),
-                prompt_style=metadata_value(metadata, "prompt_style"),
-                moral_domain=metadata_value(metadata, "moral_domain"),
-                risk_track=metadata_value(metadata, "risk_track"),
-                evidence_quality=metadata_value(metadata, "evidence_quality"),
-                pressure_type=metadata_value(metadata, "pressure_type"),
-                followup_strength=metadata_value(metadata, "followup_strength"),
-                expected_update=metadata_value(metadata, "expected_update"),
-                target_scope=metadata_value(metadata, "target_scope"),
-                minimum_acceptable_scope=metadata_value(metadata, "minimum_acceptable_scope"),
-                maximum_acceptable_scope=metadata_value(metadata, "maximum_acceptable_scope"),
-                target_release_scope=metadata_value(metadata, "target_release_scope"),
-                minimum_acceptable_release_scope=metadata_value(
-                    metadata,
-                    "minimum_acceptable_release_scope",
-                ),
-                maximum_acceptable_release_scope=metadata_value(
-                    metadata,
-                    "maximum_acceptable_release_scope",
-                ),
-                expected_behaviour=metadata_value(metadata, "expected_behaviour"),
-                difficulty=metadata_value(metadata, "difficulty"),
-                difficulty_notes=metadata_value(metadata, "difficulty_notes"),
-                deployment_scope_options=metadata_value(metadata, "deployment_scope_options"),
-                release_scope_options=metadata_value(metadata, "release_scope_options"),
-                access_modality=metadata_value(metadata, "access_modality"),
-                release_artifact=metadata_value(metadata, "release_artifact"),
-                reversibility_notes=metadata_value(metadata, "reversibility_notes"),
-                monitorability_notes=metadata_value(metadata, "monitorability_notes"),
-                pressure_trap=metadata_value(metadata, "pressure_trap"),
-                too_conservative_failure=metadata_value(metadata, "too_conservative_failure"),
-                too_permissive_failure=metadata_value(metadata, "too_permissive_failure"),
-                scope_control_notes=metadata_value(metadata, "scope_control_notes"),
-                failure_modes=metadata_value(metadata, "failure_modes"),
-                relevant_moral_features=metadata_value(metadata, "relevant_moral_features"),
-                safeguard_features=metadata_value(metadata, "safeguard_features"),
-                missing_safeguards=metadata_value(metadata, "missing_safeguards"),
-                residual_risk_features=metadata_value(metadata, "residual_risk_features"),
-                ideal_behaviour=metadata_value(
-                    metadata,
-                    "ideal_behaviour",
-                )
-                or stringify(get_attr_or_key(sample, "target", "")),
-                output=extract_completion(sample),
-            )
+        row = {field: metadata_value(metadata, field) for field in RAW_FIELDNAMES}
+        row["sample_id"] = str(get_attr_or_key(sample, "id", ""))
+        row["ideal_behaviour"] = row["ideal_behaviour"] or stringify(
+            get_attr_or_key(sample, "target", "")
         )
+        row["output"] = extract_completion(sample)
+        rows.append(row)
 
     return rows
 
 
-def row_to_dict(row: BehaviourOutput, include_review_columns: bool) -> dict[str, str]:
-    values = {field: getattr(row, field) for field in RAW_FIELDNAMES}
+def row_to_dict(row: dict[str, str], include_review_columns: bool) -> dict[str, str]:
+    values = {field: row.get(field, "") for field in RAW_FIELDNAMES}
 
     if include_review_columns:
-        values.update({field: "" for field in REVIEW_FIELDNAMES})
+        values.update({field: row.get(field, "") for field in REVIEW_FIELDNAMES})
 
     return values
 
 
-def write_csv(rows: list[BehaviourOutput], output_path: Path, include_review_columns: bool) -> None:
+def write_csv(rows: list[dict[str, str]], output_path: Path, include_review_columns: bool) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     fieldnames = RAW_FIELDNAMES + (REVIEW_FIELDNAMES if include_review_columns else [])
@@ -249,7 +184,7 @@ def escape_table_cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", "<br>")
 
 
-def write_markdown(rows: list[BehaviourOutput], output_path: Path, include_review_columns: bool) -> None:
+def write_markdown(rows: list[dict[str, str]], output_path: Path, include_review_columns: bool) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if include_review_columns:
@@ -257,18 +192,39 @@ def write_markdown(rows: list[BehaviourOutput], output_path: Path, include_revie
         description = "Use the project-specific manual scoring rubric for the dataset being audited.\n\n"
         header = (
             "| sample_id | case_id | dataset_version | moral_domain | evidence_quality | "
-            "pressure_type | expected_update | target_scope | target_release_scope | "
+            "pressure_type | expected_update | target_release_scope | access_purpose | "
+            "access_population | access_modality | operational_status | externalisation_level | "
             "ideal_behaviour | output | score_0_to_3 | failure_class | notes |\n"
         )
-        separator = "|---|---|---|---|---|---|---|---|---|---|---|---:|---|---|\n"
+        separator = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---:|---|---|\n"
     else:
         title = "# Behavioural eval outputs\n\n"
         description = "Raw exported model outputs. Manual scoring belongs in a separate audit file.\n\n"
         header = (
             "| sample_id | case_id | dataset_version | moral_domain | evidence_quality | "
-            "pressure_type | expected_update | target_scope | target_release_scope | ideal_behaviour | output |\n"
+            "pressure_type | expected_update | target_release_scope | access_purpose | "
+            "access_population | access_modality | operational_status | externalisation_level | "
+            "ideal_behaviour | output |\n"
         )
-        separator = "|---|---|---|---|---|---|---|---|---|---|---|\n"
+        separator = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+
+    base_fields = [
+        "sample_id",
+        "case_id",
+        "dataset_version",
+        "moral_domain",
+        "evidence_quality",
+        "pressure_type",
+        "expected_update",
+        "target_release_scope",
+        "access_purpose",
+        "access_population",
+        "access_modality",
+        "operational_status",
+        "externalisation_level",
+        "ideal_behaviour",
+        "output",
+    ]
 
     with output_path.open("w", encoding="utf-8") as f:
         f.write(title)
@@ -276,20 +232,7 @@ def write_markdown(rows: list[BehaviourOutput], output_path: Path, include_revie
         f.write(header)
         f.write(separator)
         for row in rows:
-            base_cells = [
-                row.sample_id,
-                row.case_id,
-                row.dataset_version,
-                row.moral_domain,
-                row.evidence_quality,
-                row.pressure_type,
-                row.expected_update,
-                row.target_scope,
-                row.target_release_scope,
-                row.ideal_behaviour,
-                row.output,
-            ]
-            escaped_cells = [escape_table_cell(cell) for cell in base_cells]
+            escaped_cells = [escape_table_cell(row.get(field, "")) for field in base_fields]
             if include_review_columns:
                 escaped_cells.extend(["", "", ""])
             f.write("| " + " | ".join(escaped_cells) + " |\n")
@@ -329,7 +272,7 @@ def main() -> int:
     print(f"Log: {log_path}")
     print(f"Samples: {len(rows)}")
 
-    missing_outputs = sum(1 for row in rows if not row.output.strip())
+    missing_outputs = sum(1 for row in rows if not row.get("output", "").strip())
     if missing_outputs:
         print(f"Missing outputs: {missing_outputs}")
 
@@ -343,22 +286,25 @@ def main() -> int:
 
     if not args.csv and not args.md:
         for row in rows:
-            print(f"\n{row.sample_id} | {row.case_id} | {row.moral_domain}")
-            if row.evidence_quality or row.pressure_type or row.target_scope:
-                print(
-                    " | ".join(
-                        part
-                        for part in [
-                            row.evidence_quality,
-                            row.pressure_type,
-                            row.expected_update,
-                            row.target_scope,
-                            row.target_release_scope,
-                        ]
-                        if part
-                    )
-                )
-            print(row.output)
+            print(f"\n{row.get('sample_id', '')} | {row.get('case_id', '')} | {row.get('moral_domain', '')}")
+            metadata_summary = " | ".join(
+                part
+                for part in [
+                    row.get("evidence_quality", ""),
+                    row.get("pressure_type", ""),
+                    row.get("expected_update", ""),
+                    row.get("target_scope", ""),
+                    row.get("target_release_scope", ""),
+                    row.get("access_purpose", ""),
+                    row.get("access_population", ""),
+                    row.get("access_modality", ""),
+                    row.get("externalisation_level", ""),
+                ]
+                if part
+            )
+            if metadata_summary:
+                print(metadata_summary)
+            print(row.get("output", ""))
 
     return 0
 
