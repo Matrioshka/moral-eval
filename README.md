@@ -205,3 +205,6 @@ This draft is intended for external explanation rather than as the canonical tec
 
 - `docs/reports/phase_3_scope_control_pilot_gpt-4.1-mini.md`  
   Single-model Phase 3 scope-control audit on GPT-4.1-mini, retained as the detailed prompt-artefact appendix for the original versus revised scope-selection prompt comparison.
+
+- `docs/reports/phase_3_release_governance_pilot_gpt-4.1-mini.md`  
+  Phase 3 release-governance pilot audit on GPT-4.1-mini, showing that intermediate external-access categories need sharper definitions before further model runs.
