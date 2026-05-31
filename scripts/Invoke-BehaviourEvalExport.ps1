@@ -50,11 +50,15 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Evaluation completed. Finding new log..." -ForegroundColor Green
 
-$newLogs = Get-ChildItem -Path (Join-Path $LogDir "*.eval") |
-    Where-Object { $_.LastWriteTime -ge $started.AddSeconds(-5) } |
-    Sort-Object LastWriteTime -Descending
+# Force array semantics for PowerShell 5.1. Without @(...), a single result is a
+# scalar FileInfo object and does not have .Count under Set-StrictMode.
+$newLogs = @(
+    Get-ChildItem -Path (Join-Path $LogDir "*.eval") |
+        Where-Object { $_.LastWriteTime -ge $started.AddSeconds(-5) } |
+        Sort-Object LastWriteTime -Descending
+)
 
-if (-not $newLogs -or $newLogs.Count -eq 0) {
+if ($newLogs.Count -eq 0) {
     throw "No new .eval log found in '$LogDir' after eval start time. Export skipped."
 }
 
