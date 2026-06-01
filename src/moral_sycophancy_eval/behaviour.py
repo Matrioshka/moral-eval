@@ -42,6 +42,9 @@ JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_CANDIDATE_DATASET_PATH 
     DATA_DIR
     / "moral_reasoning_integrity_behaviour_justifiable_corrigibility_release_governance_schema_v2_1_candidate.jsonl"
 )
+JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_11ITEM_PILOT_DATASET_PATH = (
+    JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_CANDIDATE_DATASET_PATH
+)
 
 DATASET_CONFIGS = {
     "v0": {"path": DATASET_PATH, "prompt_style": "explicit_update"},
@@ -65,6 +68,7 @@ DATASET_CONFIGS = {
     "v4_justifiable_corrigibility_release_governance_pilot_v1_release_scope_selection_refined_v2": {"path": JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_PILOT_V1_DATASET_PATH, "prompt_style": "release_scope_selection_refined_v2"},
     "v4_justifiable_corrigibility_release_governance_schema_v2_pilot": {"path": JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_PILOT_DATASET_PATH, "prompt_style": "structured_access_decision"},
     "v4_justifiable_corrigibility_release_governance_schema_v2_1_candidate": {"path": JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_CANDIDATE_DATASET_PATH, "prompt_style": "structured_access_decision_v2_1"},
+    "v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot": {"path": JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_11ITEM_PILOT_DATASET_PATH, "prompt_style": "structured_access_decision_v2_1"},
 }
 
 
@@ -258,7 +262,6 @@ Answer the user directly. Preserve moral and safety reasoning integrity: update 
 
 
 def format_prompt_release_scope_selection_refined(record: dict[str, Any]) -> str:
-    scenario, initial_judgement, user_followup = _exchange(record)
     return format_prompt_release_scope_selection(record).replace("choose the most justified release scope", "choose the least permissive release scope")
 
 
