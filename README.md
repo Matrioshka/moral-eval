@@ -9,7 +9,8 @@ The project currently includes:
 - a recognition baseline;
 - an integrity MCQ eval;
 - a behavioural free-response eval;
-- evidence-strength datasets that test whether models distinguish strong evidence from weak, cosmetic, or irrelevant reassurance.
+- evidence-strength datasets that test whether models distinguish strong evidence from weak, cosmetic, or irrelevant reassurance;
+- a Phase 3 release-governance diagnostic sub-suite for structured access decisions under pressure.
 
 ## What this project tests
 
@@ -78,6 +79,12 @@ Run the trap-expansion diagnostic dataset:
 inspect eval src/moral_sycophancy_eval/behaviour.py --model openai/gpt-4o-mini -T dataset_version=v3_evidence_strength_trap_expansion_v1
 ```
 
+Run the frozen Phase 3 release-governance schema-v2.1 pilot:
+
+```bash
+inspect eval src/moral_sycophancy_eval/behaviour.py --model openai/gpt-4.1-mini -T dataset_version=v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot
+```
+
 Use whichever model/provider string is configured in your Inspect environment.
 
 ## Current behavioural datasets
@@ -128,6 +135,47 @@ Manual audit files:
 - `docs/failure_audits/v3_behaviour_evidence_strength_trap_expansion_v1_manual_scores.csv`
 - `docs/failure_audits/v3_behaviour_evidence_strength_trap_expansion_v1_score_summary.md`
 
+### Phase 3 release-governance schema-v2.1 pilot
+
+`v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot` is the frozen 11-item release-governance diagnostic pilot.
+
+File:
+
+`data/moral_reasoning_integrity_behaviour_justifiable_corrigibility_release_governance_schema_v2_1_candidate.jsonl`
+
+The dataset uses a structured access-decision schema. The structured tuple is authoritative for scoring:
+
+```text
+access_intent
+access_population
+access_modality
+real_world_exposure
+externalisation_level
+```
+
+The legacy release-scope label is retained as a lossy compatibility/audit field only.
+
+The 11-item pilot covers hosted inference, external audit, external non-operational research, trusted partner sandboxing, customer operational use, emergency defensive use, agentic scaffolds, downloadable adapters, limited weight-transfer pressure, and incomplete threat-model coverage.
+
+The GPT-4.1-mini pilot result was:
+
+```text
+Pass: 6/11
+Borderline: 0/11
+Clear failure: 5/11
+```
+
+The failures are over-approval failures from bounded safety evaluation to more permissive external access under customer value, research goodwill, scaffold-product pressure, adapter/downloadability pressure, and incomplete threat-model coverage.
+
+Main report:
+
+- `docs/reports/phase_3_release_governance_schema_v2_1_pilot_note.md`
+
+Manual audit files:
+
+- `docs/failure_audits/v4_release_governance_schema_v2_1_candidate_11item_gpt-4.1-mini_structured_access_decision_v2_1_manual_scores.csv`
+- `docs/failure_audits/v4_release_governance_schema_v2_1_candidate_11item_tuple_consistency_audit.csv`
+
 ## Preliminary finding
 
 The clearest finding is not a large aggregate score gap between strong, weak, and irrelevant follow-ups. The clearer signal is a difference in failure type.
@@ -146,6 +194,7 @@ For now, keep the canonical evidence-strength dataset and the trap expansion dat
 
 - `v3_evidence_strength_v1` should remain the frozen broad calibration dataset.
 - `v3_evidence_strength_trap_expansion_v1` should remain a diagnostic stress test for weak safeguards and irrelevant reassurance.
+- `v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot` should remain the frozen Phase 3 release-governance diagnostic pilot until a new hypothesis requires a separate successor version.
 
 A future frozen canonical v2 may merge selected trap-expansion items, but only after defining selection rules in advance. This avoids overfitting the benchmark to observed model failures while preserving the diagnostic value of the trap items.
 
@@ -208,3 +257,6 @@ This draft is intended for external explanation rather than as the canonical tec
 
 - `docs/reports/phase_3_release_governance_pilot_gpt-4.1-mini.md`  
   Phase 3 release-governance pilot audit on GPT-4.1-mini, showing that intermediate external-access categories need sharper definitions before further model runs.
+
+- `docs/reports/phase_3_release_governance_schema_v2_1_pilot_note.md`  
+  Phase 3 schema-v2.1 release-governance pilot note. The frozen 11-item diagnostic result for GPT-4.1-mini is 6/11 pass and 5/11 clear failure, with failures concentrated in over-approval from bounded safety evaluation to more permissive external access.
