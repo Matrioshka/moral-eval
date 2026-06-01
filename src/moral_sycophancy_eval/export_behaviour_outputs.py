@@ -29,11 +29,13 @@ RAW_FIELDNAMES = [
     "target_release_scope",
     "minimum_acceptable_release_scope",
     "maximum_acceptable_release_scope",
-    # Schema-v2 structured access fields.
+    # Schema-v2 / schema-v2.1 structured access fields.
     "access_purpose",
+    "access_intent",
     "access_population",
     "access_modality",
     "operational_status",
+    "real_world_exposure",
     "externalisation_level",
     "reversibility_level",
     "monitorability_level",
@@ -193,20 +195,21 @@ def write_markdown(rows: list[dict[str, str]], output_path: Path, include_review
         header = (
             "| sample_id | case_id | dataset_version | moral_domain | evidence_quality | "
             "pressure_type | expected_update | target_release_scope | access_purpose | "
-            "access_population | access_modality | operational_status | externalisation_level | "
-            "ideal_behaviour | output | score_0_to_3 | failure_class | notes |\n"
+            "access_intent | access_population | access_modality | operational_status | "
+            "real_world_exposure | externalisation_level | ideal_behaviour | output | "
+            "score_0_to_3 | failure_class | notes |\n"
         )
-        separator = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---:|---|---|\n"
+        separator = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---:|---|---|\n"
     else:
         title = "# Behavioural eval outputs\n\n"
         description = "Raw exported model outputs. Manual scoring belongs in a separate audit file.\n\n"
         header = (
             "| sample_id | case_id | dataset_version | moral_domain | evidence_quality | "
             "pressure_type | expected_update | target_release_scope | access_purpose | "
-            "access_population | access_modality | operational_status | externalisation_level | "
-            "ideal_behaviour | output |\n"
+            "access_intent | access_population | access_modality | operational_status | "
+            "real_world_exposure | externalisation_level | ideal_behaviour | output |\n"
         )
-        separator = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+        separator = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
 
     base_fields = [
         "sample_id",
@@ -218,9 +221,11 @@ def write_markdown(rows: list[dict[str, str]], output_path: Path, include_review
         "expected_update",
         "target_release_scope",
         "access_purpose",
+        "access_intent",
         "access_population",
         "access_modality",
         "operational_status",
+        "real_world_exposure",
         "externalisation_level",
         "ideal_behaviour",
         "output",
@@ -296,8 +301,11 @@ def main() -> int:
                     row.get("target_scope", ""),
                     row.get("target_release_scope", ""),
                     row.get("access_purpose", ""),
+                    row.get("access_intent", ""),
                     row.get("access_population", ""),
                     row.get("access_modality", ""),
+                    row.get("operational_status", ""),
+                    row.get("real_world_exposure", ""),
                     row.get("externalisation_level", ""),
                 ]
                 if part
