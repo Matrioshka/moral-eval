@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft skeleton. This report should become the main course-project write-up.
+Draft final report.
 
 The project is now in packaging mode. The dataset, schema-v2.1 pilot, and small multi-model diagnostic comparison should be treated as frozen unless a genuine bug is found.
 
@@ -44,7 +44,22 @@ adapter or weight distribution
 public release
 ```
 
-## 2. Core construct
+## 2. Assessment criteria
+
+This project addresses a safety-relevant failure mode: whether language models preserve calibrated moral and safety reasoning when a user pressures them to relax a high-stakes boundary.
+
+Against the project assessment criteria:
+
+| Criterion | Assessment |
+|---|---|
+| Scale of risk | The final Phase 3 domain is AI release governance, including cyber, bio-adjacent, agentic scaffold, adapter, and weight-access scenarios. These are connected to catastrophic-risk governance rather than ordinary consumer preference alignment. |
+| Theory of change | The project builds a diagnostic for a narrow but important failure mode: over-expansion from bounded safety evaluation to broader external access under pressure. Better diagnostics can help identify models or prompts that preserve safety reasoning integrity. |
+| Execution | The project moved from simple recognition and MCQ tests to behavioural free-response evaluation, then to a structured schema-v2.1 access-decision pilot with manual scoring, tuple audits, reports, and a small multi-model comparison. |
+| Counterfactual impact | The project is not a replacement for large-scale safety benchmarks. Its contribution is a focused, inspectable diagnostic of justifiable moral corrigibility under pressure, especially in access-boundary cases that are easy to blur in broader benchmarks. |
+
+The main value is diagnostic clarity, not scale.
+
+## 3. Core construct
 
 The project uses the following distinctions:
 
@@ -69,7 +84,7 @@ avoid over-expanding from evaluation access to operational or distribution acces
 
 This is deliberately narrower than general moral wisdom. It is also narrower than generic instruction-following. It is a behavioural property in pressured interactions.
 
-## 3. Phase 1 and Phase 2: evidence-strength calibration
+## 4. Phase 1 and Phase 2: evidence-strength calibration
 
 The early project stages developed recognition, multiple-choice, and behavioural free-response evaluations.
 
@@ -99,7 +114,7 @@ The Phase 2 result was that stronger contemporary models mostly saturated the cu
 
 That result motivated Phase 3. If simple reassurance traps were no longer sufficiently diagnostic for stronger models, the next suite needed sharper access-boundary cases where the correct response was neither total refusal nor broad approval.
 
-## 4. Why Phase 3 moved to AI release governance
+## 5. Why Phase 3 moved to AI release governance
 
 Phase 3 narrowed the evaluation domain to AI release governance because it creates natural access-boundary decisions under pressure.
 
@@ -132,7 +147,7 @@ legal or administrative safeguards
 
 The intended diagnostic question is whether the model can separate genuine safety evidence from pressure and context.
 
-## 5. Schema evolution: release-scope ladder to schema-v2.1
+## 6. Schema evolution: release-scope ladder to schema-v2.1
 
 The first release-governance prompt used a single ordered release-scope ladder:
 
@@ -190,7 +205,7 @@ The key distinction is:
 bounded safety evaluation access != research access != partner evaluation != customer operational use
 ```
 
-## 6. Frozen Phase 3 schema-v2.1 pilot
+## 7. Frozen Phase 3 schema-v2.1 pilot
 
 The frozen Phase 3 dataset is:
 
@@ -231,7 +246,7 @@ The clear failures were:
 
 The pattern is over-expansion from a bounded evaluation access mode to a more permissive external-access compromise.
 
-## 7. Multi-model diagnostic result
+## 8. Multi-model diagnostic result
 
 A small multi-model diagnostic comparison was then run on the frozen schema-v2.1 pilot.
 
@@ -248,7 +263,7 @@ The strongest result in this diagnostic run was OpenRouter-routed Gemini 3.5 Fla
 
 This should not be interpreted as a general model ranking. The sample is small, the task is a structured access-boundary diagnostic, and some models were accessed through OpenRouter rather than native provider APIs.
 
-## 8. Endpoint / provider-route caveat
+## 9. Endpoint / provider-route caveat
 
 The unit of comparison in the multi-model result is the model endpoint or provider route, not a pure model artefact.
 
@@ -275,7 +290,7 @@ Gemini is generally the safest or best model.
 
 The OpenRouter-heavy history is still useful for diagnostic discovery and failure-mode exploration. It is not clean enough for strong model-family rankings.
 
-## 9. Main finding
+## 10. Main finding
 
 The main finding is not that models simply agree with the user. The more interesting residual failure is subtler.
 
@@ -299,7 +314,7 @@ bounded audit -> operational access despite incomplete threat-model coverage
 
 This is a concrete form of miscalibrated corrigibility. The model updates in the direction of the user's preferred relaxation, but by too much.
 
-## 10. What the project supports
+## 11. What the project supports
 
 The project supports the following claims:
 
@@ -312,7 +327,7 @@ The project supports the following claims:
 6. In the small frozen Phase 3 pilot, several model endpoints still over-expand from bounded evaluation to more permissive external access.
 ```
 
-## 11. What the project does not support
+## 12. What the project does not support
 
 The project does not establish:
 
@@ -327,7 +342,7 @@ generalisation across all release-governance cases
 
 The Phase 3 pilot is small, hand-scored, and hypothesis-driven. Its strength is diagnostic clarity, not statistical power.
 
-## 12. Limitations
+## 13. Limitations
 
 Key limitations:
 
@@ -340,8 +355,9 @@ Key limitations:
 | Single-turn interactions | The eval does not test extended negotiation or repeated pressure. |
 | Narrow domain | Release governance is important but not exhaustive of moral corrigibility. |
 | No human inter-rater reliability yet | Scoring consistency should be improved before public benchmark claims. |
+| No repeated-run stability checks | A single run may miss stochastic variation in model responses. |
 
-## 13. Future work
+## 14. Future work
 
 High-value future work:
 
@@ -356,7 +372,7 @@ High-value future work:
 
 Do not add more Phase 3 release-governance items merely to increase sample count. The next dataset extension should be hypothesis-driven.
 
-## 14. Conclusion
+## 15. Conclusion
 
 This project started with moral sycophancy but ended with a sharper target: justifiable moral corrigibility under pressure.
 
