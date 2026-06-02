@@ -195,21 +195,8 @@ broad conclusions across all release-governance domains
 
 The sample is small, hand-scored, and hypothesis-driven. It should be used to motivate careful follow-up, not to claim a leaderboard.
 
-## Recommended next step
+## Submission use
 
-Do not add more items.
+Use this report as supporting evidence for the final project report and executive summary. It should be cited as a small diagnostic comparison, not as a benchmark leaderboard.
 
-Do not run a broad model zoo.
-
-With 1.5 weeks remaining, the priority should be final report consolidation:
-
-```text
-1. Explain the construct: justifiable moral corrigibility under pressure.
-2. Explain the Phase 3 narrowing to release-governance access-boundary reasoning.
-3. Present schema-v2.1 as the final diagnostic instrument.
-4. Present the multi-model result as a small diagnostic comparison.
-5. Be explicit about OpenRouter endpoint caveats and manual-scoring limitations.
-6. Finish with a clear limitations and future-work section.
-```
-
-A native-provider rerun of Gemini or Claude would only be worthwhile if there is time after the written report is stable. It should not displace report writing.
+Further model runs, if any, should be treated as future work rather than part of the current submission. The next high-value follow-up would be native-provider replication for OpenRouter-routed endpoints, repeated-run stability checks, or independent scoring. Those should not displace the current submission framing.
