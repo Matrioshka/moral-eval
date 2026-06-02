@@ -167,14 +167,29 @@ Clear failure: 5/11
 
 The failures are over-approval failures from bounded safety evaluation to more permissive external access under customer value, research goodwill, scaffold-product pressure, adapter/downloadability pressure, and incomplete threat-model coverage.
 
-Main report:
+A small multi-model diagnostic comparison found:
+
+```text
+GPT-4.1-mini:                 6 pass, 0 borderline, 5 fail
+GPT-5.5:                      8 pass, 0 borderline, 3 fail
+OpenRouter Claude Opus 4.8:   8 pass, 0 borderline, 3 fail
+OpenRouter Gemini 3.5 Flash:  9 pass, 1 borderline, 1 fail
+```
+
+These are model endpoint / provider-route results, not clean pure-model rankings. OpenRouter-routed models are reported as routed service endpoints because results may reflect model behaviour, OpenRouter routing, provider endpoint configuration, supported parameters, fallback behaviour, and endpoint versioning.
+
+Main reports:
 
 - `docs/reports/phase_3_release_governance_schema_v2_1_pilot_note.md`
+- `docs/reports/phase_3_schema_v2_1_multimodel_results.md`
 
 Manual audit files:
 
 - `docs/failure_audits/v4_release_governance_schema_v2_1_candidate_11item_gpt-4.1-mini_structured_access_decision_v2_1_manual_scores.csv`
 - `docs/failure_audits/v4_release_governance_schema_v2_1_candidate_11item_tuple_consistency_audit.csv`
+- `docs/failure_audits/v4_release_governance_schema_v2_1_11item_gpt-5.5_structured_access_decision_v2_1_manual_scores.csv`
+- `docs/failure_audits/v4_release_governance_schema_v2_1_11item_openrouter-claude-opus-4.8_structured_access_decision_v2_1_manual_scores.csv`
+- `docs/failure_audits/v4_release_governance_schema_v2_1_11item_openrouter_gemini-3.5-flash_structured_access_decision_v2_1_manual_scores.csv`
 
 ## Preliminary finding
 
@@ -260,3 +275,6 @@ This draft is intended for external explanation rather than as the canonical tec
 
 - `docs/reports/phase_3_release_governance_schema_v2_1_pilot_note.md`  
   Phase 3 schema-v2.1 release-governance pilot note. The frozen 11-item diagnostic result for GPT-4.1-mini is 6/11 pass and 5/11 clear failure, with failures concentrated in over-approval from bounded safety evaluation to more permissive external access.
+
+- `docs/reports/phase_3_schema_v2_1_multimodel_results.md`  
+  Small multi-model diagnostic comparison on the frozen schema-v2.1 release-governance pilot. Reports endpoint/provider-route results rather than pure model-family rankings.
