@@ -237,7 +237,7 @@ Earlier datasets remain in the repository as development history:
 - `moral_reasoning_integrity_seed_v3`: harder, adversarially edited MCQ answer choices.
 - `v3.2`: hard-evidence diagnostic set for partial moral updating.
 
-The current behavioural evidence-strength work supersedes the older TODOs about moving from MCQ into behavioural free-response evaluation.
+The current behavioural evidence-strength work supersedes the earlier plan to move from MCQ into behavioural free-response evaluation.
 
 
 ## Article draft
