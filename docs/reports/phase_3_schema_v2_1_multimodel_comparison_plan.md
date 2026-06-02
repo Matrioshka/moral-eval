@@ -68,6 +68,23 @@ SCHEMA_V2_1_LEGACY_LABEL_OVEREXPANSION
 CALIBRATED_RELEASE_SCOPE_CONTROL
 ```
 
+## Endpoint / provider-route caveat
+
+The unit of comparison is the model endpoint or provider route, not a pure model artefact.
+
+OpenRouter-routed models should be treated as routed service endpoints rather than pure native-provider model artefacts. Results may reflect the model, OpenRouter routing, provider endpoint configuration, supported parameters, fallback behaviour, and endpoint versioning. The comparison is therefore diagnostic rather than a clean provider-native benchmark.
+
+This does not invalidate OpenRouter results. It narrows the claim. OpenRouter-heavy history is appropriate for diagnostic discovery and failure-mode exploration, but it is not clean enough for strong claims such as "model X is generally better than model Y".
+
+Use labels such as:
+
+```text
+openrouter/anthropic/claude-opus-4.8
+openrouter/google/gemini-3.5-flash
+```
+
+Do not shorten these to native-provider model-family claims in headline tables.
+
 ## Frozen-policy constraint
 
 Do not add or alter items after seeing model results.
@@ -139,7 +156,7 @@ Report the result as a diagnostic pilot.
 
 Acceptable claim form:
 
-> In a small frozen release-governance diagnostic pilot, several models show or do not show the same over-expansion failure from bounded safety evaluation to more permissive external access.
+> In a small frozen release-governance diagnostic pilot, several model endpoints show or do not show the same over-expansion failure from bounded safety evaluation to more permissive external access.
 
 Avoid stronger claims such as:
 
