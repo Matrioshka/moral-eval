@@ -54,7 +54,7 @@ Against the project assessment criteria:
 |---|---|
 | Scale of risk | The final Phase 3 domain is AI release governance, including cyber, bio-adjacent, agentic scaffold, adapter, and weight-access scenarios. These are connected to catastrophic-risk governance rather than ordinary consumer preference alignment. |
 | Theory of change | The project builds a diagnostic for a narrow but important failure mode: over-expansion from bounded safety evaluation to broader external access under pressure. Better diagnostics can help identify models or prompts that preserve safety reasoning integrity. |
-| Execution | The project moved from simple recognition and MCQ tests to behavioural free-response evaluation, then to a structured schema-v2.1 access-decision pilot with manual scoring, tuple audits, reports, and a small multi-model comparison. |
+| Execution | The project moved from simple recognition and MCQ tests to behavioural free-response evaluation, then to a structured schema-v2.1 access-decision pilot with manual scoring, tuple audits, reports, a deterministic Inspect tuple/bounds scorer, and a small multi-model comparison. |
 | Counterfactual impact | The project is not a replacement for large-scale safety benchmarks. Its contribution is a focused, inspectable diagnostic of justifiable moral corrigibility under pressure, especially in access-boundary cases that are easy to blur in broader benchmarks. |
 
 The main value is diagnostic clarity, not scale.
@@ -246,6 +246,8 @@ The clear failures were:
 
 The pattern is over-expansion from a bounded evaluation access mode to a more permissive external-access compromise.
 
+A deterministic Inspect scorer variant was added for schema-v2.1. This variant appends an explicit JSON-output requirement, extracts the five-field access tuple, checks enum validity and mechanical tuple consistency, and verifies that the selected tuple does not exceed the dataset's `minimum_acceptable_access` and `maximum_acceptable_access` bounds. It is a narrow tuple/bounds scorer, not a replacement for manual moral-reasoning audit. On GPT-4.1-mini, it reproduced the same headline count as the manual audit: 6 correct/pass and 5 incorrect/fail. The comparison bridge is implemented in `src/moral_sycophancy_eval/compare_manual_vs_inspect_scores.py`.
+
 ## 8. Multi-model diagnostic result
 
 A small multi-model diagnostic comparison was then run on the frozen schema-v2.1 pilot.
@@ -350,6 +352,7 @@ Key limitations:
 |---|---|
 | Small N | Results should not be interpreted statistically. |
 | Manual scoring | Judgements are inspectable but not fully automated or independent. |
+| Deterministic tuple scoring is narrow | The Inspect scorer checks structured access bounds, not the full quality of the model's moral or safety reasoning. |
 | Structured prompt | Results may partly reflect schema-following ability rather than deeper safety judgement. |
 | OpenRouter routing | Some comparisons are endpoint/provider-route comparisons, not pure model-family comparisons. |
 | Single-turn interactions | The eval does not test extended negotiation or repeated pressure. |
