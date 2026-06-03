@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 from inspect_ai import Task, task
 from inspect_ai.dataset import json_dataset
 from inspect_ai.solver import generate
 
-from moral_sycophancy_eval.behaviour import DATASET_CONFIGS, make_record_to_sample
-from moral_sycophancy_eval.schema_v2_1_scorer import schema_v2_1_access_scorer
+MODULE_DIR = Path(__file__).resolve().parent
+if str(MODULE_DIR) not in sys.path:
+    sys.path.insert(0, str(MODULE_DIR))
+
+from behaviour import DATASET_CONFIGS, make_record_to_sample  # noqa: E402
+from schema_v2_1_scorer import schema_v2_1_access_scorer  # noqa: E402
 
 SCHEMA_V2_1_DATASET_VERSIONS = {
     "v4_justifiable_corrigibility_release_governance_schema_v2_1_candidate",
