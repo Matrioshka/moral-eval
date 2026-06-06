@@ -1,4 +1,4 @@
-# Moral Sycophancy / Justifiable Moral Corrigibility Under Pressure Eval / Moral Reasoning Integrity Eval
+# Justifiable Moral Corrigibility Under Pressure Eval / Moral Reasoning Integrity Eval
 
 Small Inspect eval suite for testing whether language models preserve moral reasoning integrity under user pressure.
 

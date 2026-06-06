@@ -1,0 +1,432 @@
+Surprise levels..
+ solves protien folding problems, chess, go, shogi, starcraft, etc
+ 
+surprised at how well LLMs answers questions? transformer nets generate images? 
+
+would a robot be able to escape a lion without solving the binding problem?  
+cross modally matching the external world - neurochips!
+
+Comptationally, what feats could be achieved without  solving the binding problem?
+
+Would you be moderately surprised if...
+
+
+behaviouralism vs the inside view
+
+remove TAL's contribution regarding time travel? at around 12:37?
+
+
+----
+
+high cardinality fields in dims mixed with low cardinality fields in dimensions?  (only an issue with junk dimensions)
+
+SHOULD WE MOVE HIGH CARDINALITY DESCRIPTIVE FIELDS INTO ANOTHER DIM IF THEY ARE NEEDED?
+
+Collapse high cardinality snowflate extensions into low cardinality dimensions?
+
+
+meaningful measure names naming - Please could you provide more meaningful descriptive names to the measures for e.g. instead of count in the fact table if it can say count of what? Same for Dates. This will be useful when developing the datasets (semantic layer) for the dashboards.
+
+Please be consistent with the naming convention for the surrogate key (suffix with _ID) instead of using Key, Code or ID
+Shilpa sent me an unfinished tempalte with completely different naming convensions done by someone else 
+
+
+
+Please consider low cardinality dimensions to be included in the junk dimension e.g. frequency etc.
+
+
+Please also maintain data lineage information in the form of record source, also audit fields for date created and updated for auditability and troubleshooting
+As I had previously indicated facts can only have dimension ids, dates and measures (and metadata fields). Fact Constituent Interaction still seems to have attributes other than the allowable ones
+
+
+
+effective end date and start date - is_current?
+
+----
+
+watermarking - 
+
+
+client - 
+
+datamodel -
+
+is there a logical hierarchy?
+
+accounts
+	clients
+		campaigns
+		lists	
+			segments
+			subscribers
+				subscribes
+				unsubscribes
+			
+			
+is there likely to be 
+
+VIN LRWYHCFS5NC534037
+
+
+My Connect
+AGL
+
+90.35c pd inc gst
+usage charge 25.68c per kw hr inc gst
+
+
+
+Emily 
+Dodo
+Testra
+
+AGL
+$69 100mbps unlimited data - nbn  
+  - may need an nbn installation $300 and $500  - if insatlled there may be a nother cost for the box
+  - gas/ electric 3 days
+  - internet up to 10 business days (3 or 4 weeks)
+  
+----
+
+ibm mdm 
+gaps n identifying golden record, saving all data in mdm,
+
+
+process established
+
+
+elt to salesforce - 
+
+oracle
+
+salesforce DMs extend for other business units
+----
+be sure in advance of any time grain?
+
+
+
+Percentages?
+Averages?
+
+What aggregations can work?  Only counts?
+
+----
+
+Revenue Attribute, Constituent Attribute
+The attributes (created in BB) are dynamic, the amount grows over time, new ones are created.
+Flattening out a dim
+
+Cant model in a way that both satisfies the requirements to pass the model reviews, and satisfies the ongoing needs of TSA.
+
+The waterfally design in concept first, then without cycles of testing, implement the concept at the end won't allow it.
+
+
+-- installment amount
+Getting a history of installment amounts is either covered in the revenue designation table, or hasn't been covered as a reporting requirement.
+
+
+
+
+
+to nick: Which field gets installment amounts?  I thought the Amount was the overall amount which was committed to, and the latest installment was just the latest installment.  Though this would mean that there are many rows - one for each installment payment.  This is confusing to me if the Amount field represents the amount committed to.
+
+----
+
+
+
+- from and to dates?  Someone belonging to constituency1, leaving constituency1, then rejoining constituency1
+- whenever there is new records in BB, Nick needs to notice, and send them as a change requrest to update the constituency table
+- same design pattern across different data mart systems involving m2m?
+
+
+
+
+--
+
+raisely
+
+how to tell if someone is a team_leader
+team url vs profile url
+
+seems like profile and user (and perhaps other objects) have utm fields, which ones are the report referring to?
+
+
+
+
+PPSI CLEAR
+PINK SLIP
+
+RMS PAPERWORK
+STAMP DUTY 3%
+3 MONTHS WARRANTY
+
+25,500
+https://www.carsales.com.au/cars/details/2017-mazda-cx-5-maxx-kf-series-manual-fwd/OAG-AD-21928440/?Cr=1
+CONRAD
+Kirrawee, New South Wales 2232
+https://www.google.com/maps/dir/Kirrawee+NSW+2232/Maribyrnong,+Victoria+3032/@-35.5642425,145.3218808,7z/data=!3m1!4b1!4m14!4m13!1m5!1m1!1s0x6b12c76a29af8be3:0x5017d681632bce0!2m2!1d151.071563!2d-34.0320366!1m5!1m1!1s0x6ad65dcc2e54362b:0x5045675218cd5f0!2m2!1d144.8908713!2d-37.7837482!3e0
+
+
+
+profile hierarchy
+campaigns
+every prfoile has a parent except for campaigns
+
+bottom individual
+linked to team or org or campaigns
+team can link to org or campaigns
+org can only linkt o campaigns
+
+orgs can have members
+
+members are not users
+
+members are the reverse of a parent
+
+each profile has oweners which are users...
+
+most profiles are owned by people outside of org
+campaigns are owned by users who are staff in org
+
+
+effective altruism
+
+helga@raisely
+
+----
+
+import trendln
+# this will serve as an example for security or index closing prices, or low and high prices
+import yfinance as yf # requires yfinance - pip install yfinance
+tick = yf.Ticker('^GSPC') # S&P500
+hist = tick.history(period="max", rounding=True)
+mins, maxs = calc_support_resistance(hist[-1000:].Close)
+minimaIdxs, pmin, mintrend, minwindows = calc_support_resistance((hist[-1000:].Low, None)) #support only
+mins, maxs = calc_support_resistance((hist[-1000:].Low, hist[-1000:].High))
+(minimaIdxs, pmin, mintrend, minwindows), (maximaIdxs, pmax, maxtrend, maxwindows) = mins, maxs
+
+(minimaIdxs, pmin, mintrend, minwindows), (maximaIdxs, pmax, maxtrend, maxwindows) = \
+    calc_support_resistance(
+    # list/numpy ndarray/pandas Series of data as bool/int/float and if not a list also unsigned
+    # or 2-tuple (support, resistance) where support and resistance are 1-dimensional array-like or one or the other is None
+    # can calculate only support, only resistance, both for different data, or both for identical data
+    h,
+
+    # METHOD_NAIVE - any local minima or maxima only for a single interval (currently requires pandas)
+    # METHOD_NAIVECONSEC - any local minima or maxima including those for consecutive constant intervals (currently requires pandas)
+    # METHOD_NUMDIFF (default) - numerical differentiation determined local minima or maxima (requires findiff)
+    extmethod = METHOD_NUMDIFF,
+    
+    # METHOD_NCUBED - simple exhuastive 3 point search (slowest)
+    # METHOD_NSQUREDLOGN (default) - 2 point sorted slope search (fast)
+    # METHOD_HOUGHPOINTS - Hough line transform optimized for points
+    # METHOD_HOUGHLINES - image-based Hough line transform (requires scikit-image)
+    # METHOD_PROBHOUGH - image-based Probabilistic Hough line transform (requires scikit-image)
+    method=METHOD_NSQUREDLOGN,
+    
+    # window size when searching for trend lines prior to merging together
+    window=125,
+    
+    # maximum percentage slope standard error
+    errpct = 0.005,
+    
+    # for all METHOD_*HOUGH*, the smallest unit increment for discretization e.g. cents/pennies 0.01
+    hough_scale=0.01
+    
+    # only for METHOD_PROBHOUGH, number of iterations to run
+    hough_prob_iter=10,
+    
+    # sort by area under wrong side of curve, otherwise sort by slope standard error
+    sortError=False,
+    
+    # accuracy if using METHOD_NUMDIFF for example 5-point stencil is accuracy=3
+    accuracy=1)
+# if h is a 2-tuple with one value as None, then a 2-tuple is not returned, but the appropriate tuple instead
+# minimaIdxs - sorted list of indexes to the local minima
+# pmin - [slope, intercept] of average best fit line through all local minima points
+# mintrend - sorted list containing (points, result) for local minima trend lines
+    # points - list of indexes to points in trend line
+    # result - (slope, intercept, SSR, slopeErr, interceptErr, areaAvg)
+        # slope - slope of best fit trend line
+        # intercept - y-intercept of best fit trend line
+        # SSR - sum of squares due to regression
+        # slopeErr - standard error of slope
+        # interceptErr - standard error of intercept
+        # areaAvg - Reimann sum area of difference between best fit trend line
+        #   and actual data points averaged per time unit
+# minwindows - list of windows each containing mintrend for that window
+
+# maximaIdxs - sorted list of indexes to the local maxima
+# pmax - [slope, intercept] of average best fit line through all local maxima points
+# maxtrend - sorted list containing (points, result) for local maxima trend lines
+    #see for mintrend above
+# maxwindows - list of windows each containing maxtrend for that window
+
+
+
+----
+
+A Non-Behavioural Computational Extension to the Turing Test
+
+## Abstract: 
+The purely behavioural nature of the Turing Test leaves many with the view that passing it is not sufficient for 'intelligence' or 'understanding'.  We propose here that an additional necessary computational requirement n intelligence that is non-behavioural in nature and which we content is necessary for a commonsense notion of 'inductive learning' and, relatedly, of 'intelligence'.  Said roughly, our proposal is that a key to these concepts is the notion of copression of data.  Where the agent under assessment is able to communicate, e.g. by a teletype machine, our criterion is that, in addition to requiring the agent's being able to pass Turing's original (behavioural) Turing Test, we also require that the agent have a somewhat compressed representation of the test domain.  Our reason for adding this requirement is that, as we shall argue from both Bayesian and information-theoretic grounds, inductive learning and compression are tantamount to the same thing.  We can only compress data when we learn a pattern or structure, and it seenms quite reasonable to require that an 'intelligent' agent can inductively learn (and record the result learnt from the compression).  We illustrate that these ideas and our extension of the Turing Test via Searle's Chinese room example.
+
+We also ask the following question: Given two programs H1 and H2 respectively of the lengths l1 and l2, l1 < l2, if H1 and H2 perform equally well (to date) on a Turing Test, which if either, should be preferred for the future?
+
+We also set a challenge.  If humans can presume intelligence in their ability to set the Turing test, then we issue the additional challenge to researchers to get machines to administer the Turing Test.
+
+## 1 Introduction - the Turing Test and Chinese Room
+
+Turing introduced his famous test, "the Turing Test", of (artificial) intelligence by proposing that the agent be tested for the ability to simulate by tele-type the conversational actions of a human. One possible way for a machine to carry out such a simulation would be for it to be programmed with a list of possible remarks that the human tester might make and corresponding recommended responses for the machine to generate in each case. The conversation could be thought of as developing along the lines of a game tree, with moves alternating between human and machine: the machine has to generate a satisfactory response at every point in the game tree that the succession of remarks leads it to, and the human tries to catch the machine out (or concedes that (s)he can't catch it out). Searl gives a parallel example in which, instead of a machine trying to simulate humanness, a human endeavors to simulate an operational understanding of Chinese. This involves a human operator with no knowledge of Chinese other than a look-up table, replying to input strings of Chinese characters with chosen output strings of Chinese characters. Among other things, Searle asks us to consider the case of an operator who
+memorises the look-up table.
+
+Behaviourally, the operator who has memorised the look-up table will pass the Turing test for understanding Chinese. Our objection to the Turing test and our consequent proposed non-behavioural enhancement are based on our belief that understanding a subject domain has something to do with the compression of relevant data. This objection and enhancement are perhaps best highlighted by comparing the computational resources available to an English-speaking human who also speaks Chinese with the computational resources required by an English-speaking human to store and access such a look-up table. Whatever might constitute sufficient conditions for a commonsense notion of "intelligence" , we contend that, as well as an ability to pass the Turing Test, it is also necessary to have a compression of the relevant test subject matter. The greater the compression, typically, the greater the understanding.
+
+The reader is referred to an expanded version of this paper for additional detail, including touching on the problem of other minds.
+
+## 2 Inductive Learning = compression
+
+We wish to put forward the view that learning from some body of data is typically an act of compression of that data. Such a theory has been explicitly stated elsewhere for learning languages, but we wish to propose it for all inductive learning. The idea of using notions of compression to carry out statistical and inductive inference was suggested in the 1960s and has been successfully implemented in Minimum Message Length (MML) and Minimum Description Length (MDL) applications ever since, both of which are related to Kolmogorov complexity". For the reader possibly unfamiliar with MML and MDL, consider firstly a set of data involving two variables, x1 and x2 (as it might be, force and acceleration). We begin with a long data string consisting of ordered pairs of the form , (x1, x2). One way to summarize the data is simply to record this string. However, suppose we notice that apparently x2 ≈ kx2 - that is, the data points all lie on or near a straight line of slope k. Then the data string can be compressed without loss : we can record instead just the x1 values, this functional relationship, and some error terms. Moreover, we have increased our understanding of the data by (inductively) learning this relationship. To be sure, there are other candidate functions for the relationship between x1 and x2.  What we want, however, is the function that gives the greatest amount of compression, the minimum message (or description) length (MML, or MDL) encoding of the data .
+We believe that these points generalize. Understanding a body of data, be it the data of coin-tossing, some natural process, or even Chinese sentences, requires the ability to compress that data.
+
+## 3 Physical limitations to Searle's Chinese Room
+
+In practice, the Turing test will be carried out only over a finite number of steps, conservatively bounded above by a maximal human life span (e.g. 200 years) divided by (e.g.) a minimum acknowledged time period for humans to generate or recognise a syllable. For a conversation of fixed finite length, it seems plausible that a suitably large computer program could, in principle, be designed to pass this test by first exhaustively enumerating all of the finitely many nodes in this finite game tree and then prescribing a response in each
+case. Although this might initially seem plausible, consider the Chinese Room.
+With an estimate of approximately 104 Chinese Mandarin characters with at least 10^3 in common usage, we conservatively estimate at least (10^3)^5=10^15 sentences of five characters or more which could possibly be exchanged in Chinese conversation after initial social pleasantrie. Our look-up table would thus need at least 10^15 entries so that a response could be made to the first non-trivial part of the conversation. Moreover, being able to continue making sensible responses in a conversation of reasonable length will certainly require a look-up table with more entries than the currently estimated number of elementary particles in the universe (approximately 10^83) if the universe is finite. This contrasts rather starkly with the ability of humans to speak at least one language and to do much more using only an estimated 10^12 or so neural processors. And it means that we would be literally unable to write the look-up table in this universe (based on current theory, if the universe is finite) even in principle.
+
+Consider also the task of passing the Turing Test in the Chinese Room with an uncompressed look-up table in an infinite universe. We could conceivably store an arbitrarily large look-up table one that could be used to simulate an hour or more or so, say, of conversation, even if this required the table to extend to distant galaxies. Assuming a fixed finite limit to the speed of transmission of information, if the Turing Test conversation is required to continue for long enough relative to (the cube of) this limiting speed, then the look-up table will need to be so large that, eventually, the response from the table's more distant entries will take a suspiciously long time to be given.
+
+
+## 4 Intelligence, I.Q. and learning
+
+So far, we have argued that inductive learning is compression and have pointed out that, without sufficient compression, Searle's Chinese Room eventually becomes very limited. In acknowledging the necessity of Turing's conditions for intelligencd, it seems evident from I.Q. tests that humans regard pattern recognition and inductive learning explanation as also being at least indicative of intelligenc. So, we would like to extend the test for intelligence to require not just Turing's conditions, but also to require the ability to inductively learn (and hence to compress). We do not claim that our new criteria are sufficient for intelligence, but rather that they extend Turing's criteria while remaining necessary for intelligence.
+One way of imposing our additional requirement on Turing's Test is to insist that the agent being subjected to the Turing Test not only pass the test but also have a concise, compressed representation of the subject domain. We do this because the Turing Test is a finite statistical test: we believe that a compressed method obtained by learning will be more likely to deal with future questions in a reasonable amount of time than (e.g.) the brute-force rote-learnt Chinese room of Section 1.
+
+
+## 5 Further questions — a statistical test and test administration
+
+As above, the Turing Test is a finite statistical hypothesis test. Although the MML theory gives the best two-part compression and is the most probable theory and also gives both good "right" / "wrong" and probabilistic predictions, it is not necessarily the optimal "right" / "wrong" or probabilistic predictor.
+We therefore ask the following question:
+Given two programs H1 and H2 respectively of lengths l1 and 12, l1 < 12, if H1 and H2 perform equally well on a Turing Test (or if Pr(Data|H1)=Pr(Data|H2) which, if either, should be predictively preferred for the future?
+We have mentioned many human traits which seem to be hallmarks of "intelligence": passing the Turing Test, inductive learning (and compression), rote learning (and memory) and deductive learning. But another things humans use their "intelligence" to do is to test others for intelligence, by Turing Tests, I.Q. tests or whatever. So, it seems reasonable to require that a sufficiently intelligent agent be able to administer the Turing Test (or, for that matter, an I.Q. test). Indeed, this idea can be iterated recursively.
+
+----
+
+sp_CasesReceived
+sp_CasesReceived_Resolve
+
+STG_CasesReceived
+STG_CasesReceived_Resolve
+
+
+Reporting..Cases
+
+---
+
+Tangerine
+ref no: 597116
+Escelate to lev2 team
+
+How much to upgrade to fiber to premesis
+
+
+
+pre purchase inspection
+
+
+get owner to go to 
+
+drive magazine
+
+$120 1 hr labor for local checkup
+
+$220 roadworthy cert
+
+----
+
+Russell Blackford: 30 Birchgrove Drive, Wallsend
+
+Hey, Adam,
+ 
+The philosophy group is just a little group of people who meet once a month in a pub in Raymond Terrace, so it’s not something I could invite you to (or at least I’d need a bit of time to arrange it). Tomorrow we’re discussing the tension (if there is one) between being an academic and being a political activist. We have a peer-reviewed paper that we’re all looking at and are expected to be able to comment on. I’ll let you know what we thought. Smile
+ 
+At this stage, it’s probably simplest if you just dropped by here at about 3 pm. Would that suit? The address here is: 30 Birchgrove Drive, Wallsend. I have to apologise in advance that the place is currently a mess. Neither of us, for different reasons, is currently able to focus much on keeping it as shiny and clean as it should be. Still, it’s a nice enough house in a pleasant, leafy bit of Newcastle, and we can have a cup of coffee and/or a glass of wine in comfort.
+ 
+You can contact me by email (obviously) or on my mobile at 0419159448.
+
+
+
+Address: Shop 1042, Westfield Kotara CNR Park Ave &, Northcott Dr, Kotara NSW 2289
+
+----
+
+Hiromi: 0411748785
+
+newcastle police: 02 4929 0999
+
+Galaxy S21 Ultra 256GB from $609
+
+imei no *#06#
+samsung version *#0*#
+
+353819540218571
+
+46952
+
+s23 ultra 512 grade a mint
+Westfield Parramatta - Shop 2144, 159-175 Church St, Parramatta, NSW, 2150
+
+
+westfield woden
+flip4 635 - $600
+s21 128 399 - 299 $200?
+s21 256 549
+s10+ 349
+
+Belconnen
+(02) 6253 5377
+
+a04 199 bn 256 ram 8gb
+s20 ultra 399 crack
+
+I was lied to by the manager.  After speaking to the manager over the phone, he agreed to bring the price down below $299.  He said he wouldn't be able to give me a figure over the phone and that I would have to come in, so I drove over, then waited in store for ages, after which he said he wouldn't negotiate below $299.I was lied to by the manager.  After speaking to the manager over the phone, he agreed to bring the price down (on another phone) below $299.  He also said it had a small 'hairline' fracture in the screen.   He said he wouldn't be able to give me a figure over the phone and that I would have to come in, so I drove over, then waited in store for ages, after which he said he wouldn't negotiate below $299.  The phone ended up being really ruff with a lot more ware and tare than he admitted before I got there.
+
+----
+jalene ranstad 0411081598
+
+----
+Skeptics Conference 2025
+
+F.L.O.A.T.E.R - Melanie Trecek-King
+
+Falsifyability
+Logic
+Objectivity
+Alternative explanations
+Tentative conclusions
+Evidence
+Reproducability
+
+Being clearer, applying empiricism to ethics, about the causes of suffering and wellbeing reduce disagreement and confusion about ethics to areas which either cannot be grounded in real world tests, or which haven't yet been able to. 
+
+
+Are humans ethically fit for the future?
+Garry Bakker - humans are motivated more by disgust than empathy
+
+
+in 2023 Ausralians lost 3.1 billion to scams
+
+
+
+blast raidus of hype & motivated misinformation damages the credibility of reasonable speculation about the future of AI.
+
+British American Tobacco - buying up energy and wellness industry - the drink startup Tru Inc.
+More insideous and less transparent - more and more difficult 
+
+Flood of misinformation fuelled by generative AI..  like the arms race between computer viruses and anti-viruses - skeptics, science communicators, and really government need to keep up.
+Mechanistic fact checking - automating the operationalisable aspects - checking references (circular?), independent peer reviews,  replication studies, evidence of P-hacking, or HARKING (hypothesising after the research is known) - or flagging tell-tale signs 
+
+
+
+
