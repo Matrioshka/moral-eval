@@ -18,6 +18,13 @@ Get-Content .env | ForEach-Object {
     }
 }
 
+# Construct the MORAL_EVALS_DATABASE_URL using the newly loaded process variables
+# Note: In PowerShell, use $env:VAR_NAME to access environment variables
+$dbUrl = "postgresql://$($env:PGUSER):$($env:PGPASSWORD)@$($env:PGHOST):$($env:PGPORT)/$($env:PGDATABASE)"
+
+# Save it to the Process environment so Python can see it
+[System.Environment]::SetEnvironmentVariable("MORAL_EVALS_DATABASE_URL", $dbUrl, "Process")
+
 # alternatively you can use the following code to load all environment variables from the .env file without filtering by prefix:
 ## Install-Module -Name DotEnv -Scope CurrentUser
 # Import-Module DotEnv

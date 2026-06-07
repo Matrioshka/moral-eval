@@ -88,11 +88,10 @@ def connect(args):
 
     Accepted forms:
     - --dsn "postgresql://..."
-    - MORAL_EVALS_DATABASE_URL
     - libpq-style environment variables: PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD
     '''
-
-    dsn = args.dsn or os.getenv("MORAL_EVALS_DATABASE_URL")
+    # db_url = f"postgresql://{os.getenv('PGUSER')}:{os.getenv('PGPASSWORD')}@{os.getenv('PGHOST')}:{os.getenv('PGPORT')}/{os.getenv('PGDATABASE')}"
+    dsn = args.dsn # or os.getenv("MORAL_EVALS_DATABASE_URL")
     if dsn:
         return psycopg.connect(dsn)
 
