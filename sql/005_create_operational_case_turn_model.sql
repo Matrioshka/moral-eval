@@ -1,10 +1,13 @@
 -- Transitional operational case/turn/response normalisation layer.
 --
--- This script does not remove the original provenance tables or columns. It adds a
+-- This script does not remove or modify the original provenance tables. It adds a
 -- cleaner operational shape on top of the current ingest model:
 --   dataset_case      -> eval_case
 --   case_intervention -> case_turn
---   model_response    -> model_response.case_turn_id / response_text
+--   model_response    -> response
+--
+-- The original model_response table is left intact. The new response table links
+-- back to model_response through legacy_model_response_id for provenance.
 --
 -- Expected prior scripts:
 --   001_create_eval_provenance_schema.sql
@@ -288,41 +291,64 @@ WHERE ci.user_followup IS NOT NULL
   AND length(trim(ci.user_followup)) > 0
 ON CONFLICT DO NOTHING;
 
--- The existing model_response table is retained. Add operational links/aliases rather
--- than creating a second response table.
-ALTER TABLE model_response
-    ADD COLUMN IF NOT EXISTS case_turn_id BIGINT;
+CREATE TABLE IF NOT EXISTS response (
+    response_id BIGSERIAL PRIMARY KEY,
+    case_turn_id BIGINT NOT NULL REFERENCES case_turn(case_turn_id) ON DELETE CASCADE,
+    run_id BIGINT REFERENCES model_run(run_id) ON DELETE SET NULL,
+    legacy_model_response_id BIGINT UNIQUE REFERENCES model_response(response_id) ON DELETE SET NULL,
+    response_role TEXT NOT NULL DEFAULT 'assistant',
+    response_text TEXT NOT NULL,
+    source_file_id BIGINT REFERENCES source_file(source_file_id),
+    source_row INTEGER,
+    raw_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-ALTER TABLE model_response
-    ADD COLUMN IF NOT EXISTS response_text TEXT;
+    CONSTRAINT response_role_not_blank CHECK (length(trim(response_role)) > 0),
+    CONSTRAINT response_text_not_blank CHECK (length(trim(response_text)) > 0)
+);
 
-UPDATE model_response
-SET response_text = raw_response
-WHERE response_text IS NULL
-  AND raw_response IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_response_case_turn_id ON response(case_turn_id);
+CREATE INDEX IF NOT EXISTS idx_response_run_id ON response(run_id);
+CREATE INDEX IF NOT EXISTS idx_response_legacy_model_response_id ON response(legacy_model_response_id);
 
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'fk_model_response_case_turn'
-    ) THEN
-        ALTER TABLE model_response
-            ADD CONSTRAINT fk_model_response_case_turn
-            FOREIGN KEY (case_turn_id)
-            REFERENCES case_turn(case_turn_id)
-            ON DELETE SET NULL;
-    END IF;
-END $$;
+DROP TRIGGER IF EXISTS trg_response_set_updated_at ON response;
+CREATE TRIGGER trg_response_set_updated_at
+BEFORE UPDATE ON response
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
 
-CREATE INDEX IF NOT EXISTS idx_model_response_case_turn_id
-    ON model_response(case_turn_id);
-
--- Link current responses to the intervention turn if there is one, otherwise to the
--- scenario turn. This keeps historical one-shot rows queryable in the new turn model.
-UPDATE model_response mr
-SET case_turn_id = COALESCE(intervention_turn.case_turn_id, scenario_turn.case_turn_id)
-FROM eval_case ec
+-- Populate operational responses from the original provenance model_response table.
+-- Prefer the intervention turn when one exists; otherwise attach to the scenario turn.
+INSERT INTO response (
+    case_turn_id,
+    run_id,
+    legacy_model_response_id,
+    response_role,
+    response_text,
+    source_file_id,
+    source_row,
+    raw_metadata
+)
+SELECT
+    COALESCE(intervention_turn.case_turn_id, scenario_turn.case_turn_id) AS case_turn_id,
+    mr.run_id,
+    mr.response_id AS legacy_model_response_id,
+    'assistant' AS response_role,
+    mr.raw_response AS response_text,
+    mr.source_file_id,
+    mr.source_row,
+    jsonb_build_object(
+        'legacy_table', 'model_response',
+        'sample_id', mr.sample_id,
+        'case_id', mr.case_id,
+        'source_item_id', mr.source_item_id,
+        'dataset_version', mr.dataset_version,
+        'prompt_style', mr.prompt_style,
+        'raw_row', mr.raw_row
+    ) AS raw_metadata
+FROM model_response mr
+JOIN eval_case ec ON ec.dataset_case_pk = mr.case_pk
 LEFT JOIN case_turn intervention_turn
     ON intervention_turn.eval_case_id = ec.eval_case_id
    AND intervention_turn.turn_type = 'intervention'
@@ -331,7 +357,17 @@ LEFT JOIN case_turn scenario_turn
     ON scenario_turn.eval_case_id = ec.eval_case_id
    AND scenario_turn.turn_type = 'scenario'
    AND scenario_turn.source_column = 'dataset_case.scenario'
-WHERE mr.case_pk = ec.dataset_case_pk
-  AND mr.case_turn_id IS DISTINCT FROM COALESCE(intervention_turn.case_turn_id, scenario_turn.case_turn_id);
+WHERE mr.raw_response IS NOT NULL
+  AND length(trim(mr.raw_response)) > 0
+  AND COALESCE(intervention_turn.case_turn_id, scenario_turn.case_turn_id) IS NOT NULL
+ON CONFLICT (legacy_model_response_id) DO UPDATE SET
+    case_turn_id = EXCLUDED.case_turn_id,
+    run_id = EXCLUDED.run_id,
+    response_role = EXCLUDED.response_role,
+    response_text = EXCLUDED.response_text,
+    source_file_id = EXCLUDED.source_file_id,
+    source_row = EXCLUDED.source_row,
+    raw_metadata = EXCLUDED.raw_metadata,
+    updated_at = now();
 
 COMMIT;
