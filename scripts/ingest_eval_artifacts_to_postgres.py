@@ -75,7 +75,7 @@ RAW_IMPORT_TABLES = (
 )
 DERIVED_OPERATIONAL_TABLES = ("scenario", "eval_case", "case_turn", "response", "score_event")
 INGEST_OWNED_LOOKUP_TABLES = ("rubric", "failure_class")
-DERIVED_REBUILD_SQL_FILES = (
+PUBLIC_LAYOUT_DERIVED_REBUILD_SQL_FILES = (
     "003_create_and_populate_scenario.sql",
     "004_update_scenario_names.sql",
     "005_create_operational_case_turn_model.sql",
@@ -84,6 +84,10 @@ DERIVED_REBUILD_SQL_FILES = (
     "012_add_rubric_timestamps_for_score_backfill.sql",
     "013_backfill_unresolved_legacy_response_turns.sql",
     "015_create_rpt_reporting_views.sql",
+)
+SPLIT_LAYOUT_DERIVED_REBUILD_SQL_FILES = (
+    "016_backfill_public_operational_from_raw.sql",
+    "018_create_rpt_reporting_views_from_raw.sql",
 )
 
 
@@ -148,7 +152,7 @@ def connect(args):
 def digest(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+        for chunk in iter(lambda: f.read(1024 * 1024), b=""):
             h.update(chunk)
     return h.hexdigest()
 
@@ -520,7 +524,7 @@ def ingest_csv(cur, schemas, root: Path, path: Path) -> int:
         rid = run(cur, schemas, root, path, sfid, r)
         respid = response(cur, schemas, rid, cpk, sfid, n, r)
         tuple_from_output(cur, schemas, respid, sfid, r)
-        scores(cur, schemas, respid, sfid, n, r)
+        scores(cur, schemas, respid, n, sfid, r)
     return len(rows)
 
 
@@ -544,10 +548,6 @@ def execute_schema(cur, root: Path) -> None:
 
 
 def run_sql_file(cur, path: Path, schemas) -> None:
-    # TODO(schema separation): the rebuild-critical SQL files still rely on
-    # public-layout names for raw/import dependencies. Keep --rebuild-derived
-    # guarded to public raw/op schemas until those files are explicitly
-    # schema-qualified or replaced by a split-schema rebuild path.
     apply_search_path(cur, schemas)
     cur.execute(path.read_text(encoding="utf-8"))
 
@@ -557,6 +557,18 @@ def execute_sql_sequence(cur, root: Path, filenames: tuple[str, ...], schemas) -
         path = root / "sql" / filename
         run_sql_file(cur, path, schemas)
         LOG.info("applied SQL: %s", path.relative_to(root).as_posix())
+
+
+def derived_rebuild_sql_files(schemas) -> tuple[str, ...]:
+    if schemas.raw == "public" and schemas.op == "public":
+        return PUBLIC_LAYOUT_DERIVED_REBUILD_SQL_FILES
+    if schemas.raw == "raw" and schemas.op == "public" and schemas.rpt == "rpt":
+        return SPLIT_LAYOUT_DERIVED_REBUILD_SQL_FILES
+    raise SystemExit(
+        "--rebuild-derived supports either the legacy public layout "
+        "(--raw-schema public --op-schema public) or the split layout "
+        "(--raw-schema raw --op-schema public --rpt-schema rpt)."
+    )
 
 
 def seed_rubric(cur, schemas) -> None:
@@ -639,7 +651,7 @@ def main() -> int:
     p.add_argument(
         "--rebuild-derived",
         action="store_true",
-        help="Apply the current public-layout post-ingest SQL sequence for derived operational/reporting objects.",
+        help="Apply the post-ingest SQL sequence for derived operational/reporting objects. Uses 016/018 in the raw/public/rpt split layout.",
     )
     p.add_argument("--yes", action="store_true", help="Required with --reset-scope or deprecated --reset-data.")
     p.add_argument("--list-sources", action="store_true", help="Print the allowlisted source files and exit without connecting to PostgreSQL.")
@@ -664,14 +676,13 @@ def main() -> int:
         raise SystemExit(f"--reset-scope {args.reset_scope} is destructive. Re-run with --reset-scope {args.reset_scope} --yes.")
 
     schemas = schemas_from_args(args)
+    rebuild_sql_files = derived_rebuild_sql_files(schemas) if args.rebuild_derived else ()
     if args.init_schema and schemas.search_path != ("public",):
         raise SystemExit("--init-schema remains public-schema only in this transition patch. Apply existing SQL migrations manually for now.")
     if args.reset_scope == "derived" and schemas.op != "public":
         raise SystemExit("--reset-scope derived is currently supported only with --op-schema public.")
     if args.reset_scope == "all" and (schemas.raw != "public" or schemas.op != "public"):
         raise SystemExit("--reset-scope all is currently supported only with --raw-schema public --op-schema public.")
-    if args.rebuild_derived and (schemas.raw != "public" or schemas.op != "public"):
-        raise SystemExit("--rebuild-derived currently requires --raw-schema public --op-schema public.")
 
     with connect(args) as db, db.cursor() as cur:
         if args.init_schema:
@@ -697,7 +708,7 @@ def main() -> int:
                 LOG.info("recorded source-only artefact: %s", path.relative_to(root))
 
         if args.rebuild_derived:
-            execute_sql_sequence(cur, root, DERIVED_REBUILD_SQL_FILES, schemas)
+            execute_sql_sequence(cur, root, rebuild_sql_files, schemas)
 
         db.commit()
 
