@@ -543,10 +543,19 @@ def execute_schema(cur, root: Path) -> None:
     cur.execute((root / "sql" / "001_create_eval_provenance_schema.sql").read_text(encoding="utf-8"))
 
 
-def execute_sql_sequence(cur, root: Path, filenames: tuple[str, ...]) -> None:
+def run_sql_file(cur, path: Path, schemas) -> None:
+    # TODO(schema separation): the rebuild-critical SQL files still rely on
+    # public-layout names for raw/import dependencies. Keep --rebuild-derived
+    # guarded to public raw/op schemas until those files are explicitly
+    # schema-qualified or replaced by a split-schema rebuild path.
+    apply_search_path(cur, schemas)
+    cur.execute(path.read_text(encoding="utf-8"))
+
+
+def execute_sql_sequence(cur, root: Path, filenames: tuple[str, ...], schemas) -> None:
     for filename in filenames:
         path = root / "sql" / filename
-        cur.execute(path.read_text(encoding="utf-8"))
+        run_sql_file(cur, path, schemas)
         LOG.info("applied SQL: %s", path.relative_to(root).as_posix())
 
 
@@ -688,7 +697,7 @@ def main() -> int:
                 LOG.info("recorded source-only artefact: %s", path.relative_to(root))
 
         if args.rebuild_derived:
-            execute_sql_sequence(cur, root, DERIVED_REBUILD_SQL_FILES)
+            execute_sql_sequence(cur, root, DERIVED_REBUILD_SQL_FILES, schemas)
 
         db.commit()
 
