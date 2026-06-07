@@ -231,7 +231,13 @@ CREATE TABLE IF NOT EXISTS deterministic_score (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE OR REPLACE VIEW case_run_trace AS
+-- PostgreSQL cannot use CREATE OR REPLACE VIEW when a view's existing column
+-- order or column names change. Drop the derived views first so schema updates
+-- remain idempotent across provenance-layer revisions.
+DROP VIEW IF EXISTS case_run_trace_reporting;
+DROP VIEW IF EXISTS case_run_trace;
+
+CREATE VIEW case_run_trace AS
 SELECT
     dc.case_pk,
     dc.sample_id,
@@ -331,7 +337,7 @@ LEFT JOIN source_file sf_response ON sf_response.source_file_id = mresp.source_f
 LEFT JOIN source_file sf_manual ON sf_manual.source_file_id = ms.source_file_id
 LEFT JOIN source_file sf_deterministic ON sf_deterministic.source_file_id = ds.source_file_id;
 
-CREATE OR REPLACE VIEW case_run_trace_reporting AS
+CREATE VIEW case_run_trace_reporting AS
 SELECT *
 FROM case_run_trace
 WHERE is_canonical_dataset_item IS TRUE
