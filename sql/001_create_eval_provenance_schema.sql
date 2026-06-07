@@ -239,8 +239,13 @@ SELECT
     dc.source_item_id,
     d.dataset_version,
     d.dataset_family,
-    dc.case_origin,
-    dc.is_canonical_dataset_item,
+    CASE
+        WHEN sf_case.file_kind = 'dataset_jsonl' THEN 'dataset_jsonl'
+        WHEN dc.case_origin IS NOT NULL AND dc.case_origin <> 'unknown' THEN dc.case_origin
+        WHEN dc.source_file_id IS NULL THEN 'csv_inferred_or_unlinked'
+        ELSE 'csv_inferred'
+    END AS case_origin,
+    (sf_case.file_kind = 'dataset_jsonl') AS is_canonical_dataset_item,
     dc.variant,
     COALESCE(mr.prompt_style, dc.prompt_style, mresp.prompt_style) AS prompt_style,
     dc.moral_domain,
