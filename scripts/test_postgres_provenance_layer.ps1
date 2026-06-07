@@ -125,8 +125,13 @@ $DatasetCase = Pg-Relation $RawSchema "dataset_case"
 $ModelResponse = Pg-Relation $RawSchema "model_response"
 $ManualScore = Pg-Relation $RawSchema "manual_score"
 $DeterministicScore = Pg-Relation $RawSchema "deterministic_score"
+$Response = Pg-Relation $OpSchema "response"
+$ScoreEvent = Pg-Relation $OpSchema "score_event"
 $CaseRunTrace = Pg-Relation $RptSchema "case_run_trace"
 $CaseRunTraceReporting = Pg-Relation $RptSchema "case_run_trace_reporting"
+$ScoreLinkageStatus = Pg-Relation $RptSchema "score_linkage_status"
+$RawSchemaLiteral = Quote-PgLiteral $RawSchema
+$OpSchemaLiteral = Quote-PgLiteral $OpSchema
 $RptSchemaLiteral = Quote-PgLiteral $RptSchema
 
 $reportLines = New-Object System.Collections.Generic.List[string]
@@ -181,7 +186,21 @@ if (-not $SkipIngestSourcePlan) {
 }
 
 Run-CommandText "Database object existence" {
-    Query-PostgresTable "select table_name from information_schema.views where table_schema = $RptSchemaLiteral and table_name in ('case_run_trace','case_run_trace_reporting') order by table_name;"
+    Query-PostgresTable "
+select object_schema, object_name, object_type
+from (
+  select table_schema as object_schema, table_name as object_name, 'table' as object_type
+  from information_schema.tables
+  where table_schema in ($RawSchemaLiteral, $OpSchemaLiteral)
+    and table_name in ('source_file','dataset_case','model_response','manual_score','deterministic_score','response','score_event')
+  union all
+  select table_schema as object_schema, table_name as object_name, 'view' as object_type
+  from information_schema.views
+  where table_schema = $RptSchemaLiteral
+    and table_name in ('case_run_trace','case_run_trace_reporting','score_linkage_status')
+) objects
+order by object_type, object_schema, object_name;
+"
 } | ForEach-Object { $reportLines.Add($_) }
 
 Run-CommandText "Core table/view counts" {
@@ -192,8 +211,11 @@ select
   (select count(*) from $ModelResponse) as model_responses,
   (select count(*) from $ManualScore) as manual_scores,
   (select count(*) from $DeterministicScore) as deterministic_scores,
+  (select count(*) from $Response) as responses,
+  (select count(*) from $ScoreEvent) as score_events,
   (select count(*) from $CaseRunTrace) as case_trace_rows,
-  (select count(*) from $CaseRunTraceReporting) as reporting_trace_rows;
+  (select count(*) from $CaseRunTraceReporting) as reporting_trace_rows,
+  (select count(*) from $ScoreLinkageStatus) as score_linkage_rows;
 "
 } | ForEach-Object { $reportLines.Add($_) }
 
