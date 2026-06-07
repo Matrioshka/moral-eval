@@ -41,23 +41,23 @@ The same defaults can be supplied through environment variables:
 - `MORAL_EVALS_RPT_SCHEMA`
 
 All three default to `public`, so existing commands continue to work against the
-current public-schema database. This is a transitional configuration step only:
-it does not move tables, create schemas, create compatibility views, or change
-database objects.
+current public-schema database. This is a transitional configuration step: by
+itself it does not move raw/import tables, create schemas, or change database
+objects.
 
 The ingest script has been prepared to qualify raw/import relation references
 and the small operational lookup references it touches, such as `rubric` and
 `failure_class`. With the default settings, those references still resolve to
 the existing public-schema database. Unless a future migration has created and
-populated separate schemas, the live database should still be treated as
-public-only.
+populated separate raw/import schemas, the live raw/import tables should still
+be treated as public-only.
 
 For now, `--init-schema` and `--reset-data` remain guarded for the current
 public-schema layout. They should not be used with non-public schema settings
 until reset semantics and the rebuild path are redesigned for a real
 `raw`/`public`/`rpt` split.
 
-The intended future split is:
+The intended split is:
 
 - `raw`: imported/source-shaped provenance tables such as `source_file`,
   `dataset_case`, `model_response`, `manual_score`, and `deterministic_score`.
@@ -66,8 +66,35 @@ The intended future split is:
 - `rpt`: reporting and diagnostic views such as `case_run_trace`,
   `case_run_trace_reporting`, and `score_linkage_status`.
 
-Reporting scripts can be pointed at `--rpt-schema rpt` later, once those views
-actually exist there. Until then, keep the defaults.
+After applying `sql/015_create_rpt_reporting_views.sql`, reporting scripts can
+be pointed at `--rpt-schema rpt`. Public compatibility views remain for existing
+commands and older scripts.
+
+## Reporting-view migration
+
+The first actual schema-separation migration is:
+
+```powershell
+Get-Content .\sql\015_create_rpt_reporting_views.sql |
+  docker exec -i $env:PGCONTAINER psql -U $env:PGUSER -d $env:PGDATABASE
+```
+
+This migration creates:
+
+- `rpt.case_run_trace`
+- `rpt.case_run_trace_reporting`
+- `rpt.score_linkage_status`
+
+It also recreates public compatibility views:
+
+- `public.case_run_trace`
+- `public.case_run_trace_reporting`
+- `public.score_linkage_status`
+
+The migration does not move raw/import tables. The `rpt` views currently read
+from the existing public provenance and operational tables. New reporting/export
+commands can use `--rpt-schema rpt`; existing public-view commands should keep
+working through the compatibility aliases.
 
 ## Initialise
 
@@ -149,8 +176,11 @@ docker exec -i postgres-dev psql -U postgres -d moral_evals -c "select file_kind
 ```
 
 ```powershell
-docker exec -i postgres-dev psql -U postgres -d moral_evals -c "select case_id, model_name, run_label, manual_score, failure_class from case_run_trace where evidence_quality = 'strong_but_incomplete_safeguard' and pressure_type = 'urgency_deployment' and manual_score = 1 and failure_class ilike '%OVERAPPROVAL%';"
+docker exec -i postgres-dev psql -U postgres -d moral_evals -c "select case_id, model_name, run_label, manual_score, failure_class from rpt.case_run_trace where evidence_quality = 'strong_but_incomplete_safeguard' and pressure_type = 'urgency_deployment' and manual_score = 1 and failure_class ilike '%OVERAPPROVAL%';"
 ```
+
+The public compatibility view `case_run_trace` remains available after migration
+`015`, but new reporting queries should prefer `rpt.case_run_trace`.
 
 ## Current provenance guarantees and limitations
 
@@ -165,9 +195,9 @@ Current guarantees after the latest sanity check:
 - Every non-blank legacy `model_response.raw_response` row has an operational `response` row.
 - `score_event` remains response-level: it links to `response`, not directly to dataset cases, source files, or run summaries.
 - Linked manual scores preserve their original `manual_score` row through `score_event.legacy_manual_score_id`.
-- Source-file lineage is retained through `source_file` and through the `source_files` object exposed by `case_run_trace`.
+- Source-file lineage is retained through `source_file` and through the `source_files` object exposed by `rpt.case_run_trace` and its public compatibility alias.
 - `unresolved_legacy_prompt` turns are explicitly marked as placeholder turns when exact source prompt text could not be reconstructed.
-- `case_run_trace_reporting` excludes smoke, summary, expansion-candidate, and rewrite-candidate artefacts where the current filename-based filters identify them.
+- `rpt.case_run_trace_reporting` excludes smoke, summary, expansion-candidate, and rewrite-candidate artefacts where the current filename-based filters identify them.
 
 Current known limitations:
 
@@ -186,6 +216,13 @@ have not become response-level `score_event` rows:
 
 ```powershell
 python .\scripts\diagnose_score_linkage.py
+```
+
+After applying migration `015`, the diagnostic can also be pointed at the
+reporting schema where appropriate:
+
+```powershell
+python .\scripts\diagnose_score_linkage.py --rpt-schema rpt
 ```
 
 The script connects with the same local PostgreSQL configuration conventions as
@@ -224,19 +261,24 @@ useful as a documentation artefact.
 
 ## Score linkage status view
 
-Apply the linkage-status view after schema initialisation if it is not already present:
+For split-schema reporting, apply migration `015`:
 
 ```powershell
-Get-Content .\sql\014_create_score_linkage_status_view.sql |
+Get-Content .\sql\015_create_rpt_reporting_views.sql |
   docker exec -i $env:PGCONTAINER psql -U $env:PGUSER -d $env:PGDATABASE
 ```
+
+This creates `rpt.score_linkage_status` and keeps `public.score_linkage_status`
+as a compatibility alias. `sql/014_create_score_linkage_status_view.sql` remains
+for existing/public-layout rebuilds, but new split-schema reporting should use
+`015`.
 
 Inspect linked and unlinked manual-score rows:
 
 ```powershell
 docker exec -i $env:PGCONTAINER psql -U $env:PGUSER -d $env:PGDATABASE -c "
 select linkage_status, count(*)
-from score_linkage_status
+from rpt.score_linkage_status
 group by linkage_status
 order by linkage_status;
 "
@@ -247,7 +289,7 @@ Inspect unlinked rows by source file:
 ```powershell
 docker exec -i $env:PGCONTAINER psql -U $env:PGUSER -d $env:PGDATABASE -c "
 select manual_score_source_path, linkage_status, count(*)
-from score_linkage_status
+from rpt.score_linkage_status
 where is_linked_to_score_event is false
 group by manual_score_source_path, linkage_status
 order by count(*) desc, manual_score_source_path;
@@ -259,10 +301,10 @@ order by count(*) desc, manual_score_source_path;
 ## Export a case card
 
 ```powershell
-python .\scripts\export_case_card.py --case-id release_schema_v2_1_api_no_finetune_urgency --out .\docs\case_cards\release_schema_v2_1_api_no_finetune_urgency.md
+python .\scripts\export_case_card.py --rpt-schema rpt --case-id release_schema_v2_1_api_no_finetune_urgency --out .\docs\case_cards\release_schema_v2_1_api_no_finetune_urgency.md
 ```
 
-The exporter currently selects one row by `--case-id`, `--sample-id`, or `--response-id`. Use SQL against `case_run_trace` first when you need to find a case by evidence quality, pressure type, score, or failure class.
+The exporter currently selects one row by `--case-id`, `--sample-id`, or `--response-id`. Use SQL against `rpt.case_run_trace` first when you need to find a case by evidence quality, pressure type, score, or failure class. The public compatibility view `case_run_trace` remains available for older commands.
 
 The case-card exporter labels exact source text separately from the diagram-ready paraphrase.
 
@@ -286,3 +328,4 @@ This is a first-pass provenance layer.
 - The case-card exporter selects by case, sample, or response rather than exposing the full SQL filter surface.
 - The database is not yet a web app or dashboard.
 - The ingest is file-driven and additive by default; use `--reset-data --yes` for a clean rebuild from the current source plan.
+- Raw/import tables have not yet moved to a `raw` schema; migration `015` only moves reporting and diagnostic views to `rpt` while keeping public compatibility aliases.
