@@ -6,6 +6,7 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
@@ -63,7 +64,7 @@ def connect(args):
     )
 
 
-def txt(value):
+def txt(value: Any) -> str:
     if value is None:
         return ""
     if isinstance(value, (dict, list)):
@@ -71,25 +72,49 @@ def txt(value):
     return str(value)
 
 
-def one(value):
+def one(value: Any) -> str:
     return txt(value).strip() or "_Not recorded_"
 
 
-def quote(value):
+def first(row: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        value = row.get(name)
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        return value
+    return None
+
+
+def as_mapping(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
+def quote(value: Any) -> str:
     body = txt(value).strip()
     if not body:
         return "_Not recorded._"
     return "\n".join("> " + line if line else ">" for line in body.splitlines())
 
 
-def fence(value):
+def fence(value: Any) -> str:
     body = txt(value).strip()
     if not body:
         return "_Not recorded._"
     return "```json\n" + body + "\n```"
 
 
-def slug(value):
+def slug(value: Any) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", txt(value)).strip("-").lower() or "case"
 
 
@@ -104,11 +129,14 @@ def main():
 
     where, params = [], []
     if args.case_id:
-        where.append("case_id=%s"); params.append(args.case_id)
+        where.append("case_id=%s")
+        params.append(args.case_id)
     if args.sample_id:
-        where.append("sample_id=%s"); params.append(args.sample_id)
+        where.append("sample_id=%s")
+        params.append(args.sample_id)
     if args.response_id:
-        where.append("response_id=%s"); params.append(args.response_id)
+        where.append("response_id=%s")
+        params.append(args.response_id)
     if not where:
         raise SystemExit("Use --case-id, --sample-id, or --response-id.")
 
@@ -119,6 +147,10 @@ def main():
     if not row:
         raise SystemExit("No matching row in case_run_trace.")
     row = dict(row)
+
+    source_files = as_mapping(row.get("source_files"))
+    structured_tuple = first(row, "structured_tuple", "extracted_structured_tuple", "raw_tuple")
+    model_response = first(row, "raw_response", "model_raw_response", "response_text")
 
     title = one(row.get("case_id") or row.get("sample_id"))
     summary = (
@@ -142,29 +174,29 @@ This card is exported from `case_run_trace`. Exact-source sections are provenanc
 | run_label | {one(row.get('run_label'))} |
 | response_id | {one(row.get('response_id'))} |
 
-## Scenario — exact source text
+## Scenario - exact source text
 
 {quote(row.get('scenario'))}
 
-## Baseline judgement — exact source text
+## Baseline judgement - exact source text
 
 {quote(row.get('initial_judgement'))}
 
-## Intervention / user follow-up — exact source text
+## Intervention / user follow-up - exact source text
 
 {quote(row.get('user_followup'))}
 
-## Expected / target behaviour — exact source text
+## Expected / target behaviour - exact source text
 
 {quote(row.get('expected_behaviour') or row.get('ideal_behaviour'))}
 
-## Model response — exact source text
+## Model response - exact source text
 
-{quote(row.get('raw_response'))}
+{quote(model_response)}
 
-## Structured tuple — extracted artefact
+## Structured tuple - extracted artefact
 
-{fence(row.get('structured_tuple'))}
+{fence(structured_tuple)}
 
 ## Score / audit
 
@@ -174,7 +206,7 @@ This card is exported from `case_run_trace`. Exact-source sections are provenanc
 | deterministic_score | {one(row.get('deterministic_score'))} |
 | failure_class | {one(row.get('failure_class'))} |
 
-### Grading rationale / audit notes — exact source text where present
+### Grading rationale / audit notes - exact source text where present
 
 {quote(row.get('grading_rationale') or row.get('audit_notes'))}
 
@@ -182,12 +214,12 @@ This card is exported from `case_run_trace`. Exact-source sections are provenanc
 
 | Source | Path |
 |---|---|
-| dataset | {one(row.get('dataset_source_path'))} |
-| response | {one(row.get('response_source_path'))} |
-| manual score | {one(row.get('manual_score_source_path'))} |
-| deterministic score | {one(row.get('deterministic_score_source_path'))} |
+| dataset | {one(first(row, 'dataset_source_path') or source_files.get('dataset_case'))} |
+| response | {one(first(row, 'response_source_path') or source_files.get('model_response'))} |
+| manual score | {one(first(row, 'manual_score_source_path') or source_files.get('manual_score'))} |
+| deterministic score | {one(first(row, 'deterministic_score_source_path') or source_files.get('deterministic_score'))} |
 
-## Diagram-ready summary — paraphrase, not exact source text
+## Diagram-ready summary - paraphrase, not exact source text
 
 {summary}
 """
