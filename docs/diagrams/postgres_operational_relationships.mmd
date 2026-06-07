@@ -1,0 +1,38 @@
+erDiagram
+    dataset ||--o{ dataset_case : contains
+    source_file ||--o{ dataset_case : sources
+    source_file ||--o{ scenario : sources
+    source_file ||--o{ eval_case : sources
+    source_file ||--o{ case_turn : sources
+    source_file ||--o{ response : sources
+    source_file ||--o{ score_event : sources
+
+    dataset_case ||--|| eval_case : normalises_to
+    dataset ||--o{ eval_case : groups
+    scenario ||--o{ eval_case : frames
+    moral_domain ||--o{ eval_case : classifies
+
+    eval_case ||--o{ case_turn : has
+    case_turn ||--o{ case_turn : parent_of
+    turn_type ||--o{ case_turn : categorises
+    pressure_type ||--o{ case_turn : annotates
+    evidence_quality ||--o{ case_turn : annotates
+    case_intervention ||--o{ case_turn : source_followup
+    dataset_case ||--o{ case_turn : source_case
+
+    dataset ||--o{ model_run : has_runs
+    source_file ||--o{ model_run : sources
+    model_run ||--o{ model_response : produced_legacy
+    dataset_case ||--o{ model_response : legacy_case
+    source_file ||--o{ model_response : sources
+
+    model_response ||--o| response : normalises_to
+    model_run ||--o{ response : produced
+    case_turn ||--o{ response : answered_by
+
+    response ||--o{ score_event : scored_by
+    scorer ||--o{ score_event : performs
+    rubric ||--o{ score_event : applies
+    failure_class ||--o{ score_event : labels
+    manual_score ||--o| score_event : legacy_manual_source
+    deterministic_score ||--o| score_event : legacy_deterministic_source
