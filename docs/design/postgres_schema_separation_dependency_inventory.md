@@ -2,19 +2,26 @@
 
 Date: 2026-06-08
 
-Status: dependency inventory and migration plan only. This document does not move tables, create schemas, edit datasets, run model evals, or create `bootstrap_current_schema.sql`.
+Inputs:
+
+- `docs/design/schema_dependency_scan.csv`
+- `docs/design/sql_migration_inventory.md`
+
+Status: dependency inventory and migration plan only. This document does not move tables, edit SQL files, mutate datasets, run model evals, or create `bootstrap_current_schema.sql`.
 
 ## Purpose
 
-The current PostgreSQL provenance layer works, but its database objects are still mostly in `public`. The intended cleanup is to separate import-shaped provenance tables, operational tables, and reporting views without breaking the existing provenance workflow.
+This document identifies repository references that matter for separating the current PostgreSQL provenance layer into three schemas:
 
-The immediate goal is to understand what depends on the current unqualified/public object names before any schema move is attempted. Moving the raw/import tables immediately would break active scripts, rebuild SQL, diagnostics, and documentation commands.
+- `raw` for imported/source-shaped provenance tables;
+- `public` for operational tables;
+- `rpt` for reporting/export/query views.
 
-## Intended schema split
+The dependency scan is intentionally broad and therefore noisy. Some hits are true PostgreSQL object dependencies. Others are ordinary dataset-field names, prose references, CSV column names, or a separate DuckDB schema that happens to use the same table name. This inventory separates those cases so the migration plan does not overfit to irrelevant matches.
 
-### `raw`
+## Candidate objects
 
-Imported/source-shaped provenance tables:
+### Raw/import candidates
 
 - `source_file`
 - `dataset`
@@ -28,265 +35,223 @@ Imported/source-shaped provenance tables:
 - `structured_decision_tuple`
 - `response_failure_class`
 
-`model_run` is a grey-zone object. It is source-shaped run metadata, but operational `response` rows currently link to it. It can move to `raw`, but only if operational/reporting queries are schema-qualified or compatibility views exist first.
+`model_run` is a grey-zone dependency. It is imported run metadata, but public operational `response` rows currently link to it. Recommendation: treat it as `raw.model_run`, and make all operational/reporting joins schema-qualified.
 
-### `public`
+`expected_behaviour` is also a noisy term because it is both a PostgreSQL table and a dataset JSONL/CSV field. Only SQL table references and SQL strings should be treated as PostgreSQL schema dependencies.
 
-Operational tables:
-
-- `moral_domain`
-- `scenario`
-- `eval_case`
-- `case_turn`
-- `response`
-- `turn_type`
-- `pressure_type`
-- `evidence_quality`
-- `scorer`
-- `score_event`
-- `failure_class`
-- `rubric`
-
-`failure_class` and `rubric` require care. `001_create_eval_provenance_schema.sql` creates early/simple versions, while later operational migrations enrich them. In the target model they should be public operational lookup/rubric tables, not raw import tables.
-
-`moral_domain` is an existing rebuild gap: `002_populate_moral_domain_descriptions.sql` assumes a `moral_domain` table exists, but the current SQL inventory already notes that no current `sql/*.sql` file creates it. The future bootstrap must define it explicitly.
-
-### `rpt`
-
-Reporting/export/query views:
+### Reporting candidates
 
 - `case_run_trace`
 - `case_run_trace_reporting`
 - `score_linkage_status`
 
-During transition, public aliases for these views may be justified because active scripts and docs currently read unqualified `case_run_trace`, `case_run_trace_reporting`, and `score_linkage_status`.
+Recommendation: target these at `rpt.*`, with temporary public compatibility views during transition.
 
-## Dependency inventory
+## Classification rules
 
-Classification meanings:
+- **active**: current script/helper likely to be run directly.
+- **rebuild-only**: SQL or tooling needed to rebuild or repair the PostgreSQL layer from existing artefacts.
+- **diagnostic**: read-only health-check, linkage inspection, or validation.
+- **historical**: superseded migration or old repair path retained for auditability.
+- **documentation**: Markdown, generated case cards, diagrams, examples, or prose.
+- **unknown**: reference lacks enough context to classify safely.
 
-- Active: used directly by current workflows or helper scripts.
-- Rebuild-only: needed when reconstructing or repairing the PostgreSQL layer from existing artefacts.
-- Diagnostic: read-only inspection, validation, or health-check surface.
-- Historical: superseded migration or old repair path retained for auditability.
-- Documentation: Markdown/diagram/case-card references or example commands.
+A scan hit is counted as a true PostgreSQL dependency only when it appears in SQL DDL/DML, SQL strings embedded in scripts, or a documented SQL command. Dataset field names and prose are classified, but they do not block schema separation.
 
-## SQL files
+## High-level findings
 
-| File | Classification | Current dependencies | Schema-separation impact |
-|---|---:|---|---|
-| `sql/001_create_eval_provenance_schema.sql` | Active / rebuild-only | Creates the current import-shaped tables in `public`: `source_file`, `dataset`, `dataset_case`, `case_intervention`, `expected_behaviour`, `model_run`, `model_response`, `structured_decision_tuple`, `rubric`, `failure_class`, `manual_score`, `response_failure_class`, `deterministic_score`. Also creates `case_run_trace` and `case_run_trace_reporting`. | This is the main object-definition dependency. If raw tables move first, `--init-schema` will recreate public tables instead of the intended split. Future bootstrap should replace this with schema-qualified raw/public/rpt objects. |
-| `sql/002_populate_moral_domain_descriptions.sql` | Rebuild-only | Inserts/updates `moral_domain`. | Requires a public `moral_domain` table. It should remain operational/public. Future bootstrap must create the table before this seed data or fold the seed data into the bootstrap. |
-| `sql/003_create_and_populate_scenario.sql` | Rebuild-only | Creates `scenario`; reads `dataset_case.scenario`; references `source_file`; adds `dataset_case.scenario_id`. | Breaks if `dataset_case` or `source_file` move to `raw` without qualification or aliases. The final version should create `public.scenario`, read from `raw.dataset_case`, and preserve the source FK intentionally. |
-| `sql/004_update_scenario_names.sql` | Rebuild-only / documentation utility | Reads `scenario` and `dataset_case` to derive nicer `scenario.name` values. | Breaks if `dataset_case` moves without qualification. Can become a post-ingest normalisation script reading `raw.dataset_case` and writing `public.scenario`. |
-| `sql/005_create_operational_case_turn_model.sql` | Active rebuild-only | Creates `evidence_quality`, `eval_case`, `case_turn`, `response`; reads `dataset_case`, `dataset`, `case_intervention`, `model_response`; references `model_run`, `source_file`, `scenario`, `moral_domain`. | Major dependency. It assumes raw/import tables are in the search path. Final version should create public operational tables and backfill from schema-qualified `raw.*` tables. |
-| `sql/006_create_turn_pressure_failure_lookups.sql` | Historical | Creates early `turn_type`, `pressure_type`, `failure_class` lookup tables. | Superseded by later repair/normalisation scripts. Do not spend compatibility effort here except preserving it under legacy migration history. |
-| `sql/007_normalise_turns_and_scores.sql` | Historical | Creates/patches lookup tables, `scorer`, `score_event`; reads `case_turn`, `case_intervention`, `manual_score`, `deterministic_score`, `rubric`, `source_file`, `response`. | Superseded. Moving raw tables would break it, but it should not drive the schema split. Keep as legacy history after bootstrap exists. |
-| `sql/008_repair_normalise_turns_and_scores.sql` | Historical | Repairs `007`; reads `case_turn`, `case_intervention`, `manual_score`, `deterministic_score`, `response`, `scorer`, `rubric`. | Superseded. Keep for audit history; do not design aliases around it. |
-| `sql/009_fix_turn_score_normalisation.sql` | Rebuild-only | Repairs/completes operational scoring after `008`; reads/writes operational lookup and score objects, and depends on legacy score tables. | Still part of the current safe rebuild path. Must be schema-qualified or folded into bootstrap/post-ingest backfill before raw tables move. |
-| `sql/010_backfill_all_operational_responses_and_scores.sql` | Historical | Backfills `eval_case`, `case_turn`, `response`, `score_event` from `dataset_case`, `model_response`, `case_intervention`, `manual_score`, `deterministic_score`. | Explicitly superseded by `011`. Keep as historical. Do not preserve public aliases just for this file. |
-| `sql/011_backfill_response_score_coverage_deduped.sql` | Rebuild-only | Deduplicated backfill from `dataset_case`, `model_response`, `case_intervention`, `manual_score`, `deterministic_score`; writes `eval_case`, `case_turn`, `response`, `score_event`. | Active current repair/backfill dependency. It must become schema-qualified or be folded into a future `bootstrap_after_ingest.sql`. |
-| `sql/012_add_rubric_timestamps_for_score_backfill.sql` | Rebuild-only compatibility | Alters `rubric` timestamps and trigger. | Fold directly into the final public `rubric` definition. After bootstrap validation it can move to legacy. |
-| `sql/013_backfill_unresolved_legacy_response_turns.sql` | Rebuild-only | Adds `unresolved_legacy_prompt`; backfills remaining valid legacy responses from `dataset_case` and `model_response`; imports `manual_score` and `deterministic_score` into `score_event`. | Active current repair/backfill dependency. Must read schema-qualified `raw.*` after the split. The placeholder-turn semantics should be preserved. |
-| `sql/014_create_score_linkage_status_view.sql` | Diagnostic / reporting | Creates `score_linkage_status`; reads `manual_score`, `model_response`, `model_run`, `response`, `score_event`, `failure_class`, `source_file`. | Target should be `rpt.score_linkage_status`. A temporary `public.score_linkage_status` alias is reasonable because docs and diagnostics currently use the unqualified name. |
+The current breakage risk is concentrated in three places:
 
-## Python and PowerShell scripts
+1. `scripts/ingest_eval_artifacts_to_postgres.py` writes to the unqualified raw/import tables and executes `sql/001_create_eval_provenance_schema.sql` for `--init-schema`.
+2. The current rebuild path depends on unqualified raw/import tables in SQL files `001`, `003`, `004`, `005`, `009`, `011`, `013`, and `014`.
+3. Active export/diagnostic scripts and documentation still query unqualified reporting views, especially `case_run_trace` and `score_linkage_status`.
 
-| File | Classification | Current dependencies | Schema-separation impact |
-|---|---:|---|---|
-| `scripts/ingest_eval_artifacts_to_postgres.py` | Active | Writes `source_file`, `dataset`, `dataset_case`, `case_intervention`, `expected_behaviour`, `model_run`, `model_response`, `structured_decision_tuple`, `manual_score`, `deterministic_score`; reads `dataset_case`, `rubric`, `failure_class`; `--init-schema` executes only `sql/001_create_eval_provenance_schema.sql`; `--reset-data` truncates the import/provenance tables. | Highest-risk active dependency. If raw tables move now, ingest will fail or recreate public tables. `--reset-data` also needs redesign, because it currently truncates raw/import objects but not all derived operational objects. In the split design, reset should either be explicitly raw-only plus documented post-ingest rebuild, or a full rebuild that clears derived operational tables safely. |
-| `scripts/export_case_card.py` | Active | Reads unqualified `case_run_trace`; exports one row to Markdown. | Breaks if the view moves to `rpt` without either updating the script or adding a `public.case_run_trace` alias. Prefer updating the script to `rpt.case_run_trace` and keeping a temporary public view alias for old commands. |
-| `scripts/diagnose_score_linkage.py` | Diagnostic | Read-only. Reads `source_file`, `manual_score`, `score_event`, `model_response`, `model_run`, operational `response`, and source-file metadata. | Breaks if raw tables move without qualification or aliases. Should be updated to read `raw.*` plus public operational tables. It should remain read-only. |
-| `scripts/test_postgres_provenance_layer.ps1` | Active / diagnostic | Checks public views `case_run_trace` and `case_run_trace_reporting`; counts `source_file`, `dataset_case`, `model_response`, `manual_score`, `deterministic_score`; writes local health-check outputs. | Breaks if the views move to `rpt` and raw tables move to `raw` without query updates. This should become the main post-migration smoke test, checking `raw`, `public`, and `rpt` explicitly. |
-| `scripts/summarise_v4_scope_control_scores.py` | Active analysis utility, not a PostgreSQL dependency | Uses a CSV dataclass field named `source_file`, but reads manual-score CSV files directly from `docs/failure_audits`. | Terminology collision only. It should not block PostgreSQL schema movement. No database-object dependency was found in this file. |
-| `scripts/export_dataset_to_duckdb.py` | Active/auxiliary, separate database | Creates a DuckDB table also named `source_file` from JSONL datasets. | Separate DuckDB schema, not a PostgreSQL dependency. Mention only to avoid confusing plain-text searches for `source_file`. |
+The existing SQL migration inventory already says the SQL directory mixes a base provenance/import schema, additive operational normalisation, historical repair/backfill migrations, and diagnostic views. It recommends that a future bootstrap create the end-state objects directly and move historical repair scripts to `sql/legacy_migrations/` after validation. It also records a real rebuild gap: `002_populate_moral_domain_descriptions.sql` assumes a `moral_domain` table exists, but no current SQL file creates it.
 
-## Views
+## True PostgreSQL dependencies from the scan
 
-| View | Current location | Target location | Current readers | Migration note |
-|---|---|---|---|---|
-| `case_run_trace` | `public` | `rpt` | `scripts/export_case_card.py`, `scripts/test_postgres_provenance_layer.ps1`, docs, generated case cards, ad hoc SQL examples. | Move only after adding/updating readers. A temporary `public.case_run_trace AS SELECT * FROM rpt.case_run_trace` alias is justified. |
-| `case_run_trace_reporting` | `public` | `rpt` | health-check script, docs, ad hoc reporting queries. | Same as above. It should keep the current reporting filters unless deliberately revised in a separate reporting cleanup. |
-| `score_linkage_status` | `public` | `rpt` | docs and manual score linkage diagnostics. | Move to `rpt`; optionally keep public alias during transition. It is diagnostic and must not weaken `score_event` response-level semantics. |
+| Path | Classification | Referenced objects/views | What breaks if raw tables move to `raw.*` and views move to `rpt.*` |
+|---|---|---|---|
+| `scripts/ingest_eval_artifacts_to_postgres.py` | active | `source_file`, `dataset`, `dataset_case`, `case_intervention`, `expected_behaviour`, `model_run`, `model_response`, `structured_decision_tuple`, `manual_score`, `deterministic_score`, `response_failure_class`; also `sql/001_create_eval_provenance_schema.sql` through `--init-schema` | This is the highest-risk active dependency. Inserts, upserts, selects, and truncates will fail if the raw tables move and the script remains unqualified. `--init-schema` would also recreate old public tables instead of creating `raw.*`, `public.*`, and `rpt.*`. `--reset-data` is not safe enough for a split schema because it truncates raw/import tables but does not explicitly clear all derived operational rows. |
+| `scripts/diagnose_score_linkage.py` | diagnostic | `source_file`, `manual_score`, `model_response`, `model_run`, `deterministic_score`; also operational `response` and `score_event` | Read-only diagnostic queries fail when raw objects move. Update after ingest, but before removing public aliases. It should query `raw.source_file`, `raw.manual_score`, `raw.model_response`, `raw.model_run`, `raw.deterministic_score`, plus public operational tables. |
+| `scripts/export_case_card.py` | active | `case_run_trace`; output columns expose `dataset_case`, `model_response`, `manual_score`, `deterministic_score` as source-file keys | Export fails if `case_run_trace` moves to `rpt.case_run_trace` and no public compatibility view exists. Update script to read `rpt.case_run_trace`; keep a temporary public view alias for old commands. |
+| `sql/001_create_eval_provenance_schema.sql` | rebuild-only | Creates all current raw/import candidates except it also creates early `rubric`/`failure_class`; creates `case_run_trace` and `case_run_trace_reporting` in public | Core rebuild blocker. If unchanged, it recreates public raw tables and public reporting views. Future design should replace or fold it into a schema-qualified bootstrap. |
+| `sql/003_create_and_populate_scenario.sql` | rebuild-only | Reads/writes `dataset_case`; references `source_file`; creates/populates public `scenario` | Fails if `dataset_case` and `source_file` move. Final version should write `public.scenario` but read/update `raw.dataset_case` deliberately, because `dataset_case.scenario_id` is still used as a bridge in the present model. |
+| `sql/004_update_scenario_names.sql` | rebuild-only | Reads `dataset_case`; updates `scenario` | Fails if `dataset_case` moves. Keep as post-ingest normalisation or fold into later bootstrap/backfill logic. |
+| `sql/005_create_operational_case_turn_model.sql` | rebuild-only | Reads `dataset`, `dataset_case`, `case_intervention`, `model_run`, `model_response`, `source_file`; writes public `evidence_quality`, `eval_case`, `case_turn`, `response` | Major rebuild dependency. It builds the operational layer from raw rows. It must become schema-qualified before raw tables move, or be replaced by a bootstrap/post-ingest backfill. |
+| `sql/009_fix_turn_score_normalisation.sql` | rebuild-only | Reads `case_intervention`, `manual_score`, `deterministic_score`, `source_file`; writes/repairs public lookup/scoring objects | Active current repair/backfill dependency according to the migration inventory. Must read raw score tables with `raw.*` after the split. |
+| `sql/011_backfill_response_score_coverage_deduped.sql` | rebuild-only | Reads `dataset_case`, `case_intervention`, `model_response`, `manual_score`, `deterministic_score`; writes public `eval_case`, `case_turn`, `response`, `score_event` | Rebuild-critical. It contains the deduplicated response/score-event backfill that supersedes `010`. Must be schema-qualified or folded into an explicit post-ingest backfill. |
+| `sql/013_backfill_unresolved_legacy_response_turns.sql` | rebuild-only | Reads `dataset_case`, `model_response`, `manual_score`, `deterministic_score`; writes public placeholder turn and score backfill objects | Rebuild-critical. It preserves the important `unresolved_legacy_prompt` semantics. Must use `raw.*` for imported response/score tables. |
+| `sql/014_create_score_linkage_status_view.sql` | diagnostic / rebuild-only | Creates `score_linkage_status`; reads `manual_score`, `model_response`, `model_run`, `source_file`, plus operational `response`, `score_event`, `failure_class` | Should become `rpt.score_linkage_status`. A temporary `public.score_linkage_status` compatibility view is useful because docs and ad hoc diagnostics currently use the public name. |
+| `docs/postgres_provenance_layer.md` | documentation | Example SQL over `dataset_case`, `dataset`, `source_file`, `case_run_trace`, `score_linkage_status`; prose references to `model_response`, `manual_score`, `deterministic_score`, `model_run` | Documentation becomes wrong after the split. Update only after implementation changes are real, not before. |
+| `docs/diagrams/postgres_operational_physical_er_model.md` | documentation | Describes the operational chain and raw/import lineage tables including `dataset`, `dataset_case`, `source_file`, `model_response`, `manual_score`, `deterministic_score` | Diagram and notes need updating after the split. No runtime breakage. |
+| `docs/diagrams/postgres_operational_relationships.mmd` | documentation | ER diagram references import and operational tables | Diagram source needs schema-aware labels after the split. No runtime breakage. |
+| `docs/case_cards/scope_control_military_strong_authority_urgency.md` | documentation / generated artefact | States it was exported from `case_run_trace`; contains rendered `manual_score`, `deterministic_score`, and source-file labels | Historical/generated artefact. No code breakage. Future generated cards should say `rpt.case_run_trace` once the view moves. |
 
-## Documentation and generated artefacts
+## Historical SQL references that should not drive the new design
 
-| File | Classification | Current references | Schema-separation impact |
-|---|---:|---|---|
-| `docs/postgres_provenance_layer.md` | Documentation / active commands | Documents initialisation through `001`, ingest source plan, rebuild commands, unqualified query examples over `dataset_case`, `dataset`, `source_file`, `case_run_trace`, `score_linkage_status`, and case-card export. | Must be updated after scripts/views are migrated. Until then it correctly describes the current public-schema workflow. |
-| `docs/design/sql_migration_inventory.md` | Documentation / design | Classifies current `sql/*.sql` files and already recommends a future bootstrap plus legacy migration folder. Notes the missing `moral_domain` definition. | Should be updated after schema separation design is accepted. It should remain conceptually separate from this dependency inventory. |
-| `docs/diagrams/postgres_operational_physical_er_model.md` | Documentation / design | States that operational tables remain in `public` for now; import-shaped tables are included for lineage/FK anchoring; notes raw/public/rpt as a likely future split. | Needs an updated diagram once the split is implemented. No immediate code impact. |
-| `docs/diagrams/postgres_operational_relationships.mmd` | Documentation / diagram source | Shows relationships among import, operational, and score tables. | Needs schema-qualified labelling or a new diagram after the split. |
-| `docs/case_cards/scope_control_military_strong_authority_urgency.md` | Generated/curated documentation | States that the card was exported from `case_run_trace`. | Historical/generated artefact. Does not need to change immediately, but future generated cards should say `rpt.case_run_trace` once the reporting view moves. |
+These files contain real PostgreSQL object references, but the migration inventory classifies them as superseded or historical. They should be retained for audit history until a clean bootstrap exists, but they should not receive compatibility work beyond archival needs.
 
-## What would break if raw tables moved immediately
+| File | Classification | Why it should not drive the design |
+|---|---|---|
+| `sql/006_create_turn_pressure_failure_lookups.sql` | historical | Early lookup-table creation. Later scripts defensively recreate and refine these lookups. Fold final lookup definitions into bootstrap, not this early version. |
+| `sql/007_normalise_turns_and_scores.sql` | historical | First attempt to normalise turn metadata and create/populate `score_event`. Superseded by later repairs. |
+| `sql/008_repair_normalise_turns_and_scores.sql` | historical | Repair of `007`, superseded by `009`. |
+| `sql/010_backfill_all_operational_responses_and_scores.sql` | historical | Broader backfill attempt superseded by deduplicated `011`. |
 
-1. `scripts/ingest_eval_artifacts_to_postgres.py` would fail on unqualified inserts/selects into `source_file`, `dataset`, `dataset_case`, `case_intervention`, `expected_behaviour`, `model_run`, `model_response`, `structured_decision_tuple`, `manual_score`, and `deterministic_score`.
+Do not add public compatibility views merely to keep these historical scripts runnable. That would be designing the future around the sedimentary layer. Sediment is useful to geologists; databases should aspire to less of it.
 
-2. `--init-schema` would still execute `sql/001_create_eval_provenance_schema.sql`, recreating the old public-schema import tables and public views rather than the intended split.
+## Rebuild-critical SQL references
 
-3. `--reset-data` would either fail or truncate the wrong objects. More importantly, it currently truncates import/provenance tables but not all derived operational tables, so stale `eval_case`, `case_turn`, `response`, and `score_event` rows are a risk if reset semantics are not redesigned.
+The current rebuild-critical path, from `sql_migration_inventory.md`, is:
 
-4. Rebuild/backfill SQL files `003`, `004`, `005`, `009`, `011`, `012`, `013`, and `014` would fail or read stale compatibility objects unless all raw references were schema-qualified or explicitly aliased.
+- `001_create_eval_provenance_schema.sql`
+- `002_populate_moral_domain_descriptions.sql`
+- `003_create_and_populate_scenario.sql`
+- `004_update_scenario_names.sql`
+- `005_create_operational_case_turn_model.sql`
+- `009_fix_turn_score_normalisation.sql`
+- `011_backfill_response_score_coverage_deduped.sql`
+- `012_add_rubric_timestamps_for_score_backfill.sql`
+- `013_backfill_unresolved_legacy_response_turns.sql`
+- `014_create_score_linkage_status_view.sql`
 
-5. `case_run_trace` would fail unless recreated against the new raw/public object locations. `case_run_trace_reporting` would fail because it depends on `case_run_trace`.
+Not all of these appear heavily in the scan, because `002` and `012` do not reference the raw/import candidate list much. They are still rebuild-critical because `002` seeds `moral_domain`, and `012` patches `rubric` timestamps for later score backfills.
 
-6. `scripts/export_case_card.py` would fail unless it is updated to `rpt.case_run_trace` or a temporary public alias exists.
+Important bootstrap implication: future schema creation must define `public.moral_domain` before applying the domain seed data. The current inventory explicitly identifies this as a gap.
 
-7. `scripts/test_postgres_provenance_layer.ps1` would fail its public-view existence checks and raw-table count queries.
-
-8. `scripts/diagnose_score_linkage.py` would fail on unqualified reads of raw/import score and response tables.
-
-9. Documentation commands in `docs/postgres_provenance_layer.md` would become misleading or wrong.
-
-10. Foreign-key assumptions need review. Operational tables currently point back to import-shaped tables for lineage, for example `eval_case.dataset_case_pk`, `case_turn.source_case_pk`, `case_turn.source_intervention_id`, `response.legacy_model_response_id`, and `score_event.legacy_manual_score_id` / `legacy_deterministic_score_id`. These relationships should be preserved deliberately, not accidentally broken by a table move.
-
-## Ordered migration plan
-
-### 1. Freeze the current provenance layer as the baseline
-
-Do not run model evals. Do not mutate datasets. Do not move tables. Do not create `bootstrap_current_schema.sql` yet.
-
-Use the current database and generated health checks only as a baseline for row counts, object existence, and reporting-view behaviour.
-
-### 2. Decide the schema contract before writing SQL
-
-Confirm these object-location decisions:
-
-- `raw.model_run` versus `public.model_run`. Recommendation: `raw.model_run`, because it is imported run metadata, with public operational/reporting joins explicitly reaching into `raw`.
-- `public.failure_class` and `public.rubric`. Recommendation: public operational tables only. Do not keep raw duplicates unless a future importer needs raw audit labels separately.
-- `raw.source_file`. Recommendation: raw, because it is source-ingest metadata, but it will be widely referenced from public/rpt for provenance.
-- `rpt.case_run_trace`, `rpt.case_run_trace_reporting`, `rpt.score_linkage_status`. Recommendation: move reporting views to `rpt`, with temporary public aliases.
-
-### 3. Add schema-awareness to active scripts before moving tables
-
-Update active scripts to tolerate explicit schema names, preferably through small constants or configuration defaults:
-
-- raw schema default: `raw`
-- operational schema default: `public`
-- reporting schema default: `rpt`
-
-Do this before moving objects. During this phase the defaults can still point at current public objects or use compatibility views. The point is to remove hard-coded assumptions gradually rather than playing SQL whack-a-mole, which is a sport with no spectators and fewer winners.
-
-Priority order:
+## Active scripts to update first
 
 1. `scripts/ingest_eval_artifacts_to_postgres.py`
+
+   Update first. It is the only active writer into the raw/import provenance layer and the only script that currently applies `001` through `--init-schema`. Add schema-qualified SQL or central schema-name constants before moving any table. Also split or clarify reset semantics before migration.
+
 2. `scripts/export_case_card.py`
+
+   Update second. It should read `rpt.case_run_trace`, not unqualified `case_run_trace`. This is a small change but protects a user-facing export path.
+
 3. `scripts/diagnose_score_linkage.py`
-4. `scripts/test_postgres_provenance_layer.ps1`
 
-### 4. Split reset semantics explicitly
+   Update third. It is read-only, but it queries several raw/import tables and is important for preserving the manual-score ambiguity boundary.
 
-Before moving tables, decide whether reset means:
+4. Health-check / ad hoc PostgreSQL scripts
 
-- raw-only reset: truncate/re-ingest raw imported artefacts, then require an explicit post-ingest operational rebuild; or
-- full rebuild reset: truncate raw and derived operational/reporting-dependent rows in a safe dependency order.
+   `scripts/test_postgres_provenance_layer.ps1` was not prominent in the scan excerpt, but it is part of the active PostgreSQL workflow and should be updated to check `raw`, `public`, and `rpt` explicitly. It should become the main post-migration smoke test.
 
-Recommendation: implement two explicit modes later:
+## Scan hits that are not PostgreSQL schema dependencies
 
-- `--reset-raw --yes`
-- `--reset-derived --yes` or `--full-rebuild --yes`
+The following references should be classified, but should not block schema separation:
 
-The current `--reset-data` name is too vague for a split schema. It worked while the provenance layer was small; it is now a footgun with a polite CLI flag.
+| Path or group | Classification | Reason |
+|---|---|---|
+| `scripts/export_dataset_to_duckdb.py` | active, non-PostgreSQL | Creates and queries a DuckDB table named `source_file`. This is a separate local DuckDB analysis database, not the PostgreSQL provenance layer. It also has `expected_behaviour` as a dataset column. No PostgreSQL schema action needed. |
+| `scripts/summarise_v4_scope_control_scores.py` | active, non-PostgreSQL | Uses `source_file` as a Python dataclass/CSV field. No PostgreSQL object dependency. |
+| `scripts/apply_v4_pilot_manual_scores.py` | active or historical utility, non-PostgreSQL from scan context | Scan hit is ordinary prose containing `dataset`. No PostgreSQL object dependency shown. |
+| `scripts/validate_release_governance_schema_v2.py` and `scripts/validate_release_governance_schema_v2_1.py` | diagnostic, non-PostgreSQL | `expected_behaviour` appears as a JSON/dataset field name, not a table reference. |
+| `src/moral_sycophancy_eval/behaviour.py` | active eval code, non-PostgreSQL | `dataset` and `expected_behaviour` are Inspect/dataset concepts. This should not be changed for database schema separation. |
+| `src/moral_sycophancy_eval/behaviour_schema_v2_1_scored.py` | active eval code, non-PostgreSQL | Uses Inspect `json_dataset`; no PostgreSQL object dependency. |
+| `src/moral_sycophancy_eval/compare_manual_vs_inspect_scores.py` | analysis/diagnostic, non-PostgreSQL | `manual_score` appears as a variable/CSV concept. No PostgreSQL object dependency. |
+| `src/moral_sycophancy_eval/export_behaviour_outputs.py` | active export utility, non-PostgreSQL | `expected_behaviour` is an output/audit field, not the PostgreSQL table. |
+| `src/moral_sycophancy_eval/integrity.py`, `recognition.py`, `summarise_results.py`, `summarise_manual_scores.py`, `validate_dataset.py`, `schema_v2_1_scorer.py` | active/diagnostic eval utilities, non-PostgreSQL | Scan hits are dataset-field names, Inspect dataset loading, or prose around manual scoring. No PostgreSQL schema dependency. |
+| Dataset specs, reports, releases, failure audits, project brief, run notes, and article drafts | documentation | Most scan hits are prose uses of `dataset`, `expected_behaviour`, `manual_score`, or `failure_class`. They do not affect PostgreSQL migration except where they contain explicit SQL examples, mainly in `docs/postgres_provenance_layer.md`. |
 
-### 5. Create reporting views in `rpt` before changing active readers
+No `unknown` runtime dependency remains after review of the scan context. Some broad documentation references are semantically vague, but they are documentation-only, not database runtime dependencies.
 
-When SQL changes are allowed, create:
+## What would break if objects moved immediately
 
-- `rpt.case_run_trace`
-- `rpt.case_run_trace_reporting`
-- `rpt.score_linkage_status`
+If the raw/import tables were moved to `raw.*` and reporting views to `rpt.*` immediately, without code and SQL changes:
 
-Then add temporary compatibility aliases:
+- `scripts/ingest_eval_artifacts_to_postgres.py` would fail on unqualified inserts/upserts/selects/truncates against raw/import tables.
+- `--init-schema` would recreate the old public import tables and public reporting views from `001`, undermining the split.
+- `--reset-data` would be unsafe or wrong because its current truncation list is not split-schema aware and does not explicitly handle all derived operational objects.
+- `sql/003`, `004`, `005`, `009`, `011`, `013`, and `014` would fail or read the wrong objects unless raw references were schema-qualified.
+- `case_run_trace` and `case_run_trace_reporting` would fail unless recreated against schema-qualified raw/public objects.
+- `scripts/export_case_card.py` would fail unless changed to `rpt.case_run_trace` or given a temporary `public.case_run_trace` compatibility view.
+- `scripts/diagnose_score_linkage.py` would fail unless changed to schema-qualified raw/public objects or given compatibility aliases.
+- documented SQL examples in `docs/postgres_provenance_layer.md` would become wrong.
 
-- `public.case_run_trace AS SELECT * FROM rpt.case_run_trace`
-- `public.case_run_trace_reporting AS SELECT * FROM rpt.case_run_trace_reporting`
-- `public.score_linkage_status AS SELECT * FROM rpt.score_linkage_status`
+## Compatibility view recommendation
 
-These aliases are justified because active scripts and docs currently read the public names. Keep them transitional and documented.
+### Reporting views
 
-### 6. Schema-qualify the current rebuild/backfill path
+Use public compatibility views during transition:
 
-The current recommended rebuild path is:
+- `public.case_run_trace` -> `rpt.case_run_trace`
+- `public.case_run_trace_reporting` -> `rpt.case_run_trace_reporting`
+- `public.score_linkage_status` -> `rpt.score_linkage_status`
 
-- `001`
-- `002`
-- `003`
-- `004`
-- `005`
-- `009`
-- `011`
-- `012`
-- `013`
-- `014`
+These are justified because active scripts, documentation, and ad hoc queries currently use the public names. They are read-only surfaces, so compatibility views are low risk.
 
-Before any table move, rewrite or replace the active parts of this path so raw reads/writes use `raw.*`, operational objects use `public.*`, and reporting views use `rpt.*`.
+### Raw/import tables
 
-Do not invest effort in preserving public-name compatibility for historical migrations `006`, `007`, `008`, and `010`. Move them to a legacy folder after the future bootstrap is validated.
+Avoid public compatibility views for raw/import tables if possible.
 
-### 7. Move or rebuild raw/import tables only after readers and writers are ready
+Reason: the most important raw dependency is the ingest script, which performs inserts, upserts, conflicts, and truncates. Simple PostgreSQL views are not a clean substitute for those behaviours, especially with `ON CONFLICT`, foreign keys, identity columns, cascades, and reset semantics. Raw-table public aliases could conceal bugs rather than prevent them.
 
-Once active scripts and current rebuild SQL are schema-aware, move or rebuild the import tables into `raw`.
+Preferred approach: update the active writer and rebuild SQL to use `raw.*` before moving tables. If a narrow temporary alias is unavoidable, document it with a removal condition and do not rely on it for the ingest/reset path.
 
-Use one of two approaches:
+## Ordered schema-separation plan
 
-- Controlled `ALTER TABLE ... SET SCHEMA raw` migration, with views recreated afterwards; or
-- clean rebuild into `raw` from files, followed by public operational backfill and rpt view recreation.
+1. Keep the current working provenance layer intact.
 
-Recommendation: prefer clean rebuild for this project if row counts and source-file hashes are easy to verify. The database is an index/provenance layer over repository artefacts, not the source of truth.
+   Do not move tables, edit SQL migrations, mutate datasets, run evals, or create `bootstrap_current_schema.sql` yet.
 
-### 8. Validate using counts and invariants, not model reruns
+2. Update active scripts to be schema-aware.
 
-Validation should compare old and new database states using:
+   Start with `scripts/ingest_eval_artifacts_to_postgres.py`, then `scripts/export_case_card.py`, then `scripts/diagnose_score_linkage.py`, then the health-check PowerShell script. Use constants or config defaults for `raw`, `public`, and `rpt` rather than scattering literal schema names.
 
-- source-file count and hash inventory;
-- dataset/case counts by dataset version;
-- non-blank legacy `model_response` rows versus operational `response` rows;
-- `manual_score` and `deterministic_score` linkage counts;
-- `case_run_trace` versus `case_run_trace_reporting` row counts;
-- reporting guard checks for smoke, summary, expansion-candidate, and rewrite-candidate artefacts;
-- a case-card export from a known case.
+3. Redesign reset semantics before any move.
 
-No model evals are needed for this.
+   Replace or clarify `--reset-data`. Suggested future split:
 
-### 9. Update docs and diagrams after the split is working
+   - raw-only reset/re-ingest;
+   - derived operational rebuild;
+   - full rebuild, with explicit dependency order.
 
-Update:
+   The current single reset flag is too vague once raw and derived layers are separated.
 
-- `docs/postgres_provenance_layer.md`
-- `docs/design/sql_migration_inventory.md`
-- `docs/diagrams/postgres_operational_physical_er_model.md`
-- `docs/diagrams/postgres_operational_relationships.mmd`
-- any case-card generation note that refers to `case_run_trace`
+4. Prepare `rpt` views first.
 
-Do not update documentation first and leave the implementation behind it. That is how archaeology happens.
+   When SQL changes are allowed, create `rpt.case_run_trace`, `rpt.case_run_trace_reporting`, and `rpt.score_linkage_status`, then add temporary public compatibility views.
 
-### 10. Create `bootstrap_current_schema.sql` only after the migration path is stable
+5. Schema-qualify the rebuild-critical SQL path.
 
-The future bootstrap should create the end-state directly:
+   Update or replace the active rebuild path so it reads imported objects from `raw.*`, writes operational objects to `public.*`, and creates views in `rpt.*`. Do not make historical files `006`, `007`, `008`, or `010` drive the new design.
 
-- `raw` import/source tables;
-- `public` operational tables and lookups;
-- `rpt` reporting/diagnostic views;
-- indexes, constraints, triggers, and seed rows;
-- explicit current timestamp conventions;
-- `moral_domain` table definition;
-- final `rubric` and `failure_class` definitions;
-- no historical repair detritus.
+6. Move or rebuild raw/import tables.
 
-Data-population logic that depends on ingested artefact rows should probably live in a separate, explicit post-ingest script such as `bootstrap_after_ingest.sql` rather than being mixed into pure DDL.
+   Prefer a clean rebuild into `raw` from source artefacts once scripts are ready. This project treats files as the source of truth, so a verified rebuild is cleaner than a fragile table-shuffle. Preserve source-file hashes and row-count invariants.
 
-## Compatibility view policy
+7. Validate using database invariants only.
 
-Use compatibility views only for active entry points that would otherwise break immediately:
+   No model evals are needed. Compare:
 
-- public aliases for `rpt` views are justified during transition;
-- raw-table public aliases may be justified briefly for active scripts if code updates cannot land atomically;
-- do not preserve aliases for superseded historical migrations;
-- document every alias with a removal condition.
+   - `source_file` count and hashes;
+   - dataset/case counts by dataset version;
+   - non-blank legacy `model_response` rows vs operational `response` rows;
+   - manual and deterministic score linkage counts;
+   - reporting trace row counts;
+   - reporting guard checks for smoke, summary, expansion-candidate, and rewrite-candidate artefacts;
+   - a known case-card export.
 
-A compatibility layer without a removal plan becomes the new schema. That is not a transition; it is clutter with tenure.
+8. Update documentation and diagrams after implementation.
 
-## Recommended next step
+   Update `docs/postgres_provenance_layer.md`, the SQL migration inventory, ER diagrams, and generated/export notes only after the database and scripts actually use the split. Documentation-first migration is how future you gets mugged by past you.
 
-Do not move tables yet. The next safe implementation task is to prepare a non-mutating patch plan for active scripts and SQL references, starting with schema-qualified names and reset semantics. Only after that should schema-creation/move SQL be written.
+9. Create `bootstrap_current_schema.sql` last.
+
+   Only after the split is validated should a clean bootstrap be written. It should define the end-state directly:
+
+   - `raw` import/source tables;
+   - `public` operational tables and lookup/rubric tables;
+   - `rpt` reporting and diagnostic views;
+   - indexes, constraints, triggers, and seed data;
+   - the missing `public.moral_domain` definition;
+   - final `rubric` and `failure_class` definitions;
+   - no historical repair detritus.
+
+Data-population logic that depends on ingested artefact rows should probably live in an explicit post-ingest backfill script rather than being mixed into pure DDL.
+
+## Bottom line
+
+Do not move raw tables yet. First make the active writer and active readers schema-aware, then move reporting views behind public compatibility aliases, then migrate or rebuild raw tables, then validate. Only after that should `bootstrap_current_schema.sql` exist.
