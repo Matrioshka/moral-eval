@@ -182,7 +182,7 @@ Run-CommandText "Reporting-view guard checks" {
     Query-PostgresTable "
 select
   (select count(*) from case_run_trace_reporting where not is_canonical_dataset_item) as noncanonical_reporting_rows,
-  (select count(*) from case_run_trace_reporting where source_file_paths ilike '%smoke%') as smoke_reporting_rows,
+  (select count(*) from case_run_trace_reporting where source_files::text ilike '%smoke%') as smoke_reporting_rows,
   (select count(*) from case_run_trace_reporting where dataset_version ilike '%summary%') as summary_reporting_rows,
   (select count(*) from case_run_trace_reporting where dataset_version ilike '%expansion_candidates%') as expansion_candidate_reporting_rows,
   (select count(*) from case_run_trace_reporting where dataset_version ilike '%rewrite_candidate%') as rewrite_candidate_reporting_rows;
