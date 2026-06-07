@@ -45,6 +45,13 @@ current public-schema database. This is a transitional configuration step only:
 it does not move tables, create schemas, create compatibility views, or change
 database objects.
 
+The ingest script has been prepared to qualify raw/import relation references
+and the small operational lookup references it touches, such as `rubric` and
+`failure_class`. With the default settings, those references still resolve to
+the existing public-schema database. Unless a future migration has created and
+populated separate schemas, the live database should still be treated as
+public-only.
+
 For now, `--init-schema` and `--reset-data` remain guarded for the current
 public-schema layout. They should not be used with non-public schema settings
 until reset semantics and the rebuild path are redesigned for a real

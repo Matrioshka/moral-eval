@@ -72,17 +72,25 @@ The existing SQL migration inventory already says the SQL directory mixes a base
 
 The active PostgreSQL-facing scripts are now schema-aware in a default-preserving
 way: raw, operational, and reporting schemas default to `public`, with optional
-CLI and environment-variable overrides. This does not move tables or create
-schemas.
+CLI and environment-variable overrides. This does not move tables, create
+schemas, or create compatibility views.
 
-`scripts/ingest_eval_artifacts_to_postgres.py` still uses transitional
-search-path routing for some unqualified raw/import writes, so it is not ready
-for a table move by itself. Non-public `--init-schema` and `--reset-data` usage
-remains intentionally blocked until the rebuild path and reset semantics are
-redesigned for the split.
+`scripts/ingest_eval_artifacts_to_postgres.py` now qualifies raw/import table
+references through helper functions for `source_file`, `dataset`, `dataset_case`,
+`case_intervention`, `expected_behaviour`, `model_run`, `model_response`,
+`manual_score`, `deterministic_score`, `structured_decision_tuple`, and
+`response_failure_class`. Operational lookup references touched by ingest, such
+as `rubric` and `failure_class`, are routed through the operational schema
+helper.
 
-No SQL migrations, compatibility views, or database objects have been changed in
-this transition patch.
+Reporting consumers can be pointed at a reporting schema through the same
+configuration surface, but `rpt` views do not exist in the current repository
+state. Non-public `--init-schema` and `--reset-data` usage remains intentionally
+blocked until the rebuild path and reset semantics are redesigned for the split.
+
+No SQL migrations, database objects, datasets, eval artefacts, or compatibility
+views have been changed in this transition patch. Compatibility views remain a
+future step, not current repo state.
 
 ## True PostgreSQL dependencies from the scan
 
