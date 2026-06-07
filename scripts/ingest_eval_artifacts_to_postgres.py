@@ -524,7 +524,7 @@ def ingest_csv(cur, schemas, root: Path, path: Path) -> int:
         rid = run(cur, schemas, root, path, sfid, r)
         respid = response(cur, schemas, rid, cpk, sfid, n, r)
         tuple_from_output(cur, schemas, respid, sfid, r)
-        scores(cur, schemas, respid, n, sfid, r)
+        scores(cur, schemas, respid, sfid, n, r)
     return len(rows)
 
 
