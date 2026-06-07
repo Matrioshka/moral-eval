@@ -26,6 +26,42 @@ $env:PGPASSWORD = "postgres"
 
 The repository should not contain a default password-bearing connection string. `.env` should remain ignored.
 
+## Transitional schema options
+
+The active PostgreSQL-facing scripts now accept optional schema arguments:
+
+- `--raw-schema` for imported/source-shaped provenance tables.
+- `--op-schema` for operational tables.
+- `--rpt-schema` for reporting and query views.
+
+The same defaults can be supplied through environment variables:
+
+- `MORAL_EVALS_RAW_SCHEMA`
+- `MORAL_EVALS_OP_SCHEMA`
+- `MORAL_EVALS_RPT_SCHEMA`
+
+All three default to `public`, so existing commands continue to work against the
+current public-schema database. This is a transitional configuration step only:
+it does not move tables, create schemas, create compatibility views, or change
+database objects.
+
+For now, `--init-schema` and `--reset-data` remain guarded for the current
+public-schema layout. They should not be used with non-public schema settings
+until reset semantics and the rebuild path are redesigned for a real
+`raw`/`public`/`rpt` split.
+
+The intended future split is:
+
+- `raw`: imported/source-shaped provenance tables such as `source_file`,
+  `dataset_case`, `model_response`, `manual_score`, and `deterministic_score`.
+- `public`: operational tables such as `eval_case`, `case_turn`, `response`, and
+  `score_event`.
+- `rpt`: reporting and diagnostic views such as `case_run_trace`,
+  `case_run_trace_reporting`, and `score_linkage_status`.
+
+Reporting scripts can be pointed at `--rpt-schema rpt` later, once those views
+actually exist there. Until then, keep the defaults.
+
 ## Initialise
 
 If `psql` is installed locally:

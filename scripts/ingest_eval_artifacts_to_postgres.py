@@ -23,6 +23,8 @@ try:
 except ImportError as exc:
     raise SystemExit('Install dependency first: python -m pip install "psycopg[binary]"') from exc
 
+from postgres_schema_config import add_schema_args, apply_search_path, schemas_from_args
+
 
 LOG = logging.getLogger("ingest_eval_artifacts")
 
@@ -93,7 +95,9 @@ def connect(args):
     # db_url = f"postgresql://{os.getenv('PGUSER')}:{os.getenv('PGPASSWORD')}@{os.getenv('PGHOST')}:{os.getenv('PGPORT')}/{os.getenv('PGDATABASE')}"
     dsn = args.dsn # or os.getenv("MORAL_EVALS_DATABASE_URL")
     if dsn:
-        return psycopg.connect(dsn)
+        conn = psycopg.connect(dsn)
+        apply_search_path(conn, schemas_from_args(args))
+        return conn
 
     params = {
         "host": os.getenv("PGHOST"),
@@ -104,7 +108,9 @@ def connect(args):
     }
     params = {k: v for k, v in params.items() if v}
     if params:
-        return psycopg.connect(**params)
+        conn = psycopg.connect(**params)
+        apply_search_path(conn, schemas_from_args(args))
+        return conn
 
     raise SystemExit(
         "No PostgreSQL connection configured. Set MORAL_EVALS_DATABASE_URL, "
@@ -507,6 +513,9 @@ def seed_rubric(cur) -> None:
 
 
 def reset_data(cur) -> None:
+    # TODO(schema separation): redesign reset semantics before using this against
+    # split raw/op/rpt schemas. A safe split reset should distinguish raw source
+    # re-ingest from derived operational rebuilds.
     cur.execute(
         '''
         truncate table
@@ -533,6 +542,7 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     p.add_argument("--dsn", help="Optional PostgreSQL DSN. Prefer MORAL_EVALS_DATABASE_URL or PG* env vars for local use.")
+    add_schema_args(p)
     p.add_argument("--init-schema", action="store_true")
     p.add_argument("--reset-data", action="store_true", help="Delete all provenance-layer rows before ingesting. Requires --yes.")
     p.add_argument("--yes", action="store_true", help="Required with --reset-data to prevent accidental deletion.")
@@ -550,6 +560,12 @@ def main() -> int:
 
     if args.reset_data and not args.yes:
         raise SystemExit("--reset-data is destructive. Re-run with --reset-data --yes if you really want a clean rebuild.")
+
+    schemas = schemas_from_args(args)
+    if args.init_schema and schemas.search_path != ("public",):
+        raise SystemExit("--init-schema remains public-schema only in this transition patch. Apply existing SQL migrations manually for now.")
+    if args.reset_data and schemas.search_path != ("public",):
+        raise SystemExit("--reset-data is only supported for the current public-schema layout until split reset semantics are redesigned.")
 
     with connect(args) as db, db.cursor() as cur:
         if args.init_schema:

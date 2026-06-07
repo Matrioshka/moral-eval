@@ -20,6 +20,9 @@
 [CmdletBinding()]
 param(
     [string]$OutDir = "tmp/provenance_health_checks",
+    [string]$RawSchema = $(if ($env:MORAL_EVALS_RAW_SCHEMA) { $env:MORAL_EVALS_RAW_SCHEMA } else { "public" }),
+    [string]$OpSchema = $(if ($env:MORAL_EVALS_OP_SCHEMA) { $env:MORAL_EVALS_OP_SCHEMA } else { "public" }),
+    [string]$RptSchema = $(if ($env:MORAL_EVALS_RPT_SCHEMA) { $env:MORAL_EVALS_RPT_SCHEMA } else { "public" }),
     [switch]$SkipIngestSourcePlan
 )
 
@@ -72,6 +75,27 @@ function Query-PostgresTable {
     docker exec -i $env:PGCONTAINER psql -U $env:PGUSER -d $env:PGDATABASE -c $Sql
 }
 
+function Quote-PgIdentifier {
+    param([string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        throw "PostgreSQL identifier must not be blank."
+    }
+    '"' + $Name.Replace('"', '""') + '"'
+}
+
+function Quote-PgLiteral {
+    param([string]$Value)
+    "'" + $Value.Replace("'", "''") + "'"
+}
+
+function Pg-Relation {
+    param(
+        [string]$Schema,
+        [string]$Name
+    )
+    "$(Quote-PgIdentifier $Schema).$(Quote-PgIdentifier $Name)"
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $repoRoot
 
@@ -95,6 +119,16 @@ $reportPath = Join-Path $OutDir "provenance_health_${machine}_${timestamp}.txt"
 $inventoryPath = Join-Path $OutDir "provenance_source_inventory_${machine}_${timestamp}.csv"
 $modelCountsPath = Join-Path $OutDir "provenance_dataset_model_counts_${machine}_${timestamp}.csv"
 
+$SourceFile = Pg-Relation $RawSchema "source_file"
+$Dataset = Pg-Relation $RawSchema "dataset"
+$DatasetCase = Pg-Relation $RawSchema "dataset_case"
+$ModelResponse = Pg-Relation $RawSchema "model_response"
+$ManualScore = Pg-Relation $RawSchema "manual_score"
+$DeterministicScore = Pg-Relation $RawSchema "deterministic_score"
+$CaseRunTrace = Pg-Relation $RptSchema "case_run_trace"
+$CaseRunTraceReporting = Pg-Relation $RptSchema "case_run_trace_reporting"
+$RptSchemaLiteral = Quote-PgLiteral $RptSchema
+
 $reportLines = New-Object System.Collections.Generic.List[string]
 
 function Add-Report {
@@ -116,7 +150,10 @@ Add-Report @(
     "PGCONTAINER: $env:PGCONTAINER",
     "PGDATABASE: $env:PGDATABASE",
     "PGUSER: $env:PGUSER",
-    "PGPASSWORD: <redacted>"
+    "PGPASSWORD: <redacted>",
+    "Raw schema: $RawSchema",
+    "Operational schema: $OpSchema",
+    "Reporting schema: $RptSchema"
 )
 
 Run-CommandText "Docker container status" {
@@ -144,26 +181,26 @@ if (-not $SkipIngestSourcePlan) {
 }
 
 Run-CommandText "Database object existence" {
-    Query-PostgresTable "select table_name from information_schema.views where table_schema = 'public' and table_name in ('case_run_trace','case_run_trace_reporting') order by table_name;"
+    Query-PostgresTable "select table_name from information_schema.views where table_schema = $RptSchemaLiteral and table_name in ('case_run_trace','case_run_trace_reporting') order by table_name;"
 } | ForEach-Object { $reportLines.Add($_) }
 
 Run-CommandText "Core table/view counts" {
     Query-PostgresTable "
 select
-  (select count(*) from source_file) as source_files,
-  (select count(*) from dataset_case) as dataset_cases,
-  (select count(*) from model_response) as model_responses,
-  (select count(*) from manual_score) as manual_scores,
-  (select count(*) from deterministic_score) as deterministic_scores,
-  (select count(*) from case_run_trace) as case_trace_rows,
-  (select count(*) from case_run_trace_reporting) as reporting_trace_rows;
+  (select count(*) from $SourceFile) as source_files,
+  (select count(*) from $DatasetCase) as dataset_cases,
+  (select count(*) from $ModelResponse) as model_responses,
+  (select count(*) from $ManualScore) as manual_scores,
+  (select count(*) from $DeterministicScore) as deterministic_scores,
+  (select count(*) from $CaseRunTrace) as case_trace_rows,
+  (select count(*) from $CaseRunTraceReporting) as reporting_trace_rows;
 "
 } | ForEach-Object { $reportLines.Add($_) }
 
 Run-CommandText "Source-file kind totals" {
     Query-PostgresTable "
 select file_kind, count(*) as files, coalesce(sum(record_count),0) as record_count
-from source_file
+from $SourceFile
 group by file_kind
 order by file_kind;
 "
@@ -172,7 +209,7 @@ order by file_kind;
 Run-CommandText "Case origin totals" {
     Query-PostgresTable "
 select case_origin, is_canonical_dataset_item, count(*)
-from case_run_trace
+from $CaseRunTrace
 group by case_origin, is_canonical_dataset_item
 order by case_origin, is_canonical_dataset_item;
 "
@@ -181,26 +218,26 @@ order by case_origin, is_canonical_dataset_item;
 Run-CommandText "Reporting-view guard checks" {
     Query-PostgresTable "
 select
-  (select count(*) from case_run_trace_reporting where not is_canonical_dataset_item) as noncanonical_reporting_rows,
-  (select count(*) from case_run_trace_reporting where source_files::text ilike '%smoke%') as smoke_reporting_rows,
-  (select count(*) from case_run_trace_reporting where dataset_version ilike '%summary%') as summary_reporting_rows,
-  (select count(*) from case_run_trace_reporting where dataset_version ilike '%expansion_candidates%') as expansion_candidate_reporting_rows,
-  (select count(*) from case_run_trace_reporting where dataset_version ilike '%rewrite_candidate%') as rewrite_candidate_reporting_rows;
+  (select count(*) from $CaseRunTraceReporting where not is_canonical_dataset_item) as noncanonical_reporting_rows,
+  (select count(*) from $CaseRunTraceReporting where source_files::text ilike '%smoke%') as smoke_reporting_rows,
+  (select count(*) from $CaseRunTraceReporting where dataset_version ilike '%summary%') as summary_reporting_rows,
+  (select count(*) from $CaseRunTraceReporting where dataset_version ilike '%expansion_candidates%') as expansion_candidate_reporting_rows,
+  (select count(*) from $CaseRunTraceReporting where dataset_version ilike '%rewrite_candidate%') as rewrite_candidate_reporting_rows;
 "
 } | ForEach-Object { $reportLines.Add($_) }
 
 Run-CommandText "Top dataset/model trace counts" {
     Query-PostgresTable "
 select dataset_version, coalesce(model_name, '<null>') as model_name, count(*)
-from case_run_trace
+from $CaseRunTrace
 group by dataset_version, model_name
 order by dataset_version, model_name
 limit 100;
 "
 } | ForEach-Object { $reportLines.Add($_) }
 
-Query-PostgresCsv "select file_kind, file_path, content_sha256, record_count from source_file order by file_path;" | Set-Content -Encoding UTF8 $inventoryPath
-Query-PostgresCsv "select dataset_version, coalesce(model_name, '<null>') as model_name, count(*) from case_run_trace group by dataset_version, model_name order by dataset_version, model_name;" | Set-Content -Encoding UTF8 $modelCountsPath
+Query-PostgresCsv "select file_kind, file_path, content_sha256, record_count from $SourceFile order by file_path;" | Set-Content -Encoding UTF8 $inventoryPath
+Query-PostgresCsv "select dataset_version, coalesce(model_name, '<null>') as model_name, count(*) from $CaseRunTrace group by dataset_version, model_name order by dataset_version, model_name;" | Set-Content -Encoding UTF8 $modelCountsPath
 
 Add-Report @(
     "",

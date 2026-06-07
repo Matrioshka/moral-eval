@@ -68,6 +68,22 @@ The current breakage risk is concentrated in three places:
 
 The existing SQL migration inventory already says the SQL directory mixes a base provenance/import schema, additive operational normalisation, historical repair/backfill migrations, and diagnostic views. It recommends that a future bootstrap create the end-state objects directly and move historical repair scripts to `sql/legacy_migrations/` after validation. It also records a real rebuild gap: `002_populate_moral_domain_descriptions.sql` assumes a `moral_domain` table exists, but no current SQL file creates it.
 
+## Current transition status
+
+The active PostgreSQL-facing scripts are now schema-aware in a default-preserving
+way: raw, operational, and reporting schemas default to `public`, with optional
+CLI and environment-variable overrides. This does not move tables or create
+schemas.
+
+`scripts/ingest_eval_artifacts_to_postgres.py` still uses transitional
+search-path routing for some unqualified raw/import writes, so it is not ready
+for a table move by itself. Non-public `--init-schema` and `--reset-data` usage
+remains intentionally blocked until the rebuild path and reset semantics are
+redesigned for the split.
+
+No SQL migrations, compatibility views, or database objects have been changed in
+this transition patch.
+
 ## True PostgreSQL dependencies from the scan
 
 | Path | Classification | Referenced objects/views | What breaks if raw tables move to `raw.*` and views move to `rpt.*` |

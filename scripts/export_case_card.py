@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
+from psycopg import sql as psql
 from psycopg.rows import dict_row
+
+from postgres_schema_config import add_schema_args, apply_search_path, rpt_relation, schemas_from_args
 
 
 def load_dotenv(path: Path = Path(".env")) -> None:
@@ -44,7 +47,9 @@ def connect(args):
     load_dotenv()
     dsn = args.dsn or os.getenv("MORAL_EVALS_DATABASE_URL")
     if dsn:
-        return psycopg.connect(dsn, row_factory=dict_row)
+        conn = psycopg.connect(dsn, row_factory=dict_row)
+        apply_search_path(conn, schemas_from_args(args))
+        return conn
 
     params = {
         "host": env_first("PG_HOST", "PGHOST"),
@@ -55,7 +60,9 @@ def connect(args):
     }
     params = {k: v for k, v in params.items() if v}
     if params:
-        return psycopg.connect(**params, row_factory=dict_row)
+        conn = psycopg.connect(**params, row_factory=dict_row)
+        apply_search_path(conn, schemas_from_args(args))
+        return conn
 
     raise SystemExit(
         "No PostgreSQL connection configured. Set MORAL_EVALS_DATABASE_URL, "
@@ -121,6 +128,7 @@ def slug(value: Any) -> str:
 def main():
     p = argparse.ArgumentParser(description="Export one case_run_trace row as Markdown.")
     p.add_argument("--dsn")
+    add_schema_args(p)
     p.add_argument("--case-id")
     p.add_argument("--sample-id")
     p.add_argument("--response-id", type=int)
@@ -140,12 +148,16 @@ def main():
     if not where:
         raise SystemExit("Use --case-id, --sample-id, or --response-id.")
 
-    sql = "select * from case_run_trace where " + " and ".join(where) + " order by response_id desc nulls last limit 1"
+    schemas = schemas_from_args(args)
+    query = psql.SQL("select * from {} where {} order by response_id desc nulls last limit 1").format(
+        rpt_relation(schemas, "case_run_trace"),
+        psql.SQL(" and ").join(psql.SQL(condition) for condition in where),
+    )
     with connect(args) as db, db.cursor() as cur:
-        cur.execute(sql, params)
+        cur.execute(query, params)
         row = cur.fetchone()
     if not row:
-        raise SystemExit("No matching row in case_run_trace.")
+        raise SystemExit(f"No matching row in {schemas.rpt}.case_run_trace.")
     row = dict(row)
 
     source_files = as_mapping(row.get("source_files"))

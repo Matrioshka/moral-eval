@@ -19,9 +19,12 @@ from typing import Any
 
 try:
     import psycopg
+    from psycopg import sql
     from psycopg.rows import dict_row
 except ImportError as exc:
     raise SystemExit('Install dependency first: python -m pip install "psycopg[binary]"') from exc
+
+from postgres_schema_config import add_schema_args, apply_search_path, op_relation, raw_relation, schemas_from_args
 
 
 DEFAULT_OUT_DIR = Path("tmp/score_linkage_diagnostics")
@@ -89,6 +92,7 @@ def connect(args: argparse.Namespace):
     # Guard rail: every query below is SELECT-only, and this transaction is
     # marked read-only so accidental future edits fail loudly.
     conn.execute("SET TRANSACTION READ ONLY")
+    apply_search_path(conn, schemas_from_args(args))
     return conn
 
 
@@ -176,17 +180,17 @@ def expected_output_candidates(manual_path: str, source_files: list[dict[str, An
     return sorted(candidates, key=lambda row: row["file_path"])
 
 
-def fetch_rows(conn) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def fetch_rows(conn, schemas) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     source_files = conn.execute(
-        """
+        sql.SQL("""
         SELECT source_file_id, file_path, file_kind, record_count
-        FROM source_file
+        FROM {}
         ORDER BY file_path
-        """
+        """).format(raw_relation(schemas, "source_file"))
     ).fetchall()
 
     manual_scores = conn.execute(
-        """
+        sql.SQL("""
         SELECT
             ms.manual_score_id,
             ms.response_id AS current_model_response_id,
@@ -210,24 +214,31 @@ def fetch_rows(conn) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[d
             current_mr.case_id AS current_case_id,
             current_mr.source_item_id AS current_source_item_id,
             current_response.response_id AS current_operational_response_id
-        FROM manual_score ms
-        LEFT JOIN score_event se
+        FROM {} ms
+        LEFT JOIN {} se
             ON se.legacy_manual_score_id = ms.manual_score_id
-        LEFT JOIN source_file sf
+        LEFT JOIN {} sf
             ON sf.source_file_id = ms.source_file_id
-        LEFT JOIN model_response current_mr
+        LEFT JOIN {} current_mr
             ON current_mr.response_id = ms.response_id
-        LEFT JOIN model_run current_run
+        LEFT JOIN {} current_run
             ON current_run.run_id = current_mr.run_id
-        LEFT JOIN response current_response
+        LEFT JOIN {} current_response
             ON current_response.legacy_model_response_id = current_mr.response_id
         WHERE se.score_event_id IS NULL
         ORDER BY sf.file_path NULLS LAST, ms.source_row NULLS LAST, ms.manual_score_id
-        """
+        """).format(
+            raw_relation(schemas, "manual_score"),
+            op_relation(schemas, "score_event"),
+            raw_relation(schemas, "source_file"),
+            raw_relation(schemas, "model_response"),
+            raw_relation(schemas, "model_run"),
+            op_relation(schemas, "response"),
+        )
     ).fetchall()
 
     response_candidates = conn.execute(
-        """
+        sql.SQL("""
         SELECT
             mr.response_id AS model_response_id,
             mr.sample_id,
@@ -243,17 +254,22 @@ def fetch_rows(conn) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[d
             sf.record_count AS response_file_record_count,
             mr.source_row AS response_source_row,
             response.response_id AS operational_response_id
-        FROM model_response mr
-        JOIN model_run run
+        FROM {} mr
+        JOIN {} run
             ON run.run_id = mr.run_id
-        LEFT JOIN source_file sf
+        LEFT JOIN {} sf
             ON sf.source_file_id = mr.source_file_id
-        LEFT JOIN response
+        LEFT JOIN {}
             ON response.legacy_model_response_id = mr.response_id
         WHERE mr.raw_response IS NOT NULL
           AND length(trim(mr.raw_response)) > 0
         ORDER BY sf.file_path NULLS LAST, mr.source_row NULLS LAST, mr.response_id
-        """
+        """).format(
+            raw_relation(schemas, "model_response"),
+            raw_relation(schemas, "model_run"),
+            raw_relation(schemas, "source_file"),
+            op_relation(schemas, "response"),
+        )
     ).fetchall()
 
     response_candidates = [
@@ -568,14 +584,17 @@ def write_summary(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def deterministic_summary_count(conn) -> int:
+def deterministic_summary_count(conn, schemas) -> int:
     row = conn.execute(
-        """
+        sql.SQL("""
         SELECT count(*) AS n
-        FROM deterministic_score ds
-        JOIN source_file sf ON sf.source_file_id = ds.source_file_id
+        FROM {} ds
+        JOIN {} sf ON sf.source_file_id = ds.source_file_id
         WHERE sf.file_path ~* '(^|[_/\\\\-])(summary|score_summary)([_./\\\\-]|$)'
-        """
+        """).format(
+            raw_relation(schemas, "deterministic_score"),
+            raw_relation(schemas, "source_file"),
+        )
     ).fetchone()
     return int(row["n"])
 
@@ -587,16 +606,18 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--dsn", help="Optional PostgreSQL DSN. Defaults to MORAL_EVALS_DATABASE_URL or PG* env vars.")
+    add_schema_args(parser)
     args = parser.parse_args()
 
     root = args.root.resolve()
     load_env_file(root / ".env")
     out_dir = args.out_dir if args.out_dir.is_absolute() else root / args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
+    schemas = schemas_from_args(args)
 
     with connect(args) as conn:
-        manual_scores, response_candidates, source_files = fetch_rows(conn)
-        det_summary_count = deterministic_summary_count(conn)
+        manual_scores, response_candidates, source_files = fetch_rows(conn, schemas)
+        det_summary_count = deterministic_summary_count(conn, schemas)
 
     by_file, candidate_counts, unique, ambiguous, missing_pairs, totals = analyse_links(
         manual_scores, response_candidates, source_files
