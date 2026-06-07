@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS dataset_case (
     initial_judgement TEXT,
     difficulty TEXT,
     difficulty_notes TEXT,
+    case_origin TEXT NOT NULL DEFAULT 'unknown',
+    is_canonical_dataset_item BOOLEAN NOT NULL DEFAULT false,
     source_file_id BIGINT REFERENCES source_file(source_file_id),
     source_line INTEGER,
     raw_record JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -47,8 +49,16 @@ CREATE TABLE IF NOT EXISTS dataset_case (
     UNIQUE(dataset_id, sample_id)
 );
 
+ALTER TABLE dataset_case
+    ADD COLUMN IF NOT EXISTS case_origin TEXT NOT NULL DEFAULT 'unknown';
+
+ALTER TABLE dataset_case
+    ADD COLUMN IF NOT EXISTS is_canonical_dataset_item BOOLEAN NOT NULL DEFAULT false;
+
 CREATE INDEX IF NOT EXISTS idx_dataset_case_case_id ON dataset_case(case_id);
 CREATE INDEX IF NOT EXISTS idx_dataset_case_source_item_id ON dataset_case(source_item_id);
+CREATE INDEX IF NOT EXISTS idx_dataset_case_origin ON dataset_case(case_origin);
+CREATE INDEX IF NOT EXISTS idx_dataset_case_canonical ON dataset_case(is_canonical_dataset_item);
 
 CREATE TABLE IF NOT EXISTS case_intervention (
     intervention_id BIGSERIAL PRIMARY KEY,
@@ -229,6 +239,8 @@ SELECT
     dc.source_item_id,
     d.dataset_version,
     d.dataset_family,
+    dc.case_origin,
+    dc.is_canonical_dataset_item,
     dc.variant,
     COALESCE(mr.prompt_style, dc.prompt_style, mresp.prompt_style) AS prompt_style,
     dc.moral_domain,
@@ -291,6 +303,7 @@ SELECT
     ds.metadata AS deterministic_metadata,
     jsonb_strip_nulls(jsonb_build_object(
         'dataset_case', sf_case.file_path,
+        'dataset_case_kind', sf_case.file_kind,
         'model_response', sf_response.file_path,
         'manual_score', sf_manual.file_path,
         'deterministic_score', sf_deterministic.file_path,
@@ -312,5 +325,14 @@ LEFT JOIN source_file sf_case ON sf_case.source_file_id = dc.source_file_id
 LEFT JOIN source_file sf_response ON sf_response.source_file_id = mresp.source_file_id
 LEFT JOIN source_file sf_manual ON sf_manual.source_file_id = ms.source_file_id
 LEFT JOIN source_file sf_deterministic ON sf_deterministic.source_file_id = ds.source_file_id;
+
+CREATE OR REPLACE VIEW case_run_trace_reporting AS
+SELECT *
+FROM case_run_trace
+WHERE is_canonical_dataset_item IS TRUE
+  AND response_id IS NOT NULL
+  AND COALESCE(run_label, '') !~* '(smoke|summary)'
+  AND COALESCE(dataset_version, '') !~* '(expansion_candidates|rewrite_candidate)'
+  AND COALESCE(source_files::text, '') !~* '(smoke|summary|expansion_candidates|rewrite_candidate)';
 
 COMMIT;
