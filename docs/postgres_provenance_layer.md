@@ -109,6 +109,33 @@ docker exec -i postgres-dev psql -U postgres -d moral_evals -c "select file_kind
 docker exec -i postgres-dev psql -U postgres -d moral_evals -c "select case_id, model_name, run_label, manual_score, failure_class from case_run_trace where evidence_quality = 'strong_but_incomplete_safeguard' and pressure_type = 'urgency_deployment' and manual_score = 1 and failure_class ilike '%OVERAPPROVAL%';"
 ```
 
+## Current provenance guarantees and limitations
+
+The current operational chain is intended to support:
+
+```text
+dataset_case -> eval_case -> case_turn -> response -> score_event
+```
+
+Current guarantees after the latest sanity check:
+
+- Every non-blank legacy `model_response.raw_response` row has an operational `response` row.
+- `score_event` remains response-level: it links to `response`, not directly to dataset cases, source files, or run summaries.
+- Linked manual scores preserve their original `manual_score` row through `score_event.legacy_manual_score_id`.
+- Source-file lineage is retained through `source_file` and through the `source_files` object exposed by `case_run_trace`.
+- `unresolved_legacy_prompt` turns are explicitly marked as placeholder turns when exact source prompt text could not be reconstructed.
+- `case_run_trace_reporting` excludes smoke, summary, expansion-candidate, and rewrite-candidate artefacts where the current filename-based filters identify them.
+
+Current known limitations:
+
+- 233 legacy `manual_score` rows remain outside `score_event` because they are not safely auto-linkable under current evidence.
+- The remaining unlinked manual scores usually point to blank/stub legacy `model_response` rows, while plausible real response candidates are ambiguous.
+- Deterministic summary CSV rows are not response-level scores and should not be forced into `score_event`.
+- The current reporting-safe trace is anchored in `*_manual_scores.csv` artefacts for all reporting rows, because those rows contain the usable response text and audit fields currently selected by the reporting filters.
+- Some source rows are intentionally recorded as lineage-only artefacts rather than trace rows.
+
+These are provenance constraints, not merely implementation annoyances. Do not relax them just to make counts look complete.
+
 ## Score Linkage Diagnostics
 
 Use the score-linkage diagnostic when checking legacy `manual_score` rows that
@@ -152,6 +179,40 @@ Current finding from the diagnostic run:
 Keep generated CSV diagnostics under `tmp/` unless a small output is clearly
 useful as a documentation artefact.
 
+## Score linkage status view
+
+Apply the linkage-status view after schema initialisation if it is not already present:
+
+```powershell
+Get-Content .\sql\014_create_score_linkage_status_view.sql |
+  docker exec -i $env:PGCONTAINER psql -U $env:PGUSER -d $env:PGDATABASE
+```
+
+Inspect linked and unlinked manual-score rows:
+
+```powershell
+docker exec -i $env:PGCONTAINER psql -U $env:PGUSER -d $env:PGDATABASE -c "
+select linkage_status, count(*)
+from score_linkage_status
+group by linkage_status
+order by linkage_status;
+"
+```
+
+Inspect unlinked rows by source file:
+
+```powershell
+docker exec -i $env:PGCONTAINER psql -U $env:PGUSER -d $env:PGDATABASE -c "
+select manual_score_source_path, linkage_status, count(*)
+from score_linkage_status
+where is_linked_to_score_event is false
+group by manual_score_source_path, linkage_status
+order by count(*) desc, manual_score_source_path;
+"
+```
+
+`score_linkage_status` is diagnostic. It does not change the definition of `score_event` and should not be used to treat ambiguous legacy scores as if they were response-linked.
+
 ## Export a case card
 
 ```powershell
@@ -161,6 +222,14 @@ python .\scripts\export_case_card.py --case-id release_schema_v2_1_api_no_finetu
 The exporter currently selects one row by `--case-id`, `--sample-id`, or `--response-id`. Use SQL against `case_run_trace` first when you need to find a case by evidence quality, pressure type, score, or failure class.
 
 The case-card exporter labels exact source text separately from the diagram-ready paraphrase.
+
+A curated demonstration card is available at:
+
+```text
+docs/case_cards/scope_control_military_strong_authority_urgency.md
+```
+
+It illustrates strong-but-incomplete evidence under authority/urgency pressure in military decision support, with a calibrated scope-control response.
 
 ## Limitations
 
