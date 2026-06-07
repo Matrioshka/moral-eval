@@ -22,9 +22,6 @@ if not OPENROUTER_API_KEY:
 
 #os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
 
-
-
-
 response = requests.get(
             "https://openrouter.ai/api/v1/auth/key",
             headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
