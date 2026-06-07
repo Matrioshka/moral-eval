@@ -40,7 +40,8 @@ bootstrap should define `moral_domain` before seeding descriptions.
 | `011_backfill_response_score_coverage_deduped.sql` | Repair migration | Deduplicates operational case sources and backfills operational responses plus score-event coverage from legacy rows. | Remain for now. Fold the safe deduplicated response/score coverage logic into a future post-ingest backfill or bootstrap companion. |
 | `012_add_rubric_timestamps_for_score_backfill.sql` | Repair migration | Adds `created_at`/`updated_at` and an update trigger to `rubric` for compatibility with later score backfills. | Remain for now. Fold directly into the bootstrap `rubric` definition; once folded, move this compatibility patch to legacy. |
 | `013_backfill_unresolved_legacy_response_turns.sql` | Repair migration | Adds `unresolved_legacy_prompt` and backfills remaining valid legacy responses that lacked reconstructable case turns, then broadens score-event coverage. | Remain for now. Fold the placeholder turn type and remaining-response handling into future bootstrap/post-ingest backfill; review manual-score ambiguity before preserving broad score-event import behaviour. |
-| `014_create_score_linkage_status_view.sql` | Diagnostic/reporting view | Creates read-only `score_linkage_status` view for manual-score linkage coverage and ambiguity inspection. | Remain. Fold into future bootstrap as a reporting/diagnostic view. |
+| `014_create_score_linkage_status_view.sql` | Diagnostic/reporting view | Creates read-only `score_linkage_status` view for manual-score linkage coverage and ambiguity inspection. | Remain for now for existing/public-layout rebuilds. Superseded for split-schema reporting by `015_create_rpt_reporting_views.sql`; fold the diagnostic view into future bootstrap under `rpt`. |
+| `015_create_rpt_reporting_views.sql` | Active reporting migration | Creates `rpt.case_run_trace`, `rpt.case_run_trace_reporting`, and `rpt.score_linkage_status`, while retaining public compatibility views that delegate to `rpt`. Does not move raw/import tables. | Remain. This is the first actual schema-separation migration. Fold final reporting-view definitions into future bootstrap. |
 
 ## Recommended Current Layout
 
@@ -49,7 +50,7 @@ files in place except for clearly superseded scripts that can be moved after a
 separate cleanup task:
 
 - Keep current operational/fresh rebuild path: `001`, `002`, `003`, `004`, `005`,
-  `009`, `011`, `012`, `013`, `014`.
+  `009`, `011`, `012`, `013`, `014`, `015`.
 - Candidate legacy moves after validation: `006`, `007`, `008`, `010`.
 - Do not add new data-mutating migrations for score linkage until the diagnostic
   evidence supports specific, reviewed, unambiguous links.
@@ -65,8 +66,9 @@ directly:
   `failure_class`, `scorer`, and `rubric` with final timestamp conventions;
 - operational tables `eval_case`, `case_turn`, `response`, and `score_event`;
 - current indexes, constraints, and `set_updated_at` triggers;
-- reporting views `case_run_trace`, `case_run_trace_reporting`, and
-  `score_linkage_status`.
+- reporting views `rpt.case_run_trace`, `rpt.case_run_trace_reporting`, and
+  `rpt.score_linkage_status`, plus any deliberate public compatibility aliases
+  still needed at bootstrap time.
 
 Data-population logic that depends on ingested artefact rows should either remain
 as a clearly named post-ingest backfill script or be split into an explicit
