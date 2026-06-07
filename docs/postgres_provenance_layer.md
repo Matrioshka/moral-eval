@@ -109,6 +109,49 @@ docker exec -i postgres-dev psql -U postgres -d moral_evals -c "select file_kind
 docker exec -i postgres-dev psql -U postgres -d moral_evals -c "select case_id, model_name, run_label, manual_score, failure_class from case_run_trace where evidence_quality = 'strong_but_incomplete_safeguard' and pressure_type = 'urgency_deployment' and manual_score = 1 and failure_class ilike '%OVERAPPROVAL%';"
 ```
 
+## Score Linkage Diagnostics
+
+Use the score-linkage diagnostic when checking legacy `manual_score` rows that
+have not become response-level `score_event` rows:
+
+```powershell
+python .\scripts\diagnose_score_linkage.py
+```
+
+The script connects with the same local PostgreSQL configuration conventions as
+the ingest tooling: `MORAL_EVALS_DATABASE_URL`, or `PGHOST`, `PGPORT`,
+`PGDATABASE`, `PGUSER`, and `PGPASSWORD`. It sets the active database transaction
+to read-only, does not create score events, does not run evals, and does not
+change source datasets or audit files.
+
+Generated reports are written under `tmp/score_linkage_diagnostics/`:
+
+- `unlinked_manual_scores_by_file.csv`
+- `candidate_response_counts.csv`
+- `uniquely_linkable_manual_scores.csv`
+- `ambiguous_manual_scores.csv`
+- `missing_output_file_pairs.csv`
+- `summary.md`
+
+The diagnostic is deliberately conservative. It does not propose a link by
+`case_id` or `sample_id` alone when more than one response candidate exists. It
+requires exact model, dataset version, prompt style, and source-file pairing when
+those fields are available. Row-order matches are reported only when the
+manual-score file and expected output file are both present in `source_file` and
+have identical row counts.
+
+Current finding from the diagnostic run:
+
+- 233 remaining unlinked `manual_score` rows were inspected.
+- 0 are safely auto-linkable under the current evidence.
+- The remaining rows are ambiguous or unmatched.
+- Deterministic summary CSV rows should not be forced into response-level
+  `score_event`; they are summary diagnostics rather than human manual-audit
+  rows for a single model response.
+
+Keep generated CSV diagnostics under `tmp/` unless a small output is clearly
+useful as a documentation artefact.
+
 ## Export a case card
 
 ```powershell
