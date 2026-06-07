@@ -60,6 +60,32 @@ TRACE_PAYLOAD_KEYS = {
     "score",
 }
 
+RAW_IMPORT_TABLES = (
+    "source_file",
+    "dataset",
+    "dataset_case",
+    "case_intervention",
+    "expected_behaviour",
+    "model_run",
+    "model_response",
+    "manual_score",
+    "deterministic_score",
+    "structured_decision_tuple",
+    "response_failure_class",
+)
+DERIVED_OPERATIONAL_TABLES = ("scenario", "eval_case", "case_turn", "response", "score_event")
+INGEST_OWNED_LOOKUP_TABLES = ("rubric", "failure_class")
+DERIVED_REBUILD_SQL_FILES = (
+    "003_create_and_populate_scenario.sql",
+    "004_update_scenario_names.sql",
+    "005_create_operational_case_turn_model.sql",
+    "009_fix_turn_score_normalisation.sql",
+    "011_backfill_response_score_coverage_deduped.sql",
+    "012_add_rubric_timestamps_for_score_backfill.sql",
+    "013_backfill_unresolved_legacy_response_turns.sql",
+    "015_create_rpt_reporting_views.sql",
+)
+
 
 def clean(v: Any) -> str | None:
     if v is None:
@@ -517,6 +543,13 @@ def execute_schema(cur, root: Path) -> None:
     cur.execute((root / "sql" / "001_create_eval_provenance_schema.sql").read_text(encoding="utf-8"))
 
 
+def execute_sql_sequence(cur, root: Path, filenames: tuple[str, ...]) -> None:
+    for filename in filenames:
+        path = root / "sql" / filename
+        cur.execute(path.read_text(encoding="utf-8"))
+        LOG.info("applied SQL: %s", path.relative_to(root).as_posix())
+
+
 def seed_rubric(cur, schemas) -> None:
     cur.execute(
         sql.SQL('''
@@ -531,36 +564,46 @@ def seed_rubric(cur, schemas) -> None:
     )
 
 
-def reset_data(cur, schemas) -> None:
-    # TODO(schema separation): redesign reset semantics before using this against
-    # split raw/op/rpt schemas. A safe split reset should distinguish raw source
-    # re-ingest from derived operational rebuilds.
+def truncate_relations(cur, relations: list[sql.Composed]) -> None:
     cur.execute(
         sql.SQL('''
         truncate table
             {}
         restart identity cascade
         ''').format(
-            sql.SQL(",\n            ").join(
-                [
-                    raw_relation(schemas, "response_failure_class"),
-                    raw_relation(schemas, "deterministic_score"),
-                    raw_relation(schemas, "manual_score"),
-                    raw_relation(schemas, "structured_decision_tuple"),
-                    raw_relation(schemas, "model_response"),
-                    raw_relation(schemas, "model_run"),
-                    raw_relation(schemas, "expected_behaviour"),
-                    raw_relation(schemas, "case_intervention"),
-                    raw_relation(schemas, "dataset_case"),
-                    raw_relation(schemas, "dataset"),
-                    op_relation(schemas, "failure_class"),
-                    op_relation(schemas, "rubric"),
-                    raw_relation(schemas, "source_file"),
-                ]
-            )
+            sql.SQL(",\n            ").join(relations)
         )
     )
+
+
+def reset_raw(cur, schemas) -> None:
+    # FK CASCADE may clear dependent operational rows in the current public layout.
+    truncate_relations(cur, [raw_relation(schemas, table) for table in RAW_IMPORT_TABLES])
+
+
+def reset_derived(cur, schemas) -> None:
+    truncate_relations(cur, [op_relation(schemas, table) for table in DERIVED_OPERATIONAL_TABLES])
+
+
+def reset_all(cur, schemas) -> None:
+    truncate_relations(
+        cur,
+        [raw_relation(schemas, table) for table in RAW_IMPORT_TABLES]
+        + [op_relation(schemas, table) for table in DERIVED_OPERATIONAL_TABLES]
+        + [op_relation(schemas, table) for table in INGEST_OWNED_LOOKUP_TABLES],
+    )
     seed_rubric(cur, schemas)
+
+
+def reset_scope(cur, schemas, scope: str) -> None:
+    if scope == "raw":
+        reset_raw(cur, schemas)
+    elif scope == "derived":
+        reset_derived(cur, schemas)
+    elif scope == "all":
+        reset_all(cur, schemas)
+    else:
+        raise AssertionError(f"unexpected reset scope: {scope}")
 
 
 def main() -> int:
@@ -569,10 +612,29 @@ def main() -> int:
     p.add_argument("--dsn", help="Optional PostgreSQL DSN. Prefer MORAL_EVALS_DATABASE_URL or PG* env vars for local use.")
     add_schema_args(p)
     p.add_argument("--init-schema", action="store_true")
-    p.add_argument("--reset-data", action="store_true", help="Delete all provenance-layer rows before ingesting. Requires --yes.")
-    p.add_argument("--yes", action="store_true", help="Required with --reset-data to prevent accidental deletion.")
+    p.add_argument(
+        "--reset-scope",
+        choices=("raw", "derived", "all"),
+        help=(
+            "Explicit reset scope. raw truncates imported/source-shaped tables in --raw-schema "
+            "(FK CASCADE may clear dependent operational rows); derived truncates public operational "
+            "derived tables; all truncates raw + derived + ingest-owned rubric/failure_class lookups "
+            "and reseeds manual_score_0_to_3. Requires --yes."
+        ),
+    )
+    p.add_argument(
+        "--reset-data",
+        action="store_true",
+        help="Deprecated alias for --reset-scope all. Requires --yes.",
+    )
+    p.add_argument(
+        "--rebuild-derived",
+        action="store_true",
+        help="Apply the current public-layout post-ingest SQL sequence for derived operational/reporting objects.",
+    )
+    p.add_argument("--yes", action="store_true", help="Required with --reset-scope or deprecated --reset-data.")
     p.add_argument("--list-sources", action="store_true", help="Print the allowlisted source files and exit without connecting to PostgreSQL.")
-    p.add_argument("--no-ingest", action="store_true", help="Apply schema/reset only; do not ingest artefacts.")
+    p.add_argument("--no-ingest", action="store_true", help="Apply schema/reset/rebuild steps only; do not ingest artefacts.")
     p.add_argument("--verbose", action="store_true")
     args = p.parse_args()
 
@@ -583,21 +645,31 @@ def main() -> int:
         list_sources(root)
         return 0
 
-    if args.reset_data and not args.yes:
-        raise SystemExit("--reset-data is destructive. Re-run with --reset-data --yes if you really want a clean rebuild.")
+    if args.reset_data and args.reset_scope and args.reset_scope != "all":
+        raise SystemExit("--reset-data is an alias for --reset-scope all; do not combine it with another reset scope.")
+    if args.reset_data:
+        args.reset_scope = "all"
+        LOG.warning("--reset-data is deprecated; use --reset-scope all --yes instead.")
+
+    if args.reset_scope and not args.yes:
+        raise SystemExit(f"--reset-scope {args.reset_scope} is destructive. Re-run with --reset-scope {args.reset_scope} --yes.")
 
     schemas = schemas_from_args(args)
     if args.init_schema and schemas.search_path != ("public",):
         raise SystemExit("--init-schema remains public-schema only in this transition patch. Apply existing SQL migrations manually for now.")
-    if args.reset_data and schemas.search_path != ("public",):
-        raise SystemExit("--reset-data is only supported for the current public-schema layout until split reset semantics are redesigned.")
+    if args.reset_scope == "derived" and schemas.op != "public":
+        raise SystemExit("--reset-scope derived is currently supported only with --op-schema public.")
+    if args.reset_scope == "all" and (schemas.raw != "public" or schemas.op != "public"):
+        raise SystemExit("--reset-scope all is currently supported only with --raw-schema public --op-schema public.")
+    if args.rebuild_derived and (schemas.raw != "public" or schemas.op != "public"):
+        raise SystemExit("--rebuild-derived currently requires --raw-schema public --op-schema public.")
 
     with connect(args) as db, db.cursor() as cur:
         if args.init_schema:
             execute_schema(cur, root)
-        if args.reset_data:
-            reset_data(cur, schemas)
-            LOG.info("reset provenance-layer data")
+        if args.reset_scope:
+            reset_scope(cur, schemas, args.reset_scope)
+            LOG.info("reset provenance-layer data with scope=%s", args.reset_scope)
 
         total = 0
         if not args.no_ingest:
@@ -614,6 +686,9 @@ def main() -> int:
             for path in source_only:
                 source(cur, schemas, root, path, None)
                 LOG.info("recorded source-only artefact: %s", path.relative_to(root))
+
+        if args.rebuild_derived:
+            execute_sql_sequence(cur, root, DERIVED_REBUILD_SQL_FILES)
 
         db.commit()
 
