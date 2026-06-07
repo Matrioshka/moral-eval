@@ -1,14 +1,66 @@
 #!/usr/bin/env python
 from __future__ import annotations
-import argparse, json, os, re
+
+import argparse
+import json
+import os
+import re
 from pathlib import Path
+
 import psycopg
 from psycopg.rows import dict_row
 
 
+def load_dotenv(path: Path = Path(".env")) -> None:
+    """Load simple KEY=VALUE pairs from .env without adding a dependency.
+
+    Existing environment variables win. This intentionally supports only the
+    plain .env format used for local development; it is not a shell parser.
+    """
+
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def env_first(*names: str) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+    return None
+
+
 def connect(args):
-    dsn = args.dsn or os.getenv("MORAL_EVALS_DATABASE_URL") or "postgresql://postgres:postgres@localhost:5432/moral_evals"
-    return psycopg.connect(dsn, row_factory=dict_row)
+    load_dotenv()
+    dsn = args.dsn or os.getenv("MORAL_EVALS_DATABASE_URL")
+    if dsn:
+        return psycopg.connect(dsn, row_factory=dict_row)
+
+    params = {
+        "host": env_first("PG_HOST", "PGHOST"),
+        "port": env_first("PG_PORT", "PGPORT"),
+        "dbname": env_first("PG_DATABASE", "PGDATABASE"),
+        "user": env_first("PG_USER", "PGUSER"),
+        "password": env_first("PG_PASSWORD", "PGPASSWORD"),
+    }
+    params = {k: v for k, v in params.items() if v}
+    if params:
+        return psycopg.connect(**params, row_factory=dict_row)
+
+    raise SystemExit(
+        "No PostgreSQL connection configured. Set MORAL_EVALS_DATABASE_URL, "
+        "or set PG_HOST/PG_PORT/PG_DATABASE/PG_USER/PG_PASSWORD in .env, "
+        "or pass --dsn."
+    )
 
 
 def txt(value):
@@ -106,39 +158,44 @@ This card is exported from `case_run_trace`. Exact-source sections are provenanc
 
 {quote(row.get('expected_behaviour') or row.get('ideal_behaviour'))}
 
-## Model response — exact exported text
+## Model response — exact source text
 
-{quote(row.get('model_raw_response'))}
+{quote(row.get('raw_response'))}
 
-## Extracted structured output
+## Structured tuple — extracted artefact
 
-{fence(row.get('extracted_structured_tuple'))}
+{fence(row.get('structured_tuple'))}
 
-## Scores and audit notes
+## Score / audit
 
 | Field | Value |
 |---|---|
 | manual_score | {one(row.get('manual_score'))} |
-| failure_class | {one(row.get('failure_class'))} |
 | deterministic_score | {one(row.get('deterministic_score'))} |
-| deterministic_explanation | {one(row.get('deterministic_explanation'))} |
+| failure_class | {one(row.get('failure_class'))} |
 
-## Grading rationale / audit notes — exact source text where recorded
+### Grading rationale / audit notes — exact source text where present
 
-{quote(row.get('grading_rationale'))}
+{quote(row.get('grading_rationale') or row.get('audit_notes'))}
 
 ## Source files
 
-{fence(row.get('source_files'))}
+| Source | Path |
+|---|---|
+| dataset | {one(row.get('dataset_source_path'))} |
+| response | {one(row.get('response_source_path'))} |
+| manual score | {one(row.get('manual_score_source_path'))} |
+| deterministic score | {one(row.get('deterministic_score_source_path'))} |
 
 ## Diagram-ready summary — paraphrase, not exact source text
 
 {summary}
 """
-    out = args.out or Path("docs") / "case_cards" / f"{slug(title)}.md"
+
+    out = args.out or Path("docs/case_cards") / f"{slug(title)}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(md, encoding="utf-8")
-    print(f"Wrote case card: {out}")
+    print(out)
 
 
 if __name__ == "__main__":
