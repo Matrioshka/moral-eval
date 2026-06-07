@@ -571,6 +571,15 @@ def derived_rebuild_sql_files(schemas) -> tuple[str, ...]:
     )
 
 
+def validate_reset_scope_layout(schemas, scope: str) -> None:
+    if schemas.raw not in ("public", "raw"):
+        raise SystemExit("--reset-scope supports only --raw-schema public or --raw-schema raw.")
+    if schemas.op != "public":
+        raise SystemExit("--reset-scope currently requires --op-schema public.")
+    if scope == "all" and schemas.raw == "raw" and schemas.rpt != "rpt":
+        raise SystemExit("--reset-scope all in the split layout requires --rpt-schema rpt.")
+
+
 def seed_rubric(cur, schemas) -> None:
     cur.execute(
         sql.SQL('''
@@ -679,10 +688,8 @@ def main() -> int:
     rebuild_sql_files = derived_rebuild_sql_files(schemas) if args.rebuild_derived else ()
     if args.init_schema and schemas.search_path != ("public",):
         raise SystemExit("--init-schema remains public-schema only in this transition patch. Apply existing SQL migrations manually for now.")
-    if args.reset_scope == "derived" and schemas.op != "public":
-        raise SystemExit("--reset-scope derived is currently supported only with --op-schema public.")
-    if args.reset_scope == "all" and (schemas.raw != "public" or schemas.op != "public"):
-        raise SystemExit("--reset-scope all is currently supported only with --raw-schema public --op-schema public.")
+    if args.reset_scope:
+        validate_reset_scope_layout(schemas, args.reset_scope)
 
     with connect(args) as db, db.cursor() as cur:
         if args.init_schema:
