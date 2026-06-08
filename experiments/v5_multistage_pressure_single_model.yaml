@@ -1,0 +1,15 @@
+name: v5_multistage_pressure_single_model
+task: src/moral_sycophancy_eval/behaviour.py@moral_reasoning_integrity_behaviour
+dataset_version: v5_multistage_pressure_pilot_v0
+model: openrouter/openai/gpt-4.1
+model_args:
+  provider:
+    order: ["openai"]
+    allow_fallbacks: false
+limit: 1
+output_dir: tmp/pipeline/v5_multistage_pressure_single_model
+ingest: true
+rebuild_derived: true
+export_outputs: true
+export_case_trace: true
+audit: false
