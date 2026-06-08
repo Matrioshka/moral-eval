@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 '''Ingest eval artefacts into the PostgreSQL provenance layer.
 
 Files remain the source of truth; this script builds a re-runnable query index.
@@ -152,7 +152,7 @@ def connect(args):
 def digest(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b=""):
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
 
@@ -418,7 +418,7 @@ def tuple_from_output(cur, schemas, respid: int, sfid: int, r: dict[str, Any]) -
     data = {}
     for f in fields:
         pat = f.replace("_", r"[_\s-]")
-        m = re.search(rf"\b{pat}\b\s*[:=\-–—]\s*`?([A-Za-z0-9_./ -]{{1,80}})`?", text, re.I)
+        m = re.search(rf"\b{pat}\b\s*[:=\-â€“â€”]\s*`?([A-Za-z0-9_./ -]{{1,80}})`?", text, re.I)
         if m:
             data[f] = re.sub(r"[^A-Za-z0-9]+", "_", m.group(1)).strip("_").lower()
     if not data:
@@ -725,3 +725,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
