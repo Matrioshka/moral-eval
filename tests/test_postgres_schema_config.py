@@ -29,15 +29,15 @@ def parse_schema_args(*argv: str) -> PostgresSchemas:
 class PostgresSchemaConfigTests(unittest.TestCase):
     SCHEMA_ENV = ("MORAL_EVALS_RAW_SCHEMA", "MORAL_EVALS_OP_SCHEMA", "MORAL_EVALS_RPT_SCHEMA")
 
-    def test_default_schemas_are_public(self) -> None:
+    def test_default_schemas_use_active_split_layout(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
             for name in self.SCHEMA_ENV:
                 os.environ.pop(name, None)
 
             schemas = parse_schema_args()
 
-        self.assertEqual(schemas, PostgresSchemas(raw="public", op="public", rpt="public"))
-        self.assertEqual(schemas.search_path, ("public",))
+        self.assertEqual(schemas, PostgresSchemas(raw="raw", op="public", rpt="rpt"))
+        self.assertEqual(schemas.search_path, ("raw", "public", "rpt"))
 
     def test_environment_variables_are_parser_defaults(self) -> None:
         with patch.dict(

@@ -7,11 +7,21 @@ from dataclasses import dataclass
 from psycopg import sql
 
 
+DEFAULT_RAW_SCHEMA = "raw"
+DEFAULT_OP_SCHEMA = "public"
+DEFAULT_RPT_SCHEMA = "rpt"
+DEFAULT_SCHEMAS = {
+    "raw": DEFAULT_RAW_SCHEMA,
+    "op": DEFAULT_OP_SCHEMA,
+    "rpt": DEFAULT_RPT_SCHEMA,
+}
+
+
 @dataclass(frozen=True)
 class PostgresSchemas:
-    raw: str = "public"
-    op: str = "public"
-    rpt: str = "public"
+    raw: str = DEFAULT_RAW_SCHEMA
+    op: str = DEFAULT_OP_SCHEMA
+    rpt: str = DEFAULT_RPT_SCHEMA
 
     @property
     def search_path(self) -> tuple[str, ...]:
@@ -27,18 +37,18 @@ class PostgresSchemas:
 def add_schema_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--raw-schema",
-        default=os.getenv("MORAL_EVALS_RAW_SCHEMA", "public"),
-        help="Schema for imported/source-shaped provenance tables. Default: MORAL_EVALS_RAW_SCHEMA or public.",
+        default=os.getenv("MORAL_EVALS_RAW_SCHEMA", DEFAULT_RAW_SCHEMA),
+        help="Schema for imported/source-shaped provenance tables. Default: MORAL_EVALS_RAW_SCHEMA or raw.",
     )
     parser.add_argument(
         "--op-schema",
-        default=os.getenv("MORAL_EVALS_OP_SCHEMA", "public"),
+        default=os.getenv("MORAL_EVALS_OP_SCHEMA", DEFAULT_OP_SCHEMA),
         help="Schema for operational tables. Default: MORAL_EVALS_OP_SCHEMA or public.",
     )
     parser.add_argument(
         "--rpt-schema",
-        default=os.getenv("MORAL_EVALS_RPT_SCHEMA", "public"),
-        help="Schema for reporting/query views. Default: MORAL_EVALS_RPT_SCHEMA or public.",
+        default=os.getenv("MORAL_EVALS_RPT_SCHEMA", DEFAULT_RPT_SCHEMA),
+        help="Schema for reporting/query views. Default: MORAL_EVALS_RPT_SCHEMA or rpt.",
     )
 
 
@@ -51,7 +61,7 @@ def schemas_from_args(args: argparse.Namespace) -> PostgresSchemas:
 
 
 def apply_search_path(conn_or_cur, schemas: PostgresSchemas) -> None:
-    """Route unqualified transitional SQL through the configured schemas.
+    """Route unqualified runtime SQL through the configured schemas.
 
     This only changes the session search path. It does not create schemas,
     tables, views, or compatibility aliases.
@@ -81,7 +91,7 @@ def rpt_relation(schemas: PostgresSchemas, name: str) -> sql.Composed:
 
 
 def _clean_schema(value: str | None, label: str) -> str:
-    schema = (value or "public").strip()
+    schema = (value or DEFAULT_SCHEMAS[label]).strip()
     if not schema:
         raise SystemExit(f"{label} schema must not be blank.")
     return schema

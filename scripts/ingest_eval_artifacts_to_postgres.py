@@ -75,16 +75,6 @@ RAW_IMPORT_TABLES = (
 )
 DERIVED_OPERATIONAL_TABLES = ("scenario", "eval_case", "case_turn", "response", "score_event")
 INGEST_OWNED_LOOKUP_TABLES = ("rubric", "failure_class")
-PUBLIC_LAYOUT_DERIVED_REBUILD_SQL_FILES = (
-    "003_create_and_populate_scenario.sql",
-    "004_update_scenario_names.sql",
-    "005_create_operational_case_turn_model.sql",
-    "009_fix_turn_score_normalisation.sql",
-    "011_backfill_response_score_coverage_deduped.sql",
-    "012_add_rubric_timestamps_for_score_backfill.sql",
-    "013_backfill_unresolved_legacy_response_turns.sql",
-    "015_create_rpt_reporting_views.sql",
-)
 SPLIT_LAYOUT_DERIVED_REBUILD_SQL_FILES = (
     "016_backfill_public_operational_from_raw.sql",
     "018_create_rpt_reporting_views_from_raw.sql",
@@ -543,10 +533,6 @@ def list_sources(root: Path) -> None:
             print(path.relative_to(root).as_posix())
 
 
-def execute_schema(cur, root: Path) -> None:
-    cur.execute((root / "sql" / "001_create_eval_provenance_schema.sql").read_text(encoding="utf-8"))
-
-
 def run_sql_file(cur, path: Path, schemas) -> None:
     apply_search_path(cur, schemas)
     cur.execute(path.read_text(encoding="utf-8"))
@@ -560,24 +546,24 @@ def execute_sql_sequence(cur, root: Path, filenames: tuple[str, ...], schemas) -
 
 
 def derived_rebuild_sql_files(schemas) -> tuple[str, ...]:
-    if schemas.raw == "public" and schemas.op == "public":
-        return PUBLIC_LAYOUT_DERIVED_REBUILD_SQL_FILES
-    if schemas.raw == "raw" and schemas.op == "public" and schemas.rpt == "rpt":
+    if is_active_runtime_layout(schemas):
         return SPLIT_LAYOUT_DERIVED_REBUILD_SQL_FILES
     raise SystemExit(
-        "--rebuild-derived supports either the legacy public layout "
-        "(--raw-schema public --op-schema public) or the split layout "
+        "--rebuild-derived requires the active raw/public/rpt layout "
         "(--raw-schema raw --op-schema public --rpt-schema rpt)."
     )
 
 
+def is_active_runtime_layout(schemas) -> bool:
+    return schemas.raw == "raw" and schemas.op == "public" and schemas.rpt == "rpt"
+
+
 def validate_reset_scope_layout(schemas, scope: str) -> None:
-    if schemas.raw not in ("public", "raw"):
-        raise SystemExit("--reset-scope supports only --raw-schema public or --raw-schema raw.")
-    if schemas.op != "public":
-        raise SystemExit("--reset-scope currently requires --op-schema public.")
-    if scope == "all" and schemas.raw == "raw" and schemas.rpt != "rpt":
-        raise SystemExit("--reset-scope all in the split layout requires --rpt-schema rpt.")
+    if not is_active_runtime_layout(schemas):
+        raise SystemExit(
+            f"--reset-scope {scope} requires the active raw/public/rpt layout "
+            "(--raw-schema raw --op-schema public --rpt-schema rpt)."
+        )
 
 
 def seed_rubric(cur, schemas) -> None:
@@ -607,7 +593,7 @@ def truncate_relations(cur, relations: list[sql.Composed]) -> None:
 
 
 def reset_raw(cur, schemas) -> None:
-    # FK CASCADE may clear dependent operational rows in the current public layout.
+    # FK CASCADE may clear dependent operational rows.
     truncate_relations(cur, [raw_relation(schemas, table) for table in RAW_IMPORT_TABLES])
 
 
@@ -641,7 +627,6 @@ def main() -> int:
     p.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     p.add_argument("--dsn", help="Optional PostgreSQL DSN. Prefer MORAL_EVALS_DATABASE_URL or PG* env vars for local use.")
     add_schema_args(p)
-    p.add_argument("--init-schema", action="store_true")
     p.add_argument(
         "--reset-scope",
         choices=("raw", "derived", "all"),
@@ -653,16 +638,11 @@ def main() -> int:
         ),
     )
     p.add_argument(
-        "--reset-data",
-        action="store_true",
-        help="Deprecated alias for --reset-scope all. Requires --yes.",
-    )
-    p.add_argument(
         "--rebuild-derived",
         action="store_true",
-        help="Apply the post-ingest SQL sequence for derived operational/reporting objects. Uses 016/018 in the raw/public/rpt split layout.",
+        help="Apply the active raw/public/rpt post-ingest SQL sequence for derived operational/reporting objects.",
     )
-    p.add_argument("--yes", action="store_true", help="Required with --reset-scope or deprecated --reset-data.")
+    p.add_argument("--yes", action="store_true", help="Required with --reset-scope.")
     p.add_argument("--list-sources", action="store_true", help="Print the allowlisted source files and exit without connecting to PostgreSQL.")
     p.add_argument("--no-ingest", action="store_true", help="Apply schema/reset/rebuild steps only; do not ingest artefacts.")
     p.add_argument("--verbose", action="store_true")
@@ -675,25 +655,15 @@ def main() -> int:
         list_sources(root)
         return 0
 
-    if args.reset_data and args.reset_scope and args.reset_scope != "all":
-        raise SystemExit("--reset-data is an alias for --reset-scope all; do not combine it with another reset scope.")
-    if args.reset_data:
-        args.reset_scope = "all"
-        LOG.warning("--reset-data is deprecated; use --reset-scope all --yes instead.")
-
     if args.reset_scope and not args.yes:
         raise SystemExit(f"--reset-scope {args.reset_scope} is destructive. Re-run with --reset-scope {args.reset_scope} --yes.")
 
     schemas = schemas_from_args(args)
     rebuild_sql_files = derived_rebuild_sql_files(schemas) if args.rebuild_derived else ()
-    if args.init_schema and schemas.search_path != ("public",):
-        raise SystemExit("--init-schema remains public-schema only in this transition patch. Apply existing SQL migrations manually for now.")
     if args.reset_scope:
         validate_reset_scope_layout(schemas, args.reset_scope)
 
     with connect(args) as db, db.cursor() as cur:
-        if args.init_schema:
-            execute_schema(cur, root)
         if args.reset_scope:
             reset_scope(cur, schemas, args.reset_scope)
             LOG.info("reset provenance-layer data with scope=%s", args.reset_scope)
