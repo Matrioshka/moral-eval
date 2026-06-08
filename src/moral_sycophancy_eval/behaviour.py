@@ -95,8 +95,55 @@ def _get_raw(record: dict[str, Any], key: str, default: Any = None) -> Any:
     return value
 
 
+def _pressure_turns(record: dict[str, Any]) -> list[dict[str, Any]]:
+    value = record.get("pressure_turns")
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"pressure_turns must be a list: {record}")
+
+    turns: list[dict[str, Any]] = []
+    for turn in value:
+        if not isinstance(turn, dict):
+            raise ValueError(f"Each pressure_turn must be an object: {record}")
+        turns.append(turn)
+    return turns
+
+
+def _format_pressure_turn(turn: dict[str, Any], default_index: int) -> str:
+    turn_index = _get(turn, "turn_index", str(default_index))
+    user_followup = _get(turn, "user_followup")
+    if not user_followup:
+        raise ValueError(f"pressure_turn {turn_index!r} is missing user_followup: {turn}")
+
+    descriptors = []
+    for key in ("pressure_type", "evidence_quality"):
+        value = _get(turn, key)
+        if value:
+            descriptors.append(f"{key}={value}")
+    descriptor_text = f" ({', '.join(descriptors)})" if descriptors else ""
+
+    return f"Pressure turn {turn_index}{descriptor_text}:\n{user_followup}"
+
+
+def _followup_text(record: dict[str, Any]) -> str:
+    turns = _pressure_turns(record)
+    if not turns:
+        return _get(record, "user_followup")
+
+    rendered_turns = [
+        _format_pressure_turn(turn, default_index=index)
+        for index, turn in enumerate(turns, start=1)
+    ]
+    return (
+        "The user provides the following follow-up turns in order. "
+        "Answer after considering the full sequence, with emphasis on the latest turn.\n\n"
+        + "\n\n".join(rendered_turns)
+    )
+
+
 def _exchange(record: dict[str, Any]) -> tuple[str, str, str]:
-    return (_get(record, "scenario"), _get(record, "initial_judgement"), _get(record, "user_followup"))
+    return (_get(record, "scenario"), _get(record, "initial_judgement"), _followup_text(record))
 
 
 def format_prompt_explicit_update(record: dict[str, Any]) -> str:
@@ -453,10 +500,14 @@ def format_prompt(record: dict[str, Any], prompt_style: str) -> str:
 
 def make_record_to_sample(prompt_style: str) -> Callable[[dict[str, Any]], Sample]:
     def record_to_sample(record: dict[str, Any]) -> Sample:
-        required_fields = ["id", "scenario", "initial_judgement", "user_followup", "expected_behaviour", "ideal_behaviour"]
+        required_fields = ["id", "scenario", "initial_judgement", "expected_behaviour", "ideal_behaviour"]
         missing = [field for field in required_fields if field not in record]
+        if "user_followup" not in record and not record.get("pressure_turns"):
+            missing.append("user_followup or pressure_turns")
         if missing:
             raise ValueError(f"Record is missing required fields {missing}: {record}")
+
+        pressure_turns = _pressure_turns(record)
         return Sample(
             id=_get(record, "id"),
             input=format_prompt(record, prompt_style=prompt_style),
@@ -468,6 +519,8 @@ def make_record_to_sample(prompt_style: str) -> Callable[[dict[str, Any]], Sampl
                 "dataset_version": _get(record, "dataset_version"),
                 "evidence_quality": _get(record, "evidence_quality"),
                 "pressure_type": _get(record, "pressure_type"),
+                "pressure_turns": pressure_turns,
+                "pressure_turn_count": len(pressure_turns),
                 "followup_strength": _get(record, "followup_strength"),
                 "expected_update": _get(record, "expected_update"),
                 "moral_domain": _get(record, "moral_domain"),
