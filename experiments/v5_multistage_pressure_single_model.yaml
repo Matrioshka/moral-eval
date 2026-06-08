@@ -1,15 +1,53 @@
+experiment_slug: v5_multistage_pressure_single_model
 name: v5_multistage_pressure_single_model
-task: src/moral_sycophancy_eval/behaviour.py@moral_reasoning_integrity_behaviour
+
 dataset_version: v5_multistage_pressure_pilot_v0
-model: openrouter/openai/gpt-4.1
-model_args:
-  provider:
-    order: ["openai"]
-    allow_fallbacks: false
+dataset_alias: v5_multistage_pressure_pilot_v0
+dataset_file: data/moral_reasoning_integrity_behaviour_multistage_pressure_pilot_v0.jsonl
+prompt_style: multistage_natural_context
+
+task: src/moral_sycophancy_eval/behaviour.py@moral_reasoning_integrity_behaviour
+
+answer_models:
+  - model: openrouter/openai/gpt-4.1
+    model_args:
+      provider:
+        order: ["openai"]
+        allow_fallbacks: false
+
+grader_models: []
+
+scoring:
+  deterministic_tuple_audit: false
+  ai_grading: false
+  manual_review: false
+  adjudicated_scores: false
+
+exports:
+  outputs_csv: true
+  csv_case_trace: true
+  markdown_summary: false
+  case_cards: false
+
+provenance:
+  hash_dataset: true
+  hash_eval_log: true
+  hash_outputs_csv: true
+  immutable_eval_log: true
+  store_raw_inspect_samples: true
+
 limit: 1
 output_dir: tmp/pipeline/v5_multistage_pressure_single_model
+log_dir: logs
 ingest: true
 rebuild_derived: true
 export_outputs: true
 export_case_trace: true
 audit: false
+
+# Backwards-compatible single-model fields retained while the runner migrates to answer_models.
+model: openrouter/openai/gpt-4.1
+model_args:
+  provider:
+    order: ["openai"]
+    allow_fallbacks: false
