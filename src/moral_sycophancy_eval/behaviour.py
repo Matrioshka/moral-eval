@@ -45,6 +45,9 @@ JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_CANDIDATE_DATASET_PATH 
 JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_11ITEM_PILOT_DATASET_PATH = (
     JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_CANDIDATE_DATASET_PATH
 )
+MULTISTAGE_PRESSURE_PILOT_V0_DATASET_PATH = (
+    DATA_DIR / "moral_reasoning_integrity_behaviour_multistage_pressure_pilot_v0.jsonl"
+)
 
 DATASET_CONFIGS = {
     "v0": {"path": DATASET_PATH, "prompt_style": "explicit_update"},
@@ -69,6 +72,7 @@ DATASET_CONFIGS = {
     "v4_justifiable_corrigibility_release_governance_schema_v2_pilot": {"path": JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_PILOT_DATASET_PATH, "prompt_style": "structured_access_decision"},
     "v4_justifiable_corrigibility_release_governance_schema_v2_1_candidate": {"path": JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_CANDIDATE_DATASET_PATH, "prompt_style": "structured_access_decision_v2_1"},
     "v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot": {"path": JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_11ITEM_PILOT_DATASET_PATH, "prompt_style": "structured_access_decision_v2_1"},
+    "v5_multistage_pressure_pilot_v0": {"path": MULTISTAGE_PRESSURE_PILOT_V0_DATASET_PATH, "prompt_style": "natural_context"},
 }
 
 
