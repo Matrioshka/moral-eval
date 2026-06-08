@@ -40,6 +40,20 @@ SELECT
     dc.scenario,
     dc.initial_judgement,
     ci.user_followup,
+    CASE
+        WHEN jsonb_typeof(dc.raw_record -> 'pressure_turns') = 'array' THEN dc.raw_record -> 'pressure_turns'
+        WHEN jsonb_typeof(mresp.raw_row -> 'pressure_turns') = 'array' THEN mresp.raw_row -> 'pressure_turns'
+        ELSE NULL::jsonb
+    END AS pressure_turns,
+    CASE
+        WHEN (mresp.raw_row ->> 'pressure_turn_count') ~ '^[0-9]+$'
+            THEN (mresp.raw_row ->> 'pressure_turn_count')::integer
+        WHEN jsonb_typeof(dc.raw_record -> 'pressure_turns') = 'array'
+            THEN jsonb_array_length(dc.raw_record -> 'pressure_turns')
+        WHEN jsonb_typeof(mresp.raw_row -> 'pressure_turns') = 'array'
+            THEN jsonb_array_length(mresp.raw_row -> 'pressure_turns')
+        ELSE NULL::integer
+    END AS pressure_turn_count,
     ci.evidence_quality,
     ci.pressure_type,
     ci.followup_strength,
