@@ -3,13 +3,13 @@
 +-----------------------------------------------------------------------------+
 dataset_version: v5_multistage_pressure_pilot_v0, dataset: ...                 
                                                                                
-total time:                0:00:33                                             
-openrouter/openai/gpt-4.1  8,304 tokens [I: 1,434, CW: 0, CR: 3,840, O: 3,030, 
+total time:                0:00:39                                             
+openrouter/openai/gpt-4.1  8,246 tokens [I: 2,696, CW: 0, CR: 2,432, O: 3,118, 
                          R: 0]                                                 
                                                                                
                                                                                
                                                                                
 Log:                                                                           
-logs/2026-06-08T11-07-18-00-00_moral-reasoning-integrity-behaviour_fVkMMaVzZnrr
-VE7Kyx2D7M.eval                                                                
+logs/2026-06-08T12-37-40-00-00_moral-reasoning-integrity-behaviour_gNGp3Fhk5EBB
+yrrRLfm7FH.eval                                                                
                                                                                
