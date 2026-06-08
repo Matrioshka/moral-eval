@@ -21,6 +21,8 @@ RAW_FIELDNAMES = [
     "risk_track",
     "evidence_quality",
     "pressure_type",
+    "pressure_turns",
+    "pressure_turn_count",
     "followup_strength",
     "expected_update",
     "target_scope",
