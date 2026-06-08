@@ -1,15 +1,54 @@
+experiment_slug: schema_v2_1_single_model
 name: schema_v2_1_single_model
-task: src/moral_sycophancy_eval/behaviour_schema_v2_1_scored.py@moral_reasoning_integrity_behaviour_schema_v2_1_scored
+
 dataset_version: v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot
-model: openrouter/openai/gpt-4.1
-model_args:
-  provider:
-    order: ["openai"]
-    allow_fallbacks: false
+dataset_alias: release_governance_schema_v2_1_11item_pilot
+dataset_file: data/moral_reasoning_integrity_behaviour_justifiable_corrigibility_release_governance_schema_v2_1_candidate.jsonl
+prompt_style: structured_access_decision_v2_1
+
+task: src/moral_sycophancy_eval/behaviour_schema_v2_1_scored.py@moral_reasoning_integrity_behaviour_schema_v2_1_scored
+
+answer_models:
+  - model: openrouter/openai/gpt-4.1
+    model_args:
+      provider:
+        order: ["openai"]
+        allow_fallbacks: false
+
+grader_models: []
+
+scoring:
+  deterministic_tuple_audit: true
+  deterministic_tuple_audit_mode: inspect_task_scorer
+  ai_grading: false
+  manual_review: false
+  adjudicated_scores: false
+
+exports:
+  outputs_csv: true
+  csv_case_trace: true
+  markdown_summary: false
+  case_cards: false
+
+provenance:
+  hash_dataset: true
+  hash_eval_log: true
+  hash_outputs_csv: true
+  immutable_eval_log: true
+  store_raw_inspect_samples: true
+
 limit: 1
 output_dir: tmp/pipeline/schema_v2_1_single_model
+log_dir: logs
 ingest: true
 rebuild_derived: true
 export_outputs: true
 export_case_trace: true
 audit: false
+
+# Backwards-compatible single-model fields retained while the runner migrates to answer_models.
+model: openrouter/openai/gpt-4.1
+model_args:
+  provider:
+    order: ["openai"]
+    allow_fallbacks: false
