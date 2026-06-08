@@ -24,7 +24,7 @@ try:
 except ImportError as exc:
     raise SystemExit('Install dependency first: python -m pip install "psycopg[binary]"') from exc
 
-from postgres_schema_config import add_schema_args, apply_search_path, op_relation, raw_relation, schemas_from_args
+from postgres_schema_config import apply_search_path, op_relation, raw_relation
 
 
 LOG = logging.getLogger("ingest_eval_artifacts")
@@ -114,10 +114,10 @@ def connect(args):
     - libpq-style environment variables: PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD
     '''
     # db_url = f"postgresql://{os.getenv('PGUSER')}:{os.getenv('PGPASSWORD')}@{os.getenv('PGHOST')}:{os.getenv('PGPORT')}/{os.getenv('PGDATABASE')}"
-    dsn = args.dsn # or os.getenv("MORAL_EVALS_DATABASE_URL")
+    dsn = args.dsn or os.getenv("MORAL_EVALS_DATABASE_URL")
     if dsn:
         conn = psycopg.connect(dsn)
-        apply_search_path(conn, schemas_from_args(args))
+        apply_search_path(conn)
         return conn
 
     params = {
@@ -130,7 +130,7 @@ def connect(args):
     params = {k: v for k, v in params.items() if v}
     if params:
         conn = psycopg.connect(**params)
-        apply_search_path(conn, schemas_from_args(args))
+        apply_search_path(conn)
         return conn
 
     raise SystemExit(
@@ -166,7 +166,7 @@ def kind(path: Path, override: str | None = None) -> str:
     return "other"
 
 
-def source(cur, schemas, root: Path, path: Path, count: int | None, kind_override: str | None = None) -> int:
+def source(cur, root: Path, path: Path, count: int | None, kind_override: str | None = None) -> int:
     rel = path.relative_to(root).as_posix()
     cur.execute(
         sql.SQL('''
@@ -177,7 +177,7 @@ def source(cur, schemas, root: Path, path: Path, count: int | None, kind_overrid
           file_size_bytes=excluded.file_size_bytes,record_count=coalesce(excluded.record_count,source_file.record_count),
           ingested_at=now()
         returning source_file_id
-        ''').format(raw_relation(schemas, "source_file")),
+        ''').format(raw_relation("source_file")),
         (rel, kind(path, kind_override), digest(path), path.stat().st_size, count),
     )
     return int(cur.fetchone()[0])
@@ -204,7 +204,7 @@ def family(ver: str) -> str:
     return "behavioural"
 
 
-def dataset(cur, schemas, ver: str, sfid: int | None) -> int:
+def dataset(cur, ver: str, sfid: int | None) -> int:
     cur.execute(
         sql.SQL('''
         insert into {} as dataset(dataset_version,dataset_family,source_file_id)
@@ -212,7 +212,7 @@ def dataset(cur, schemas, ver: str, sfid: int | None) -> int:
         on conflict(dataset_version) do update set
           dataset_family=excluded.dataset_family,source_file_id=coalesce(dataset.source_file_id,excluded.source_file_id),updated_at=now()
         returning dataset_id
-        ''').format(raw_relation(schemas, "dataset")),
+        ''').format(raw_relation("dataset")),
         (ver, family(ver), sfid),
     )
     return int(cur.fetchone()[0])
@@ -222,7 +222,7 @@ def sample_id(r: dict[str, Any]) -> str | None:
     return clean(r.get("sample_id") or r.get("id") or r.get("case_id") or r.get("source_item_id"))
 
 
-def upsert_case(cur, schemas, did: int, sfid: int | None, line: int | None, r: dict[str, Any]) -> int | None:
+def upsert_case(cur, did: int, sfid: int | None, line: int | None, r: dict[str, Any]) -> int | None:
     sid = sample_id(r)
     if not sid:
         return None
@@ -239,7 +239,7 @@ def upsert_case(cur, schemas, did: int, sfid: int | None, line: int | None, r: d
           source_file_id=coalesce(dataset_case.source_file_id,excluded.source_file_id),source_line=coalesce(dataset_case.source_line,excluded.source_line),
           raw_record=dataset_case.raw_record || excluded.raw_record,updated_at=now()
         returning case_pk
-        ''').format(raw_relation(schemas, "dataset_case")),
+        ''').format(raw_relation("dataset_case")),
         (
             did,
             sid,
@@ -261,13 +261,13 @@ def upsert_case(cur, schemas, did: int, sfid: int | None, line: int | None, r: d
     return int(cur.fetchone()[0])
 
 
-def enrich_case(cur, schemas, cpk: int, r: dict[str, Any]) -> None:
+def enrich_case(cur, cpk: int, r: dict[str, Any]) -> None:
     cur.execute(
         sql.SQL('''
         insert into {} as case_intervention(case_pk,user_followup,evidence_quality,pressure_type,followup_strength,expected_update,pressure_source,pressure_mechanism,pressure_legitimacy,pressure_escalation_stage,pressure_target,conflict_type,safeguard_relevance_to_original_concern,safeguard_type,safeguard_features,missing_safeguards,residual_risk_features,raw_metadata)
         values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb)
         on conflict(case_pk) do update set user_followup=coalesce(excluded.user_followup,case_intervention.user_followup),evidence_quality=coalesce(excluded.evidence_quality,case_intervention.evidence_quality),pressure_type=coalesce(excluded.pressure_type,case_intervention.pressure_type),raw_metadata=case_intervention.raw_metadata || excluded.raw_metadata
-        ''').format(raw_relation(schemas, "case_intervention")),
+        ''').format(raw_relation("case_intervention")),
         (
             cpk,
             clean(r.get("user_followup")),
@@ -294,7 +294,7 @@ def enrich_case(cur, schemas, cpk: int, r: dict[str, Any]) -> None:
         insert into {} as expected_behaviour(case_pk,expected_behaviour,ideal_behaviour,target_scope,minimum_acceptable_scope,maximum_acceptable_scope,target_release_scope,minimum_acceptable_release_scope,maximum_acceptable_release_scope,target_access,minimum_acceptable_access,maximum_acceptable_access,release_artifact,missing_evaluation_types,failure_modes,too_conservative_failure,too_permissive_failure,pressure_trap,raw_metadata)
         values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s::jsonb)
         on conflict(case_pk) do update set expected_behaviour=coalesce(excluded.expected_behaviour,expected_behaviour.expected_behaviour),ideal_behaviour=coalesce(excluded.ideal_behaviour,expected_behaviour.ideal_behaviour),target_scope=coalesce(excluded.target_scope,expected_behaviour.target_scope),maximum_acceptable_scope=coalesce(excluded.maximum_acceptable_scope,expected_behaviour.maximum_acceptable_scope),target_release_scope=coalesce(excluded.target_release_scope,expected_behaviour.target_release_scope),maximum_acceptable_release_scope=coalesce(excluded.maximum_acceptable_release_scope,expected_behaviour.maximum_acceptable_release_scope),raw_metadata=expected_behaviour.raw_metadata || excluded.raw_metadata
-        ''').format(raw_relation(schemas, "expected_behaviour")),
+        ''').format(raw_relation("expected_behaviour")),
         (
             cpk,
             clean(r.get("expected_behaviour")),
@@ -319,12 +319,12 @@ def enrich_case(cur, schemas, cpk: int, r: dict[str, Any]) -> None:
     )
 
 
-def find_case(cur, schemas, did: int, r: dict[str, Any]) -> int | None:
+def find_case(cur, did: int, r: dict[str, Any]) -> int | None:
     sid, cid = sample_id(r), clean(r.get("case_id"))
     if sid:
         cur.execute(
             sql.SQL("select case_pk from {} where dataset_id=%s and sample_id=%s").format(
-                raw_relation(schemas, "dataset_case")
+                raw_relation("dataset_case")
             ),
             (did, sid),
         )
@@ -334,7 +334,7 @@ def find_case(cur, schemas, did: int, r: dict[str, Any]) -> int | None:
     if cid:
         cur.execute(
             sql.SQL("select case_pk from {} where dataset_id=%s and case_id=%s limit 1").format(
-                raw_relation(schemas, "dataset_case")
+                raw_relation("dataset_case")
             ),
             (did, cid),
         )
@@ -352,7 +352,7 @@ def model_from_name(path: Path) -> str | None:
     return m.group(1).replace("_", "-") if m else None
 
 
-def run(cur, schemas, root: Path, path: Path, sfid: int, r: dict[str, Any]) -> int:
+def run(cur, root: Path, path: Path, sfid: int, r: dict[str, Any]) -> int:
     label = path.relative_to(root).with_suffix("").as_posix()
     model = clean(r.get("model_name") or r.get("model")) or model_from_name(path)
     cur.execute(
@@ -361,13 +361,13 @@ def run(cur, schemas, root: Path, path: Path, sfid: int, r: dict[str, Any]) -> i
         values(%s,%s,%s,%s,%s,%s::jsonb)
         on conflict(run_label) do update set model_name=coalesce(excluded.model_name,model_run.model_name),dataset_version=coalesce(excluded.dataset_version,model_run.dataset_version),prompt_style=coalesce(excluded.prompt_style,model_run.prompt_style),source_file_id=excluded.source_file_id,updated_at=now()
         returning run_id
-        ''').format(raw_relation(schemas, "model_run")),
+        ''').format(raw_relation("model_run")),
         (label, model, clean(r.get("dataset_version")), clean(r.get("prompt_style")), sfid, js({"source_csv": path.relative_to(root).as_posix()})),
     )
     return int(cur.fetchone()[0])
 
 
-def response(cur, schemas, rid: int, cpk: int | None, sfid: int, rownum: int, r: dict[str, Any]) -> int:
+def response(cur, rid: int, cpk: int | None, sfid: int, rownum: int, r: dict[str, Any]) -> int:
     sid = sample_id(r) or f"row-{rownum}"
     out = clean(r.get("output") or r.get("raw_response") or r.get("model_raw_response"))
     cur.execute(
@@ -376,7 +376,7 @@ def response(cur, schemas, rid: int, cpk: int | None, sfid: int, rownum: int, r:
         values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
         on conflict(run_id,sample_id) do update set case_pk=coalesce(excluded.case_pk,model_response.case_pk),raw_response=coalesce(excluded.raw_response,model_response.raw_response),raw_row=model_response.raw_row || excluded.raw_row,updated_at=now()
         returning response_id
-        ''').format(raw_relation(schemas, "model_response")),
+        ''').format(raw_relation("model_response")),
         (
             rid,
             cpk,
@@ -394,7 +394,7 @@ def response(cur, schemas, rid: int, cpk: int | None, sfid: int, rownum: int, r:
     return int(cur.fetchone()[0])
 
 
-def tuple_from_output(cur, schemas, respid: int, sfid: int, r: dict[str, Any]) -> None:
+def tuple_from_output(cur, respid: int, sfid: int, r: dict[str, Any]) -> None:
     text = clean(r.get("output") or r.get("raw_response") or r.get("model_raw_response")) or ""
     fields = [
         "access_purpose",
@@ -418,7 +418,7 @@ def tuple_from_output(cur, schemas, respid: int, sfid: int, r: dict[str, Any]) -
         insert into {}(response_id,extracted_from,access_purpose,access_intent,access_population,access_modality,operational_status,real_world_exposure,externalisation_level,raw_tuple,source_file_id)
         values(%s,'model_output_regex',%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
         on conflict(response_id) do update set raw_tuple=excluded.raw_tuple,source_file_id=excluded.source_file_id,updated_at=now()
-        ''').format(raw_relation(schemas, "structured_decision_tuple")),
+        ''').format(raw_relation("structured_decision_tuple")),
         (
             respid,
             clean(data.get("access_purpose")),
@@ -434,14 +434,14 @@ def tuple_from_output(cur, schemas, respid: int, sfid: int, r: dict[str, Any]) -
     )
 
 
-def scores(cur, schemas, respid: int, sfid: int, rownum: int, r: dict[str, Any]) -> None:
+def scores(cur, respid: int, sfid: int, rownum: int, r: dict[str, Any]) -> None:
     fc = clean(r.get("primary_failure_class") or r.get("failure_class"))
     fid = None
     if fc:
         cur.execute(
             sql.SQL(
                 "insert into {}(name) values(%s) on conflict(name) do update set name=excluded.name returning failure_class_id"
-            ).format(op_relation(schemas, "failure_class")),
+            ).format(op_relation("failure_class")),
             (fc,),
         )
         fid = int(cur.fetchone()[0])
@@ -452,7 +452,7 @@ def scores(cur, schemas, respid: int, sfid: int, rownum: int, r: dict[str, Any])
     if any(clean(x) for x in (manual_score_raw, fc, r.get("confidence"), r.get("action"), note)):
         cur.execute(
             sql.SQL("select rubric_id from {} where rubric_name='manual_score_0_to_3'").format(
-                op_relation(schemas, "rubric")
+                op_relation("rubric")
             )
         )
         rub = int(cur.fetchone()[0])
@@ -465,7 +465,7 @@ def scores(cur, schemas, respid: int, sfid: int, rownum: int, r: dict[str, Any])
             insert into {}(response_id,rubric_id,score_0_to_3,primary_failure_class_id,confidence,action,notes,source_file_id,source_row,raw_row)
             values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
             on conflict(response_id,source_file_id) do update set score_0_to_3=excluded.score_0_to_3,primary_failure_class_id=excluded.primary_failure_class_id,notes=excluded.notes,updated_at=now()
-            ''').format(raw_relation(schemas, "manual_score")),
+            ''').format(raw_relation("manual_score")),
             (respid, rub, score, fid, clean(r.get("confidence")), clean(r.get("action")), note, sfid, rownum, js(r)),
         )
 
@@ -474,19 +474,19 @@ def scores(cur, schemas, respid: int, sfid: int, rownum: int, r: dict[str, Any])
         cur.execute(
             sql.SQL(
                 "insert into {}(response_id,score_value,source_file_id,source_row,raw_row) values(%s,%s,%s,%s,%s::jsonb) on conflict(response_id) do update set score_value=excluded.score_value,raw_row=excluded.raw_row,updated_at=now()"
-            ).format(raw_relation(schemas, "deterministic_score")),
+            ).format(raw_relation("deterministic_score")),
             (respid, det, sfid, rownum, js(r)),
         )
 
 
-def ingest_jsonl(cur, schemas, root: Path, path: Path) -> int:
+def ingest_jsonl(cur, root: Path, path: Path) -> int:
     rows = [(i, json.loads(line)) for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if line.strip()]
-    sfid = source(cur, schemas, root, path, len(rows), "dataset_jsonl")
+    sfid = source(cur, root, path, len(rows), "dataset_jsonl")
     for line, r in rows:
-        did = dataset(cur, schemas, clean(r.get("dataset_version")) or version_from_path(path), sfid)
-        cpk = upsert_case(cur, schemas, did, sfid, line, r)
+        did = dataset(cur, clean(r.get("dataset_version")) or version_from_path(path), sfid)
+        cpk = upsert_case(cur, did, sfid, line, r)
         if cpk:
-            enrich_case(cur, schemas, cpk, r)
+            enrich_case(cur, cpk, r)
     return len(rows)
 
 
@@ -497,24 +497,24 @@ def is_trace_csv(rows: list[dict[str, Any]]) -> bool:
     return bool(cols & TRACE_CASE_KEYS) and bool(cols & TRACE_PAYLOAD_KEYS)
 
 
-def ingest_csv(cur, schemas, root: Path, path: Path) -> int:
+def ingest_csv(cur, root: Path, path: Path) -> int:
     with path.open(encoding="utf-8-sig", newline="") as f:
         rows = list(csv.DictReader(f))
 
-    sfid = source(cur, schemas, root, path, len(rows))
+    sfid = source(cur, root, path, len(rows))
     if not is_trace_csv(rows):
         LOG.info("recorded source-only CSV, not trace rows: %s", path.relative_to(root))
         return 0
 
     for n, r in enumerate(rows, 2):
-        did = dataset(cur, schemas, clean(r.get("dataset_version")) or version_from_path(path), None)
-        cpk = find_case(cur, schemas, did, r) or upsert_case(cur, schemas, did, None, None, r)
+        did = dataset(cur, clean(r.get("dataset_version")) or version_from_path(path), None)
+        cpk = find_case(cur, did, r) or upsert_case(cur, did, None, None, r)
         if cpk:
-            enrich_case(cur, schemas, cpk, r)
-        rid = run(cur, schemas, root, path, sfid, r)
-        respid = response(cur, schemas, rid, cpk, sfid, n, r)
-        tuple_from_output(cur, schemas, respid, sfid, r)
-        scores(cur, schemas, respid, sfid, n, r)
+            enrich_case(cur, cpk, r)
+        rid = run(cur, root, path, sfid, r)
+        respid = response(cur, rid, cpk, sfid, n, r)
+        tuple_from_output(cur, respid, sfid, r)
+        scores(cur, respid, sfid, n, r)
     return len(rows)
 
 
@@ -533,40 +533,23 @@ def list_sources(root: Path) -> None:
             print(path.relative_to(root).as_posix())
 
 
-def run_sql_file(cur, path: Path, schemas) -> None:
-    apply_search_path(cur, schemas)
+def run_sql_file(cur, path: Path) -> None:
+    apply_search_path(cur)
     cur.execute(path.read_text(encoding="utf-8"))
 
 
-def execute_sql_sequence(cur, root: Path, filenames: tuple[str, ...], schemas) -> None:
+def execute_sql_sequence(cur, root: Path, filenames: tuple[str, ...]) -> None:
     for filename in filenames:
         path = root / "sql" / filename
-        run_sql_file(cur, path, schemas)
+        run_sql_file(cur, path)
         LOG.info("applied SQL: %s", path.relative_to(root).as_posix())
 
 
-def derived_rebuild_sql_files(schemas) -> tuple[str, ...]:
-    if is_active_runtime_layout(schemas):
-        return SPLIT_LAYOUT_DERIVED_REBUILD_SQL_FILES
-    raise SystemExit(
-        "--rebuild-derived requires the active raw/public/rpt layout "
-        "(--raw-schema raw --op-schema public --rpt-schema rpt)."
-    )
+def derived_rebuild_sql_files() -> tuple[str, ...]:
+    return SPLIT_LAYOUT_DERIVED_REBUILD_SQL_FILES
 
 
-def is_active_runtime_layout(schemas) -> bool:
-    return schemas.raw == "raw" and schemas.op == "public" and schemas.rpt == "rpt"
-
-
-def validate_reset_scope_layout(schemas, scope: str) -> None:
-    if not is_active_runtime_layout(schemas):
-        raise SystemExit(
-            f"--reset-scope {scope} requires the active raw/public/rpt layout "
-            "(--raw-schema raw --op-schema public --rpt-schema rpt)."
-        )
-
-
-def seed_rubric(cur, schemas) -> None:
+def seed_rubric(cur) -> None:
     cur.execute(
         sql.SQL('''
         insert into {} (rubric_name, score_scale, description)
@@ -576,7 +559,7 @@ def seed_rubric(cur, schemas) -> None:
             'Project manual audit score. Interpret using the dataset-specific manual scoring notes; PostgreSQL stores the recorded score and rationale but does not replace the audit files.'
         )
         on conflict (rubric_name) do nothing
-        ''').format(op_relation(schemas, "rubric"))
+        ''').format(op_relation("rubric"))
     )
 
 
@@ -592,32 +575,32 @@ def truncate_relations(cur, relations: list[sql.Composed]) -> None:
     )
 
 
-def reset_raw(cur, schemas) -> None:
+def reset_raw(cur) -> None:
     # FK CASCADE may clear dependent operational rows.
-    truncate_relations(cur, [raw_relation(schemas, table) for table in RAW_IMPORT_TABLES])
+    truncate_relations(cur, [raw_relation(table) for table in RAW_IMPORT_TABLES])
 
 
-def reset_derived(cur, schemas) -> None:
-    truncate_relations(cur, [op_relation(schemas, table) for table in DERIVED_OPERATIONAL_TABLES])
+def reset_derived(cur) -> None:
+    truncate_relations(cur, [op_relation(table) for table in DERIVED_OPERATIONAL_TABLES])
 
 
-def reset_all(cur, schemas) -> None:
+def reset_all(cur) -> None:
     truncate_relations(
         cur,
-        [raw_relation(schemas, table) for table in RAW_IMPORT_TABLES]
-        + [op_relation(schemas, table) for table in DERIVED_OPERATIONAL_TABLES]
-        + [op_relation(schemas, table) for table in INGEST_OWNED_LOOKUP_TABLES],
+        [raw_relation(table) for table in RAW_IMPORT_TABLES]
+        + [op_relation(table) for table in DERIVED_OPERATIONAL_TABLES]
+        + [op_relation(table) for table in INGEST_OWNED_LOOKUP_TABLES],
     )
-    seed_rubric(cur, schemas)
+    seed_rubric(cur)
 
 
-def reset_scope(cur, schemas, scope: str) -> None:
+def reset_scope(cur, scope: str) -> None:
     if scope == "raw":
-        reset_raw(cur, schemas)
+        reset_raw(cur)
     elif scope == "derived":
-        reset_derived(cur, schemas)
+        reset_derived(cur)
     elif scope == "all":
-        reset_all(cur, schemas)
+        reset_all(cur)
     else:
         raise AssertionError(f"unexpected reset scope: {scope}")
 
@@ -626,12 +609,11 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     p.add_argument("--dsn", help="Optional PostgreSQL DSN. Prefer MORAL_EVALS_DATABASE_URL or PG* env vars for local use.")
-    add_schema_args(p)
     p.add_argument(
         "--reset-scope",
         choices=("raw", "derived", "all"),
         help=(
-            "Explicit reset scope. raw truncates imported/source-shaped tables in --raw-schema "
+            "Explicit reset scope. raw truncates imported/source-shaped tables in raw "
             "(FK CASCADE may clear dependent operational rows); derived truncates public operational "
             "derived tables; all truncates raw + derived + ingest-owned rubric/failure_class lookups "
             "and reseeds manual_score_0_to_3. Requires --yes."
@@ -658,14 +640,11 @@ def main() -> int:
     if args.reset_scope and not args.yes:
         raise SystemExit(f"--reset-scope {args.reset_scope} is destructive. Re-run with --reset-scope {args.reset_scope} --yes.")
 
-    schemas = schemas_from_args(args)
-    rebuild_sql_files = derived_rebuild_sql_files(schemas) if args.rebuild_derived else ()
-    if args.reset_scope:
-        validate_reset_scope_layout(schemas, args.reset_scope)
+    rebuild_sql_files = derived_rebuild_sql_files() if args.rebuild_derived else ()
 
     with connect(args) as db, db.cursor() as cur:
         if args.reset_scope:
-            reset_scope(cur, schemas, args.reset_scope)
+            reset_scope(cur, args.reset_scope)
             LOG.info("reset provenance-layer data with scope=%s", args.reset_scope)
 
         total = 0
@@ -673,19 +652,19 @@ def main() -> int:
             jsonl, csvs, source_only = collect_sources(root)
 
             for path in jsonl:
-                total += ingest_jsonl(cur, schemas, root, path)
+                total += ingest_jsonl(cur, root, path)
                 LOG.info("ingested dataset JSONL: %s", path.relative_to(root))
 
             for path in csvs:
-                total += ingest_csv(cur, schemas, root, path)
+                total += ingest_csv(cur, root, path)
                 LOG.info("processed CSV candidate: %s", path.relative_to(root))
 
             for path in source_only:
-                source(cur, schemas, root, path, None)
+                source(cur, root, path, None)
                 LOG.info("recorded source-only artefact: %s", path.relative_to(root))
 
         if args.rebuild_derived:
-            execute_sql_sequence(cur, root, rebuild_sql_files, schemas)
+            execute_sql_sequence(cur, root, rebuild_sql_files)
 
         db.commit()
 

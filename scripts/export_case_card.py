@@ -12,7 +12,7 @@ import psycopg
 from psycopg import sql as psql
 from psycopg.rows import dict_row
 
-from postgres_schema_config import add_schema_args, apply_search_path, rpt_relation, schemas_from_args
+from postgres_schema_config import apply_search_path, rpt_relation
 
 
 def load_dotenv(path: Path = Path(".env")) -> None:
@@ -48,7 +48,7 @@ def connect(args):
     dsn = args.dsn or os.getenv("MORAL_EVALS_DATABASE_URL")
     if dsn:
         conn = psycopg.connect(dsn, row_factory=dict_row)
-        apply_search_path(conn, schemas_from_args(args))
+        apply_search_path(conn)
         return conn
 
     params = {
@@ -61,7 +61,7 @@ def connect(args):
     params = {k: v for k, v in params.items() if v}
     if params:
         conn = psycopg.connect(**params, row_factory=dict_row)
-        apply_search_path(conn, schemas_from_args(args))
+        apply_search_path(conn)
         return conn
 
     raise SystemExit(
@@ -128,7 +128,6 @@ def slug(value: Any) -> str:
 def main():
     p = argparse.ArgumentParser(description="Export one case_run_trace row as Markdown.")
     p.add_argument("--dsn")
-    add_schema_args(p)
     p.add_argument("--case-id")
     p.add_argument("--sample-id")
     p.add_argument("--response-id", type=int)
@@ -148,16 +147,15 @@ def main():
     if not where:
         raise SystemExit("Use --case-id, --sample-id, or --response-id.")
 
-    schemas = schemas_from_args(args)
     query = psql.SQL("select * from {} where {} order by response_id desc nulls last limit 1").format(
-        rpt_relation(schemas, "case_run_trace"),
+        rpt_relation("case_run_trace"),
         psql.SQL(" and ").join(psql.SQL(condition) for condition in where),
     )
     with connect(args) as db, db.cursor() as cur:
         cur.execute(query, params)
         row = cur.fetchone()
     if not row:
-        raise SystemExit(f"No matching row in {schemas.rpt}.case_run_trace.")
+        raise SystemExit("No matching row in rpt.case_run_trace.")
     row = dict(row)
 
     source_files = as_mapping(row.get("source_files"))

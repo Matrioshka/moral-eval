@@ -24,7 +24,7 @@ try:
 except ImportError as exc:
     raise SystemExit('Install dependency first: python -m pip install "psycopg[binary]"') from exc
 
-from postgres_schema_config import add_schema_args, apply_search_path, op_relation, raw_relation, schemas_from_args
+from postgres_schema_config import apply_search_path, op_relation, raw_relation
 
 
 DEFAULT_OUT_DIR = Path("tmp/score_linkage_diagnostics")
@@ -92,7 +92,7 @@ def connect(args: argparse.Namespace):
     # Guard rail: every query below is SELECT-only, and this transaction is
     # marked read-only so accidental future edits fail loudly.
     conn.execute("SET TRANSACTION READ ONLY")
-    apply_search_path(conn, schemas_from_args(args))
+    apply_search_path(conn)
     return conn
 
 
@@ -180,13 +180,13 @@ def expected_output_candidates(manual_path: str, source_files: list[dict[str, An
     return sorted(candidates, key=lambda row: row["file_path"])
 
 
-def fetch_rows(conn, schemas) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def fetch_rows(conn) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     source_files = conn.execute(
         sql.SQL("""
         SELECT source_file_id, file_path, file_kind, record_count
         FROM {}
         ORDER BY file_path
-        """).format(raw_relation(schemas, "source_file"))
+        """).format(raw_relation("source_file"))
     ).fetchall()
 
     manual_scores = conn.execute(
@@ -228,12 +228,12 @@ def fetch_rows(conn, schemas) -> tuple[list[dict[str, Any]], list[dict[str, Any]
         WHERE se.score_event_id IS NULL
         ORDER BY sf.file_path NULLS LAST, ms.source_row NULLS LAST, ms.manual_score_id
         """).format(
-            raw_relation(schemas, "manual_score"),
-            op_relation(schemas, "score_event"),
-            raw_relation(schemas, "source_file"),
-            raw_relation(schemas, "model_response"),
-            raw_relation(schemas, "model_run"),
-            op_relation(schemas, "response"),
+            raw_relation("manual_score"),
+            op_relation("score_event"),
+            raw_relation("source_file"),
+            raw_relation("model_response"),
+            raw_relation("model_run"),
+            op_relation("response"),
         )
     ).fetchall()
 
@@ -265,10 +265,10 @@ def fetch_rows(conn, schemas) -> tuple[list[dict[str, Any]], list[dict[str, Any]
           AND length(trim(mr.raw_response)) > 0
         ORDER BY sf.file_path NULLS LAST, mr.source_row NULLS LAST, mr.response_id
         """).format(
-            raw_relation(schemas, "model_response"),
-            raw_relation(schemas, "model_run"),
-            raw_relation(schemas, "source_file"),
-            op_relation(schemas, "response"),
+            raw_relation("model_response"),
+            raw_relation("model_run"),
+            raw_relation("source_file"),
+            op_relation("response"),
         )
     ).fetchall()
 
@@ -584,7 +584,7 @@ def write_summary(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def deterministic_summary_count(conn, schemas) -> int:
+def deterministic_summary_count(conn) -> int:
     row = conn.execute(
         sql.SQL("""
         SELECT count(*) AS n
@@ -592,8 +592,8 @@ def deterministic_summary_count(conn, schemas) -> int:
         JOIN {} sf ON sf.source_file_id = ds.source_file_id
         WHERE sf.file_path ~* '(^|[_/\\\\-])(summary|score_summary)([_./\\\\-]|$)'
         """).format(
-            raw_relation(schemas, "deterministic_score"),
-            raw_relation(schemas, "source_file"),
+            raw_relation("deterministic_score"),
+            raw_relation("source_file"),
         )
     ).fetchone()
     return int(row["n"])
@@ -606,18 +606,16 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--dsn", help="Optional PostgreSQL DSN. Defaults to MORAL_EVALS_DATABASE_URL or PG* env vars.")
-    add_schema_args(parser)
     args = parser.parse_args()
 
     root = args.root.resolve()
     load_env_file(root / ".env")
     out_dir = args.out_dir if args.out_dir.is_absolute() else root / args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
-    schemas = schemas_from_args(args)
 
     with connect(args) as conn:
-        manual_scores, response_candidates, source_files = fetch_rows(conn, schemas)
-        det_summary_count = deterministic_summary_count(conn, schemas)
+        manual_scores, response_candidates, source_files = fetch_rows(conn)
+        det_summary_count = deterministic_summary_count(conn)
 
     by_file, candidate_counts, unique, ambiguous, missing_pairs, totals = analyse_links(
         manual_scores, response_candidates, source_files
