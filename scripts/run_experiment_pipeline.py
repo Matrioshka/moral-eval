@@ -1,16 +1,21 @@
 #!/usr/bin/env python
-"""Thin local experiment pipeline around the existing Inspect/export/ingest scripts."""
+"""Thin local experiment pipeline around Inspect, Postgres, and derived exports."""
 
 from __future__ import annotations
 
 import argparse
 import csv
+import dataclasses
+import hashlib
 import json
 import os
+import shutil
 import shlex
 import subprocess
 import sys
 import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +27,11 @@ except ImportError as exc:  # pragma: no cover - local environment guard
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LOG_DIR = Path("logs")
+MANIFEST_SQL = ROOT / "sql" / "019_create_experiment_manifest_tables.sql"
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def load_env_file(path: Path) -> None:
@@ -57,6 +67,63 @@ def require(config: dict[str, Any], key: str) -> str:
     return str(value)
 
 
+def experiment_slug(config: dict[str, Any]) -> str:
+    return str(config.get("experiment_slug") or config.get("name") or "").strip()
+
+
+def answer_models(config: dict[str, Any]) -> list[dict[str, Any]]:
+    configured = config.get("answer_models")
+    if isinstance(configured, list) and configured:
+        return [item for item in configured if isinstance(item, dict)]
+    return [
+        {
+            "model": require(config, "model"),
+            "model_args": config.get("model_args") or {},
+        }
+    ]
+
+
+def primary_answer_model(config: dict[str, Any]) -> dict[str, Any]:
+    models = answer_models(config)
+    if not models:
+        raise ValueError("At least one answer model is required.")
+    return models[0]
+
+
+def grader_models(config: dict[str, Any]) -> list[dict[str, Any]]:
+    configured = config.get("grader_models")
+    return configured if isinstance(configured, list) else []
+
+
+def scoring_config(config: dict[str, Any]) -> dict[str, Any]:
+    scoring = config.get("scoring")
+    if isinstance(scoring, dict):
+        return scoring
+    return {
+        "deterministic_tuple_audit": bool(config.get("audit", False)),
+        "ai_grading": False,
+    }
+
+
+def exports_config(config: dict[str, Any]) -> dict[str, Any]:
+    exports = config.get("exports")
+    if isinstance(exports, dict):
+        return exports
+    return {
+        "outputs_csv": bool(config.get("export_outputs", config.get("ingest", True))),
+        "csv_case_trace": bool(config.get("export_case_trace", False)),
+        "markdown_summary": False,
+        "case_cards": False,
+    }
+
+
+def provenance_config(config: dict[str, Any]) -> dict[str, Any]:
+    provenance = config.get("provenance")
+    if isinstance(provenance, dict):
+        return provenance
+    return {"hash_dataset": True, "hash_eval_log": True, "immutable_eval_log": True}
+
+
 def cli_value(value: Any) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -66,17 +133,18 @@ def cli_value(value: Any) -> str:
 
 
 def build_inspect_command(config: dict[str, Any]) -> list[str]:
+    model_spec = primary_answer_model(config)
     cmd = [
         "inspect",
         "eval",
         require(config, "task"),
         "--model",
-        require(config, "model"),
+        str(model_spec.get("model") or require(config, "model")),
         "-T",
         f"dataset_version={require(config, 'dataset_version')}",
     ]
 
-    for key, value in (config.get("model_args") or {}).items():
+    for key, value in (model_spec.get("model_args") or {}).items():
         cmd.extend(["-M", f"{key}={cli_value(value)}"])
 
     limit = config.get("limit")
@@ -126,9 +194,18 @@ def locate_eval_log(root: Path, log_dir: Path, started_at: float) -> Path:
     return fresh_logs[0] if fresh_logs else logs[0]
 
 
-def default_outputs_csv(name: str) -> Path:
+def immutable_eval_log_copy(log_path: Path, output_dir: Path) -> Path:
+    target_dir = output_dir / "inspect_logs"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / log_path.name
+    if log_path.resolve() != target.resolve():
+        shutil.copy2(log_path, target)
+    return target
+
+
+def default_outputs_csv(slug: str) -> Path:
     # Keep this one level under tmp/ so the existing ingest allowlist picks it up.
-    return Path("tmp") / f"{name}_export.csv"
+    return Path("tmp") / f"{slug}_export.csv"
 
 
 def export_outputs(log_path: Path, outputs_csv: Path) -> list[str]:
@@ -139,6 +216,14 @@ def export_outputs(log_path: Path, outputs_csv: Path) -> list[str]:
         "--csv",
         str(outputs_csv),
     ]
+
+
+def export_outputs_enabled(config: dict[str, Any]) -> bool:
+    return bool(config.get("export_outputs", exports_config(config).get("outputs_csv", config.get("ingest", True))))
+
+
+def export_case_trace_enabled(config: dict[str, Any]) -> bool:
+    return bool(config.get("export_case_trace", exports_config(config).get("csv_case_trace", False)))
 
 
 def ingest_command(config: dict[str, Any]) -> list[str] | None:
@@ -153,6 +238,27 @@ def ingest_command(config: dict[str, Any]) -> list[str] | None:
     if not ingest:
         cmd.append("--no-ingest")
     return cmd
+
+
+def resolve_repo_path(path_value: str | None) -> Path | None:
+    if not path_value:
+        return None
+    path = Path(path_value)
+    return path if path.is_absolute() else ROOT / path
+
+
+def sha256_file(path: Path | None) -> str | None:
+    if not path or not path.exists() or not path.is_file():
+        return None
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def json_text(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
 def connect_db():
@@ -188,12 +294,277 @@ def connect_db():
     return conn
 
 
+def ensure_manifest_tables() -> None:
+    with connect_db() as db, db.cursor() as cur:
+        cur.execute(MANIFEST_SQL.read_text(encoding="utf-8"))
+        db.commit()
+
+
+def upsert_manifest(config: dict[str, Any], manifest_path: Path, manifest_sha: str | None, dataset_sha: str | None) -> int:
+    slug = experiment_slug(config)
+    dataset_file = config.get("dataset_file")
+    with connect_db() as db, db.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO public.experiment_manifest AS em (
+                experiment_slug, name, dataset_version, dataset_alias, dataset_file_path,
+                dataset_file_sha256, prompt_style, task, answer_models, grader_models,
+                scoring, exports, provenance, limit_count, output_dir, log_dir,
+                ingest, rebuild_derived, manifest_file_path, manifest_file_sha256, raw_manifest
+            ) VALUES (
+                %s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,
+                %s,%s,%s,%s,%s,%s,%s,%s::jsonb
+            )
+            ON CONFLICT (experiment_slug) DO UPDATE SET
+                name = excluded.name,
+                dataset_version = excluded.dataset_version,
+                dataset_alias = excluded.dataset_alias,
+                dataset_file_path = excluded.dataset_file_path,
+                dataset_file_sha256 = excluded.dataset_file_sha256,
+                prompt_style = excluded.prompt_style,
+                task = excluded.task,
+                answer_models = excluded.answer_models,
+                grader_models = excluded.grader_models,
+                scoring = excluded.scoring,
+                exports = excluded.exports,
+                provenance = excluded.provenance,
+                limit_count = excluded.limit_count,
+                output_dir = excluded.output_dir,
+                log_dir = excluded.log_dir,
+                ingest = excluded.ingest,
+                rebuild_derived = excluded.rebuild_derived,
+                manifest_file_path = excluded.manifest_file_path,
+                manifest_file_sha256 = excluded.manifest_file_sha256,
+                raw_manifest = excluded.raw_manifest,
+                updated_at = now()
+            RETURNING experiment_manifest_id
+            """,
+            (
+                slug,
+                config.get("name") or slug,
+                require(config, "dataset_version"),
+                config.get("dataset_alias"),
+                dataset_file,
+                dataset_sha,
+                config.get("prompt_style"),
+                require(config, "task"),
+                json_text(answer_models(config)),
+                json_text(grader_models(config)),
+                json_text(scoring_config(config)),
+                json_text(exports_config(config)),
+                json_text(provenance_config(config)),
+                config.get("limit"),
+                config.get("output_dir"),
+                config.get("log_dir"),
+                bool(config.get("ingest", True)),
+                bool(config.get("rebuild_derived", True)),
+                manifest_path.as_posix(),
+                manifest_sha,
+                json_text(config),
+            ),
+        )
+        manifest_id = int(cur.fetchone()["experiment_manifest_id"])
+        db.commit()
+        return manifest_id
+
+
+def create_pipeline_run(config: dict[str, Any], manifest_id: int, pipeline_run_key: str, inspect_cmd: list[str]) -> int:
+    model_spec = primary_answer_model(config)
+    with connect_db() as db, db.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO public.experiment_pipeline_run (
+                experiment_manifest_id, pipeline_run_key, experiment_slug, status,
+                task, dataset_version, dataset_alias, prompt_style, answer_model,
+                answer_models, grader_models, scoring, exports, provenance,
+                limit_count, output_dir, inspect_command, raw_run_metadata
+            ) VALUES (
+                %s,%s,%s,'running',%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,
+                %s,%s,%s,%s::jsonb
+            )
+            RETURNING experiment_pipeline_run_id
+            """,
+            (
+                manifest_id,
+                pipeline_run_key,
+                experiment_slug(config),
+                require(config, "task"),
+                require(config, "dataset_version"),
+                config.get("dataset_alias"),
+                config.get("prompt_style"),
+                json_text(model_spec),
+                json_text(answer_models(config)),
+                json_text(grader_models(config)),
+                json_text(scoring_config(config)),
+                json_text(exports_config(config)),
+                json_text(provenance_config(config)),
+                config.get("limit"),
+                config.get("output_dir"),
+                shlex.join(inspect_cmd),
+                json_text({"started_at": utc_now()}),
+            ),
+        )
+        run_id = int(cur.fetchone()["experiment_pipeline_run_id"])
+        db.commit()
+        return run_id
+
+
+def update_pipeline_run(run_id: int | None, **fields: Any) -> None:
+    if not run_id or not fields:
+        return
+
+    allowed = {
+        "status",
+        "eval_log_path",
+        "eval_log_sha256",
+        "original_eval_log_path",
+        "outputs_csv_path",
+        "outputs_csv_sha256",
+        "case_trace_csv_path",
+        "case_trace_csv_row_count",
+        "run_summary_path",
+        "run_summary",
+        "error",
+        "raw_run_metadata",
+        "completed_at",
+    }
+    assignments = []
+    values: list[Any] = []
+    for key, value in fields.items():
+        if key not in allowed:
+            raise ValueError(f"Unsupported experiment_pipeline_run field: {key}")
+        if key in {"run_summary", "raw_run_metadata"}:
+            assignments.append(f"{key} = %s::jsonb")
+            values.append(json_text(value))
+        else:
+            assignments.append(f"{key} = %s")
+            values.append(value)
+    assignments.append("updated_at = now()")
+    values.append(run_id)
+
+    with connect_db() as db, db.cursor() as cur:
+        cur.execute(
+            f"UPDATE public.experiment_pipeline_run SET {', '.join(assignments)} WHERE experiment_pipeline_run_id = %s",
+            values,
+        )
+        db.commit()
+
+
+def get_attr_or_key(obj: Any, name: str, default: Any = None) -> Any:
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def to_jsonable(value: Any, depth: int = 0) -> Any:
+    if depth > 8:
+        return str(value)
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): to_jsonable(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [to_jsonable(v, depth + 1) for v in value]
+    if dataclasses.is_dataclass(value):
+        return to_jsonable(dataclasses.asdict(value), depth + 1)
+    if hasattr(value, "model_dump"):
+        return to_jsonable(value.model_dump(), depth + 1)
+    if hasattr(value, "dict"):
+        try:
+            return to_jsonable(value.dict(), depth + 1)
+        except Exception:
+            pass
+    if hasattr(value, "__dict__"):
+        return to_jsonable(vars(value), depth + 1)
+    return str(value)
+
+
+def extract_completion(sample: Any) -> str:
+    output = get_attr_or_key(sample, "output", None)
+    completion = get_attr_or_key(output, "completion", "")
+    if completion:
+        return str(completion)
+
+    messages = get_attr_or_key(sample, "messages", []) or []
+    for message in reversed(messages):
+        role = str(get_attr_or_key(message, "role", "")).lower()
+        content = get_attr_or_key(message, "content", "")
+        if role == "assistant" and content:
+            return str(content)
+    return ""
+
+
+def ingest_inspect_log_samples(run_id: int, log_path: Path, log_sha: str | None, dataset_version: str) -> int:
+    from inspect_ai.log import read_eval_log
+
+    log = read_eval_log(log_path)
+    samples = get_attr_or_key(log, "samples", []) or []
+    count = 0
+
+    with connect_db() as db, db.cursor() as cur:
+        for sample in samples:
+            sample_id = str(get_attr_or_key(sample, "id", "")) or f"sample-{count + 1}"
+            metadata = get_attr_or_key(sample, "metadata", {}) or {}
+            output = get_attr_or_key(sample, "output", None)
+            messages = get_attr_or_key(sample, "messages", []) or []
+            scores = get_attr_or_key(sample, "scores", {}) or {}
+            usage = get_attr_or_key(output, "usage", {}) or get_attr_or_key(sample, "usage", {}) or {}
+            input_text = get_attr_or_key(sample, "input", "")
+            target_text = get_attr_or_key(sample, "target", "")
+            final_response = extract_completion(sample)
+
+            cur.execute(
+                """
+                INSERT INTO public.inspect_log_sample AS ils (
+                    experiment_pipeline_run_id, sample_id, dataset_version, input_text,
+                    target_text, final_response, metadata, messages, usage, scores,
+                    raw_sample, source_log_path, source_log_sha256
+                ) VALUES (
+                    %s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s
+                )
+                ON CONFLICT (experiment_pipeline_run_id, sample_id) DO UPDATE SET
+                    dataset_version = excluded.dataset_version,
+                    input_text = excluded.input_text,
+                    target_text = excluded.target_text,
+                    final_response = excluded.final_response,
+                    metadata = excluded.metadata,
+                    messages = excluded.messages,
+                    usage = excluded.usage,
+                    scores = excluded.scores,
+                    raw_sample = excluded.raw_sample,
+                    source_log_path = excluded.source_log_path,
+                    source_log_sha256 = excluded.source_log_sha256,
+                    updated_at = now()
+                """,
+                (
+                    run_id,
+                    sample_id,
+                    str(metadata.get("dataset_version") or dataset_version),
+                    str(input_text) if input_text is not None else None,
+                    str(target_text) if target_text is not None else None,
+                    final_response,
+                    json_text(to_jsonable(metadata)),
+                    json_text(to_jsonable(messages)),
+                    json_text(to_jsonable(usage)),
+                    json_text(to_jsonable(scores)),
+                    json_text(to_jsonable(sample)),
+                    log_path.as_posix(),
+                    log_sha,
+                ),
+            )
+            count += 1
+        db.commit()
+    return count
+
+
 def export_case_trace_csv(root: Path, outputs_csv: Path, out_path: Path, limit: int = 500) -> dict[str, Any]:
     from psycopg import sql
 
     from postgres_schema_config import rpt_relation
 
-    run_label = outputs_csv.relative_to(root).with_suffix("").as_posix() if outputs_csv.is_absolute() else outputs_csv.with_suffix("").as_posix()
+    run_label = outputs_csv.relative_to(root).with_suffix(""").as_posix() if outputs_csv.is_absolute() else outputs_csv.with_suffix("").as_posix()
     views = ["case_run_trace_reporting", "case_run_trace"]
 
     with connect_db() as db, db.cursor() as cur:
@@ -222,8 +593,8 @@ def export_case_trace_csv(root: Path, outputs_csv: Path, out_path: Path, limit: 
     return {"path": str(out_path), "row_count": 0, "view": None, "run_label": run_label}
 
 
-def read_csv_header(path: Path) -> list[str]:
-    if not path.exists() or path.stat().st_size == 0:
+def read_csv_header(path: Path | None) -> list[str]:
+    if not path or not path.exists() or path.stat().st_size == 0:
         return []
     with path.open(encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
@@ -243,18 +614,18 @@ def assess_v5_trace(config: dict[str, Any], outputs_csv: Path, case_trace_csv: P
     if case_trace_has_turn_fields:
         assessment = (
             "Reporting preserves the pressure-turn list and count, plus the final model output. "
-            "It still does not expose each intermediate assistant completion as separate reporting rows; "
-            "the Inspect .eval log remains the source of truth for the full multi-call transcript."
+            "Intermediate assistant completions are stored in public.inspect_log_sample.raw_sample/messages; "
+            "the immutable copied .eval log remains the strongest raw evidence artefact."
         )
     elif outputs_has_turn_fields:
         assessment = (
             "The exported Inspect CSV preserves pressure-turn list/count, but current reporting views do not. "
-            "Ingestion is usable for final-output analysis only unless reporting is rebuilt with those fields."
+            "Use public.inspect_log_sample and the copied .eval log for transcript inspection."
         )
     else:
         assessment = (
-            "Current export/reporting collapses v5 to final output and basic metadata. "
-            "Use the .eval log for multi-turn inspection."
+            "CSV/reporting collapses v5 to final output and basic metadata. "
+            "Use public.inspect_log_sample and the copied .eval log for transcript inspection."
         )
 
     return {
@@ -265,7 +636,7 @@ def assess_v5_trace(config: dict[str, Any], outputs_csv: Path, case_trace_csv: P
 
 
 def run_optional_audit(config: dict[str, Any], root: Path, output_dir: Path, summary: dict[str, Any]) -> None:
-    audit = config.get("audit", False)
+    audit = bool(config.get("audit", False))
     if not audit:
         summary["audit"] = {"enabled": False}
         return
@@ -298,42 +669,84 @@ def main() -> int:
     root = ROOT
     load_env_file(root / ".env")
     config = load_experiment(args.experiment)
-    name = require(config, "name")
+    slug = experiment_slug(config)
+    if not slug:
+        raise SystemExit("Experiment config must define experiment_slug or name.")
+
     output_dir = root / Path(require(config, "output_dir"))
     output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "run_summary.json"
+    manifest_path = args.experiment if args.experiment.is_absolute() else root / args.experiment
+    dataset_path = resolve_repo_path(config.get("dataset_file"))
+    manifest_sha = sha256_file(manifest_path)
+    dataset_sha = sha256_file(dataset_path)
+    pipeline_run_key = f"{slug}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+
+    inspect_cmd = build_inspect_command(config)
+    run_id: int | None = None
+    case_trace_csv: Path | None = None
 
     summary: dict[str, Any] = {
-        "name": name,
+        "experiment_slug": slug,
+        "name": config.get("name") or slug,
+        "pipeline_run_key": pipeline_run_key,
         "experiment_file": str(args.experiment),
+        "experiment_manifest_sha256": manifest_sha,
         "dataset_version": config.get("dataset_version"),
-        "model": config.get("model"),
+        "dataset_alias": config.get("dataset_alias"),
+        "dataset_file": config.get("dataset_file"),
+        "dataset_sha256": dataset_sha,
+        "prompt_style": config.get("prompt_style"),
+        "task": config.get("task"),
+        "answer_models": answer_models(config),
+        "grader_models": grader_models(config),
+        "scoring": scoring_config(config),
+        "exports": exports_config(config),
+        "provenance": provenance_config(config),
+        "limit": config.get("limit"),
         "output_dir": str(output_dir),
         "steps": [],
     }
 
-    summary_path = output_dir / "run_summary.json"
-
     try:
-        inspect_cmd = build_inspect_command(config)
+        ensure_manifest_tables()
+        manifest_id = upsert_manifest(config, manifest_path, manifest_sha, dataset_sha)
+        run_id = create_pipeline_run(config, manifest_id, pipeline_run_key, inspect_cmd)
+        summary["experiment_manifest_id"] = manifest_id
+        summary["experiment_pipeline_run_id"] = run_id
+
         started_at = time.time()
         summary["steps"].append(run_step(inspect_cmd, root, output_dir, "inspect_eval"))
 
         log_dir = Path(str(config.get("log_dir", DEFAULT_LOG_DIR)))
-        log_path = locate_eval_log(root, log_dir, started_at)
-        summary["eval_log"] = str(log_path)
+        original_log_path = locate_eval_log(root, log_dir, started_at)
+        immutable_log_path = immutable_eval_log_copy(original_log_path, output_dir)
+        eval_log_sha = sha256_file(immutable_log_path)
+        summary["original_eval_log"] = str(original_log_path)
+        summary["eval_log"] = str(immutable_log_path)
+        summary["eval_log_sha256"] = eval_log_sha
 
-        outputs_csv = root / Path(str(config.get("outputs_csv", default_outputs_csv(name))))
-        if bool(config.get("export_outputs", config.get("ingest", True))):
-            export_cmd = export_outputs(log_path, outputs_csv)
+        inspect_sample_count = ingest_inspect_log_samples(
+            run_id=run_id,
+            log_path=immutable_log_path,
+            log_sha=eval_log_sha,
+            dataset_version=require(config, "dataset_version"),
+        )
+        summary["inspect_log_samples_ingested"] = inspect_sample_count
+
+        outputs_csv = root / Path(str(config.get("outputs_csv", default_outputs_csv(slug))))
+        if export_outputs_enabled(config):
+            export_cmd = export_outputs(immutable_log_path, outputs_csv)
             summary["steps"].append(run_step(export_cmd, root, output_dir, "export_outputs"))
+        outputs_csv_sha = sha256_file(outputs_csv)
         summary["outputs_csv"] = str(outputs_csv)
+        summary["outputs_csv_sha256"] = outputs_csv_sha
 
         ingest_cmd = ingest_command(config)
         if ingest_cmd:
             summary["steps"].append(run_step(ingest_cmd, root, output_dir, "postgres_ingest_rebuild"))
 
-        case_trace_csv: Path | None = None
-        if bool(config.get("export_case_trace", False)):
+        if export_case_trace_enabled(config):
             case_trace_csv = output_dir / "case_trace.csv"
             summary["case_trace_csv"] = export_case_trace_csv(
                 root=root,
@@ -349,12 +762,36 @@ def main() -> int:
 
         summary["status"] = "ok"
         summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+        update_pipeline_run(
+            run_id,
+            status="ok",
+            eval_log_path=str(immutable_log_path),
+            eval_log_sha256=eval_log_sha,
+            original_eval_log_path=str(original_log_path),
+            outputs_csv_path=str(outputs_csv),
+            outputs_csv_sha256=outputs_csv_sha,
+            case_trace_csv_path=str(case_trace_csv) if case_trace_csv else None,
+            case_trace_csv_row_count=(summary.get("case_trace_csv") or {}).get("row_count"),
+            run_summary_path=str(summary_path),
+            run_summary=summary,
+            raw_run_metadata={"completed_at": utc_now()},
+            completed_at=utc_now(),
+        )
         print(summary_path)
         return 0
     except Exception as exc:
         summary["status"] = "failed"
         summary["error"] = str(exc)
         summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+        update_pipeline_run(
+            run_id,
+            status="failed",
+            error=str(exc),
+            run_summary_path=str(summary_path),
+            run_summary=summary,
+            raw_run_metadata={"failed_at": utc_now()},
+            completed_at=utc_now(),
+        )
         print(summary_path, file=sys.stderr)
         print(f"Pipeline failed: {exc}", file=sys.stderr)
         return 1
