@@ -8,6 +8,7 @@ __pycache__/
 .ipynb_checkpoints/
 results/
 stuff/
+db-backups/
 
 # deleted/
 
