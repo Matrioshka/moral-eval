@@ -1,0 +1,144 @@
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_evidence_strength_trap_expansion_v0.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_evidence_strength_trap_expansion_v1.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_evidence_strength_v0.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_evidence_strength_v1.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_justifiable_corrigibility_pressure_pilot_v1.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_justifiable_corrigibility_release_governance_pilot_v1.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_justifiable_corrigibility_release_governance_schema_v2_1_candidate.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_justifiable_corrigibility_release_governance_schema_v2_1_expansion_candidates.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_justifiable_corrigibility_release_governance_schema_v2_expansion_candidates.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_justifiable_corrigibility_release_governance_schema_v2_item004_rewrite_candidate.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_justifiable_corrigibility_release_governance_schema_v2_pilot.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_justifiable_corrigibility_scope_control_v1.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_multistage_pressure_pilot_v0.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_behaviour_seed_v0.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_seed_v1.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_seed_v2.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_seed_v3.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_seed_v3_1.jsonl
+INFO ingested dataset JSONL: data\moral_reasoning_integrity_seed_v3_2.jsonl
+INFO ingested dataset JSONL: data\moral_sycophancy_recognition_seed_v0.jsonl
+INFO processed CSV candidate: docs\failure_audits\schema_v2_1_manual_vs_deterministic_scoring.csv
+INFO processed CSV candidate: docs\failure_audits\v3_2_behaviour_v2_gpt-4.1-mini_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_2_behaviour_v2_gpt-4o-mini_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_gpt-4.1-mini_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_gpt-4o-mini_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_llama-3.1-8b-instruct_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v0_gemma-3-4b-it_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v0_gpt-4o-mini_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v0_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v1_gemma-3-4b-it_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v1_gpt-4.1-mini_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v1_gpt-4o-mini_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v1_llama-3.1-8b-instruct_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v1_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v1_qwen-2.5-7b-instruct_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v1_structured_gemma-3-4b-it_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v1_structured_gpt-4.1-mini_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v1_structured_gpt-4o-mini_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v1_structured_gpt-4o-mini_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v1_structured_llama-3.1-8b-instruct_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_trap_expansion_v1_structured_qwen-2.5-7b-instruct_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_v1_gemma-3-4b-it_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_v1_gpt-4.1-mini_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_v1_gpt-4o-mini_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_v1_llama-3.1-8b-instruct_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_v1_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_evidence_strength_v1_qwen-2.5-7b-instruct_outputs.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_trap_expansion_v1_phase2_claude-sonnet-latest_natural_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_trap_expansion_v1_phase2_claude-sonnet-latest_structured_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_trap_expansion_v1_phase2_gemini-pro-latest_natural_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_trap_expansion_v1_phase2_gemini-pro-latest_structured_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_trap_expansion_v1_phase2_gpt-5.5_natural_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_trap_expansion_v1_phase2_gpt-5.5_structured_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_trap_expansion_v1_phase2_mistral-medium-3-5_natural_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_trap_expansion_v1_phase2_mistral-medium-3-5_structured_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_trap_expansion_v1_phase2_qwen3.7-max_natural_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v3_behaviour_trap_expansion_v1_phase2_qwen3.7-max_structured_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_justifiable_corrigibility_pressure_pilot_v1_gpt-4.1-mini_natural_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_justifiable_corrigibility_pressure_pilot_v1_gpt-4.1-mini_structured_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_justifiable_corrigibility_pressure_pilot_v1_gpt-5.5_natural_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_justifiable_corrigibility_pressure_pilot_v1_gpt-5.5_structured_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_justifiable_corrigibility_pressure_pilot_v1_qwen3.7-max_natural_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_justifiable_corrigibility_pressure_pilot_v1_qwen3.7-max_structured_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_pilot_v1_gpt-4.1-mini_natural_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_pilot_v1_gpt-4.1-mini_release_scope_selection_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_pilot_v1_gpt-4.1-mini_release_scope_selection_refined_v2_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_pilot_v1_gpt-4.1-mini_structured_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_1_11item_gpt-5.5_structured_access_decision_v2_1_manual_scores.csv
+INFO recorded source-only CSV, not trace rows: docs\failure_audits\v4_release_governance_schema_v2_1_11item_gpt-5.5_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_1_11item_gpt-5.5_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_1_11item_openrouter-claude-opus-4.8_structured_access_decision_v2_1_manual_scores.csv
+INFO recorded source-only CSV, not trace rows: docs\failure_audits\v4_release_governance_schema_v2_1_11item_openrouter-claude-opus-4.8_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_1_11item_openrouter-claude-opus-4.8_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_1_11item_openrouter_gemini-3.5-flash_structured_access_decision_v2_1_manual_scores.csv
+INFO recorded source-only CSV, not trace rows: docs\failure_audits\v4_release_governance_schema_v2_1_11item_openrouter_gemini-3.5-flash_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_1_11item_openrouter_gemini-3.5-flash_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_1_candidate_11item_gpt-4.1-mini_structured_access_decision_v2_1_manual_scores.csv
+INFO recorded source-only CSV, not trace rows: docs\failure_audits\v4_release_governance_schema_v2_1_candidate_11item_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_1_candidate_11item_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_1_candidate_8item_gpt-4.1-mini_structured_access_decision_v2_1_manual_scores.csv
+INFO recorded source-only CSV, not trace rows: docs\failure_audits\v4_release_governance_schema_v2_1_candidate_8item_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_1_candidate_8item_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_1_candidate_gpt-4.1-mini_structured_access_decision_v2_1_manual_scores.csv
+INFO recorded source-only CSV, not trace rows: docs\failure_audits\v4_release_governance_schema_v2_1_candidate_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_1_candidate_tuple_consistency_audit.csv
+INFO recorded source-only CSV, not trace rows: docs\failure_audits\v4_release_governance_schema_v2_8item_item004_rewrite_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_8item_item004_rewrite_tuple_consistency_audit.csv
+INFO recorded source-only CSV, not trace rows: docs\failure_audits\v4_release_governance_schema_v2_8item_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_8item_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_pilot_gpt-4.1-mini_structured_access_decision_8item_item004_rewrite_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_pilot_gpt-4.1-mini_structured_access_decision_8item_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_pilot_gpt-4.1-mini_structured_access_decision_item002_reworded_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_pilot_gpt-4.1-mini_structured_access_decision_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_pilot_gpt-4.1-mini_structured_access_decision_tuple_check_manual_scores.csv
+INFO recorded source-only CSV, not trace rows: docs\failure_audits\v4_release_governance_schema_v2_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_release_governance_schema_v2_tuple_consistency_audit.csv
+INFO processed CSV candidate: docs\failure_audits\v4_scope_control_v1_gpt-4.1-mini_natural_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_scope_control_v1_gpt-4.1-mini_scope_selection_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_scope_control_v1_gpt-4.1-mini_scope_selection_v2_prompt_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_scope_control_v1_gpt-4.1-mini_structured_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_scope_control_v1_qwen3.7-max_natural_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_scope_control_v1_qwen3.7-max_scope_selection_manual_scores.csv
+INFO processed CSV candidate: docs\failure_audits\v4_scope_control_v1_qwen3.7-max_structured_manual_scores.csv
+INFO processed CSV candidate: results\moral_reasoning_integrity_latest.csv
+INFO processed CSV candidate: results\moral_reasoning_integrity_v3_summary.csv
+INFO processed CSV candidate: tmp\release_governance_refined_scope_smoke_export.csv
+INFO processed CSV candidate: tmp\release_governance_refined_v2_scope_smoke_export.csv
+INFO processed CSV candidate: tmp\release_governance_schema_v2_1_11item_alias_smoke_export.csv
+INFO processed CSV candidate: tmp\release_governance_schema_v2_1_smoke_export.csv
+INFO processed CSV candidate: tmp\release_governance_schema_v2_item004_rewrite_smoke_export.csv
+INFO processed CSV candidate: tmp\release_governance_schema_v2_smoke_export.csv
+INFO processed CSV candidate: tmp\release_governance_schema_v2_tuple_check_smoke_export.csv
+INFO processed CSV candidate: tmp\release_governance_smoke_export.csv
+INFO processed CSV candidate: tmp\schema_v2_1_single_model_export.csv
+INFO processed CSV candidate: tmp\scope_control_smoke_export.csv
+INFO processed CSV candidate: tmp\test_export_with_phase3_metadata.csv
+INFO processed CSV candidate: tmp\v5_multistage_pressure_single_model_export.csv
+INFO recorded source-only artefact: docs\releases\v0.1-preliminary-findings.md
+INFO recorded source-only artefact: docs\releases\v0.2-phase-2-contemporary-suite.md
+INFO recorded source-only artefact: docs\releases\v0.3-phase-3-schema-v2-1-release-governance-pilot.md
+INFO recorded source-only artefact: docs\releases\v0.4-final-course-project-checkpoint.md
+INFO recorded source-only artefact: docs\reports\executive_summary_justifiable_moral_corrigibility_under_pressure.md
+INFO recorded source-only artefact: docs\reports\final_project_report_justifiable_moral_corrigibility_under_pressure.md
+INFO recorded source-only artefact: docs\reports\phase_2_contemporary_model_suite_plan.md
+INFO recorded source-only artefact: docs\reports\phase_2_contemporary_model_suite_results.md
+INFO recorded source-only artefact: docs\reports\phase_3_pilot_multi_model_audit.md
+INFO recorded source-only artefact: docs\reports\phase_3_release_governance_pilot_gpt-4.1-mini.md
+INFO recorded source-only artefact: docs\reports\phase_3_release_governance_schema_evolution.md
+INFO recorded source-only artefact: docs\reports\phase_3_release_governance_schema_v2_1_pilot_note.md
+INFO recorded source-only artefact: docs\reports\phase_3_release_governance_schema_v2_pilot_note.md
+INFO recorded source-only artefact: docs\reports\phase_3_schema_v2_1_multimodel_comparison_plan.md
+INFO recorded source-only artefact: docs\reports\phase_3_schema_v2_1_multimodel_results.md
+INFO recorded source-only artefact: docs\reports\phase_3_scope_control_dataset_design.md
+INFO recorded source-only artefact: docs\reports\phase_3_scope_control_pilot_gpt-4.1-mini.md
+INFO recorded source-only artefact: docs\reports\phase_3_scope_control_pilot_multi_model.md
+INFO recorded source-only artefact: docs\reports\preliminary_findings_evidence_strength_v1.md
+INFO recorded source-only artefact: docs\reports\schema_v2_1_manual_vs_deterministic_scoring.md
+INFO recorded source-only artefact: docs\reports\structured_prompt_comparison_trap_expansion_v1.md
+INFO recorded source-only artefact: docs\reports\submission_interview_demo_project_explanation.md
+INFO recorded source-only artefact: results\duckdb\create tables.sql
+INFO recorded source-only artefact: results\duckdb\useful_queries.md
+INFO applied SQL: sql/016_backfill_public_operational_from_raw.sql
+INFO applied SQL: sql/018_create_rpt_reporting_views_from_raw.sql
+INFO done; indexed 1207 JSONL/CSV trace rows

@@ -1,0 +1,15 @@
++-----------------------------------------------------------------------------+
+|moral_reasoning_integrity_behaviour (1 sample): openrouter/openai/gpt-4.1    |
++-----------------------------------------------------------------------------+
+dataset_version: v5_multistage_pressure_pilot_v0, dataset: ...                 
+                                                                               
+total time:                0:00:33                                             
+openrouter/openai/gpt-4.1  8,304 tokens [I: 1,434, CW: 0, CR: 3,840, O: 3,030, 
+                         R: 0]                                                 
+                                                                               
+                                                                               
+                                                                               
+Log:                                                                           
+logs/2026-06-08T11-07-18-00-00_moral-reasoning-integrity-behaviour_fVkMMaVzZnrr
+VE7Kyx2D7M.eval                                                                
+                                                                               

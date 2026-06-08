@@ -29,6 +29,21 @@ def _case_run_trace_reporting() -> Table:
     return Table("case_run_trace_reporting", MetaData(), schema="rpt", autoload_with=_engine())
 
 
+@lru_cache
+def _experiment_manifest() -> Table:
+    return Table("experiment_manifest", MetaData(), schema="public", autoload_with=_engine())
+
+
+@lru_cache
+def _experiment_pipeline_run() -> Table:
+    return Table("experiment_pipeline_run", MetaData(), schema="public", autoload_with=_engine())
+
+
+@lru_cache
+def _inspect_log_sample() -> Table:
+    return Table("inspect_log_sample", MetaData(), schema="public", autoload_with=_engine())
+
+
 def get_case_by_response_id(response_id: int) -> dict[str, Any] | None:
     case_run_trace = _case_run_trace()
     stmt = select(case_run_trace).where(case_run_trace.c.response_id == response_id).limit(1)
@@ -46,6 +61,83 @@ def list_cases(limit: int = 20) -> list[dict[str, Any]]:
         return [dict(row) for row in conn.execute(stmt).mappings()]
 
 
+def list_pipeline_runs(limit: int = 50) -> list[dict[str, Any]]:
+    experiment_pipeline_run = _experiment_pipeline_run()
+    stmt = (
+        select(experiment_pipeline_run)
+        .order_by(
+            experiment_pipeline_run.c.started_at.desc(),
+            experiment_pipeline_run.c.experiment_pipeline_run_id.desc(),
+        )
+        .limit(limit)
+    )
+    with _engine().connect() as conn:
+        return [dict(row) for row in conn.execute(stmt).mappings()]
+
+
+def get_pipeline_run(run_id: int) -> dict[str, Any] | None:
+    experiment_pipeline_run = _experiment_pipeline_run()
+    stmt = (
+        select(experiment_pipeline_run)
+        .where(experiment_pipeline_run.c.experiment_pipeline_run_id == run_id)
+        .limit(1)
+    )
+    with _engine().connect() as conn:
+        row = conn.execute(stmt).mappings().first()
+    return dict(row) if row else None
+
+
+def list_run_samples(run_id: int) -> list[dict[str, Any]]:
+    inspect_log_sample = _inspect_log_sample()
+    stmt = (
+        select(inspect_log_sample)
+        .where(inspect_log_sample.c.experiment_pipeline_run_id == run_id)
+        .order_by(inspect_log_sample.c.inspect_log_sample_id.asc())
+    )
+    with _engine().connect() as conn:
+        return [dict(row) for row in conn.execute(stmt).mappings()]
+
+
+def get_run_sample(run_id: int, sample_id: str) -> dict[str, Any] | None:
+    inspect_log_sample = _inspect_log_sample()
+    stmt = (
+        select(inspect_log_sample)
+        .where(
+            inspect_log_sample.c.experiment_pipeline_run_id == run_id,
+            inspect_log_sample.c.sample_id == sample_id,
+        )
+        .limit(1)
+    )
+    with _engine().connect() as conn:
+        row = conn.execute(stmt).mappings().first()
+    return dict(row) if row else None
+
+
+def get_latest_run_for_experiment(experiment_slug: str) -> dict[str, Any] | None:
+    experiment_pipeline_run = _experiment_pipeline_run()
+    stmt = (
+        select(experiment_pipeline_run)
+        .where(experiment_pipeline_run.c.experiment_slug == experiment_slug)
+        .order_by(
+            experiment_pipeline_run.c.started_at.desc(),
+            experiment_pipeline_run.c.experiment_pipeline_run_id.desc(),
+        )
+        .limit(1)
+    )
+    with _engine().connect() as conn:
+        row = conn.execute(stmt).mappings().first()
+    return dict(row) if row else None
+
+
 if __name__ == "__main__":
-    for case in list_cases(limit=3):
-        print(case)
+    for run in list_pipeline_runs(limit=3):
+        run_id = run["experiment_pipeline_run_id"]
+        print(
+            {
+                "experiment_pipeline_run_id": run_id,
+                "experiment_slug": run["experiment_slug"],
+                "status": run["status"],
+                "started_at": run["started_at"],
+                "sample_count": len(list_run_samples(run_id)),
+            }
+        )

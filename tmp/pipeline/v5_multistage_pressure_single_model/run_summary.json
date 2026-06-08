@@ -1,0 +1,94 @@
+{
+  "experiment_slug": "v5_multistage_pressure_single_model",
+  "name": "v5_multistage_pressure_single_model",
+  "pipeline_run_key": "v5_multistage_pressure_single_model-20260608T110715Z-5b8b8b02",
+  "experiment_file": "experiments\\v5_multistage_pressure_single_model.yaml",
+  "experiment_manifest_sha256": "273ff4ddc8fd9e504e4192d657e76dd508e4d471c35fd9731cb912572d2c298f",
+  "dataset_version": "v5_multistage_pressure_pilot_v0",
+  "dataset_alias": "v5_multistage_pressure_pilot_v0",
+  "dataset_file": "data/moral_reasoning_integrity_behaviour_multistage_pressure_pilot_v0.jsonl",
+  "dataset_sha256": "a981cd2880066eae4d378f5520294515fb3d4fc602c3ba7a03db794bb9300b00",
+  "prompt_style": "multistage_natural_context",
+  "task": "src/moral_sycophancy_eval/behaviour.py@moral_reasoning_integrity_behaviour",
+  "answer_models": [
+    {
+      "model": "openrouter/openai/gpt-4.1",
+      "model_args": {
+        "provider": {
+          "order": [
+            "openai"
+          ],
+          "allow_fallbacks": false
+        }
+      }
+    }
+  ],
+  "grader_models": [],
+  "scoring": {
+    "deterministic_tuple_audit": false,
+    "ai_grading": false,
+    "manual_review": false,
+    "adjudicated_scores": false
+  },
+  "exports": {
+    "outputs_csv": true,
+    "csv_case_trace": true,
+    "markdown_summary": false,
+    "case_cards": false
+  },
+  "provenance": {
+    "hash_dataset": true,
+    "hash_eval_log": true,
+    "hash_outputs_csv": true,
+    "immutable_eval_log": true,
+    "store_raw_inspect_samples": true
+  },
+  "limit": 1,
+  "output_dir": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model",
+  "steps": [
+    {
+      "label": "inspect_eval",
+      "command": "inspect eval src/moral_sycophancy_eval/behaviour.py@moral_reasoning_integrity_behaviour --model openrouter/openai/gpt-4.1 -T dataset_version=v5_multistage_pressure_pilot_v0 -M 'provider={\"order\":[\"openai\"],\"allow_fallbacks\":false}' --limit 1",
+      "returncode": 0,
+      "stdout_path": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\inspect_eval.stdout.txt",
+      "stderr_path": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\inspect_eval.stderr.txt"
+    },
+    {
+      "label": "export_outputs",
+      "command": "'C:\\python\\TARA\\moral-sycophancy-eval\\.venv\\Scripts\\python.exe' src/moral_sycophancy_eval/export_behaviour_outputs.py 'C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\inspect_logs\\2026-06-08T11-07-18-00-00_moral-reasoning-integrity-behaviour_fVkMMaVzZnrrVE7Kyx2D7M.eval' --csv 'C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\v5_multistage_pressure_single_model_export.csv'",
+      "returncode": 0,
+      "stdout_path": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\export_outputs.stdout.txt",
+      "stderr_path": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\export_outputs.stderr.txt"
+    },
+    {
+      "label": "postgres_ingest_rebuild",
+      "command": "'C:\\python\\TARA\\moral-sycophancy-eval\\.venv\\Scripts\\python.exe' scripts/ingest_eval_artifacts_to_postgres.py --rebuild-derived",
+      "returncode": 0,
+      "stdout_path": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\postgres_ingest_rebuild.stdout.txt",
+      "stderr_path": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\postgres_ingest_rebuild.stderr.txt"
+    }
+  ],
+  "experiment_manifest_id": 1,
+  "experiment_pipeline_run_id": 1,
+  "original_eval_log": "C:\\python\\TARA\\moral-sycophancy-eval\\logs\\2026-06-08T11-07-18-00-00_moral-reasoning-integrity-behaviour_fVkMMaVzZnrrVE7Kyx2D7M.eval",
+  "eval_log": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\inspect_logs\\2026-06-08T11-07-18-00-00_moral-reasoning-integrity-behaviour_fVkMMaVzZnrrVE7Kyx2D7M.eval",
+  "eval_log_sha256": "949b448f8ab3efcb70f73b3f2754dc5cd2bc10ce872df5b9977497d364809022",
+  "inspect_log_samples_ingested": 1,
+  "outputs_csv": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\v5_multistage_pressure_single_model_export.csv",
+  "outputs_csv_sha256": "2f72730fcea8973e5ef4576963ddd083b1dd6701cd83a82227d49d6453c28beb",
+  "case_trace_csv": {
+    "path": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\case_trace.csv",
+    "row_count": 1,
+    "view": "rpt.case_run_trace_reporting",
+    "run_label": "tmp/v5_multistage_pressure_single_model_export"
+  },
+  "audit": {
+    "enabled": false
+  },
+  "v5_trace_preservation": {
+    "outputs_csv_has_pressure_turn_fields": true,
+    "case_trace_csv_has_pressure_turn_fields": true,
+    "assessment": "Reporting preserves the pressure-turn list and count, plus the final model output. Intermediate assistant completions are stored in public.inspect_log_sample.raw_sample/messages; the immutable copied .eval log remains the strongest raw evidence artefact."
+  },
+  "status": "ok"
+}
