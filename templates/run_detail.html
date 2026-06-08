@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Run {{ run.experiment_pipeline_run_id }}{% endblock %}
+
+{% block content %}
+<nav class="crumb"><a href="{{ url_for('runs') }}">Runs</a> / Run {{ run.experiment_pipeline_run_id }}</nav>
+
+<header class="page-header">
+  <p class="eyebrow">{{ run.experiment_slug }}</p>
+  <h1>Run {{ run.experiment_pipeline_run_id }}</h1>
+</header>
+
+<section class="panel">
+  <dl class="meta-grid">
+    <dt>Status</dt><dd><span class="status">{{ run.status }}</span></dd>
+    <dt>Experiment</dt><dd><a href="{{ url_for('experiment_detail', experiment_slug=run.experiment_slug) }}">{{ run.experiment_slug }}</a></dd>
+    <dt>Dataset</dt><dd>{{ run.dataset_version }}</dd>
+    <dt>Model</dt><dd>{{ run.answer_model | model_label }}</dd>
+    <dt>Prompt style</dt><dd>{{ run.prompt_style or "" }}</dd>
+    <dt>Started</dt><dd>{{ run.started_at }}</dd>
+    <dt>Completed</dt><dd>{{ run.completed_at or "" }}</dd>
+    <dt>Output CSV</dt><dd class="mono">{{ run.outputs_csv_path or "" }}</dd>
+    <dt>Eval log</dt><dd class="mono">{{ run.eval_log_path or "" }}</dd>
+  </dl>
+</section>
+
+<section class="details-stack">
+  {% for key in ["answer_model", "scoring", "exports", "provenance", "run_summary", "raw_run_metadata"] %}
+    {% if run.get(key) %}
+    <details class="panel">
+      <summary>{{ key }}</summary>
+      <pre>{{ run.get(key) | json_pretty }}</pre>
+    </details>
+    {% endif %}
+  {% endfor %}
+</section>
+
+{% if run.error %}
+<section class="panel">
+  <h2>Error</h2>
+  <pre>{{ run.error }}</pre>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Samples</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Sample</th>
+        <th>Dataset</th>
+        <th>Target Preview</th>
+        <th>Final Response Preview</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for sample in samples %}
+      <tr>
+        <td><a href="{{ url_for('sample_detail', run_id=run.experiment_pipeline_run_id, sample_id=sample.sample_id) }}">{{ sample.sample_id }}</a></td>
+        <td>{{ sample.dataset_version or "" }}</td>
+        <td>{{ sample.target_text | preview_text(360) }}</td>
+        <td>{{ sample.final_response | preview_text(480) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

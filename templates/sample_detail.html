@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Sample {{ sample.sample_id }}{% endblock %}
+
+{% block content %}
+<nav class="crumb"><a href="{{ url_for('run_detail', run_id=run_id) }}">Run {{ run_id }}</a> / Sample {{ sample.sample_id }}</nav>
+
+<header class="page-header">
+  <p class="eyebrow">{{ sample.dataset_version or "Sample" }}</p>
+  <h1>{{ sample.sample_id }}</h1>
+</header>
+
+<section class="panel">
+  <dl class="meta-grid">
+    <dt>Inspect sample row</dt><dd>{{ sample.inspect_log_sample_id }}</dd>
+    <dt>Run</dt><dd>{{ sample.experiment_pipeline_run_id }}</dd>
+    <dt>Source log</dt><dd class="mono">{{ sample.source_log_path or "" }}</dd>
+  </dl>
+</section>
+
+<section class="three-stack">
+  <article class="panel">
+    <h2>Input</h2>
+    <div class="text-box">{{ sample.input_text or "" }}</div>
+  </article>
+
+  <article class="panel">
+    <h2>Target</h2>
+    <div class="text-box">{{ sample.target_text or "" }}</div>
+  </article>
+
+  <article class="panel">
+    <h2>Final Response</h2>
+    <div class="text-box">{{ sample.final_response or "" }}</div>
+  </article>
+</section>
+
+{% if transcript %}
+<section class="panel">
+  <h2>Transcript</h2>
+  <ol class="transcript">
+    {% for card in transcript %}
+    <li class="message-card role-{{ card.role_key }}">
+      <div class="message-role">{{ card.role }}</div>
+      {% if card.pressure_turn %}
+      <div class="turn-meta">
+        Pressure turn {{ card.pressure_turn.turn_index or loop.index }}
+        {% if card.pressure_turn.pressure_type %}<span>{{ card.pressure_turn.pressure_type }}</span>{% endif %}
+        {% if card.pressure_turn.evidence_quality %}<span>{{ card.pressure_turn.evidence_quality }}</span>{% endif %}
+      </div>
+      {% endif %}
+      <div class="message-content">
+        {% if card.content is string %}
+          {{ card.content }}
+        {% else %}
+          <pre>{{ card.content | json_pretty }}</pre>
+        {% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+
+<section class="details-stack">
+  {% for key in ["metadata", "usage", "scores", "messages", "raw_sample"] %}
+    {% if sample.get(key) %}
+    <details class="panel">
+      <summary>{{ key }}</summary>
+      <pre>{{ sample.get(key) | json_pretty }}</pre>
+    </details>
+    {% endif %}
+  {% endfor %}
+</section>
+{% endblock %}

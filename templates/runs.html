@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Pipeline Runs{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <p class="eyebrow">Experiment Browser</p>
+  <h1>Pipeline Runs</h1>
+</header>
+
+<section class="panel">
+  <table>
+    <thead>
+      <tr>
+        <th>Run</th>
+        <th>Experiment</th>
+        <th>Status</th>
+        <th>Dataset</th>
+        <th>Model</th>
+        <th>Started</th>
+        <th>Completed</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td class="mono">{{ run.experiment_pipeline_run_id }}</td>
+        <td><a href="{{ url_for('experiment_detail', experiment_slug=run.experiment_slug) }}">{{ run.experiment_slug }}</a></td>
+        <td><span class="status">{{ run.status }}</span></td>
+        <td>{{ run.dataset_version }}</td>
+        <td>{{ run.answer_model | model_label }}</td>
+        <td>{{ run.started_at }}</td>
+        <td>{{ run.completed_at or "" }}</td>
+        <td><a class="button-link" href="{{ url_for('run_detail', run_id=run.experiment_pipeline_run_id) }}">Detail</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}{{ table_name }}{% endblock %}
+
+{% block content %}
+<nav class="crumb"><a href="{{ url_for('reference') }}">Reference</a> / {{ table_name }}</nav>
+
+<header class="page-header">
+  <p class="eyebrow">Reference table</p>
+  <h1>{{ table_name }}</h1>
+</header>
+
+<section class="panel">
+  {% if rows and columns %}
+  <table>
+    <thead>
+      <tr>
+        {% for column in columns %}
+        <th>{{ column }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        {% for column in columns %}
+        <td>{{ row.get(column) }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No rows to show.</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Search{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <p class="eyebrow">Global</p>
+  <h1>Search</h1>
+</header>
+
+<form class="search-form" action="{{ url_for('search') }}" method="get">
+  <input type="search" name="q" value="{{ q }}" placeholder="Experiment, dataset, sample, input, target, response">
+  <button type="submit">Search</button>
+</form>
+
+{% if q %}
+<section class="panel">
+  <h2>Experiments</h2>
+  <table>
+    <tbody>
+      {% for experiment in results.experiments %}
+      <tr>
+        <td><a href="{{ url_for('experiment_detail', experiment_slug=experiment.experiment_slug) }}">{{ experiment.experiment_slug }}</a></td>
+        <td>{{ experiment.dataset_version }}</td>
+        <td>{{ experiment.task }}</td>
+      </tr>
+      {% else %}
+      <tr><td>No experiment matches.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Runs</h2>
+  <table>
+    <tbody>
+      {% for run in results.runs %}
+      <tr>
+        <td><a href="{{ url_for('run_detail', run_id=run.experiment_pipeline_run_id) }}">Run {{ run.experiment_pipeline_run_id }}</a></td>
+        <td>{{ run.experiment_slug }}</td>
+        <td>{{ run.dataset_version }}</td>
+        <td><span class="status">{{ run.status }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td>No run matches.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Samples</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Sample</th>
+        <th>Run</th>
+        <th>Experiment</th>
+        <th>Text Preview</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for sample in results.samples %}
+      <tr>
+        <td><a href="{{ url_for('sample_detail', run_id=sample.experiment_pipeline_run_id, sample_id=sample.sample_id) }}">{{ sample.sample_id }}</a></td>
+        <td><a href="{{ url_for('run_detail', run_id=sample.experiment_pipeline_run_id) }}">{{ sample.experiment_pipeline_run_id }}</a></td>
+        <td>{{ sample.experiment_slug }}</td>
+        <td>{{ (sample.final_response or sample.input_text or sample.target_text) | preview_text(420) }}</td>
+      </tr>
+      {% else %}
+      <tr><td>No sample matches.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

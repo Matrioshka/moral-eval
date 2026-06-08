@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Reference{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <p class="eyebrow">Allowlisted lookup tables</p>
+  <h1>Reference</h1>
+</header>
+
+<section class="panel">
+  <table>
+    <thead>
+      <tr>
+        <th>Table</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for table in tables %}
+      <tr>
+        <td class="mono">{{ table.table_name }}</td>
+        <td><a class="button-link" href="{{ url_for('reference_table', table_name=table.table_name) }}">Browse</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="2">No allowlisted reference tables are available.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Run Browser{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <nav class="topnav">
+      <div class="nav-links">
+        <a href="{{ url_for('runs') }}">Runs</a>
+        <a href="{{ url_for('experiments') }}">Experiments</a>
+        <a href="{{ url_for('reference') }}">Reference</a>
+      </div>
+      <form class="nav-search" action="{{ url_for('search') }}" method="get">
+        <span aria-hidden="true">⌕</span>
+        <input type="search" name="q" value="{{ q or '' }}" placeholder="Search experiments, samples, responses…">
+      </form>
+    </nav>
+  </header>
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

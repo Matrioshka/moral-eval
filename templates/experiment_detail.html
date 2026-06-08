@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}{{ experiment.experiment_slug }}{% endblock %}
+
+{% block content %}
+<nav class="crumb"><a href="{{ url_for('experiments') }}">Experiments</a> / {{ experiment.experiment_slug }}</nav>
+
+<header class="page-header">
+  <p class="eyebrow">Experiment</p>
+  <h1>{{ experiment.experiment_slug }}</h1>
+</header>
+
+<section class="panel">
+  <dl class="meta-grid">
+    <dt>Name</dt><dd>{{ experiment.name or "" }}</dd>
+    <dt>Dataset</dt><dd>{{ experiment.dataset_version }}</dd>
+    <dt>Task</dt><dd>{{ experiment.task }}</dd>
+    <dt>Prompt style</dt><dd>{{ experiment.prompt_style or "" }}</dd>
+    <dt>Created</dt><dd>{{ experiment.created_at or "" }}</dd>
+    <dt>Updated</dt><dd>{{ experiment.updated_at or "" }}</dd>
+    <dt>Manifest file</dt><dd class="mono">{{ experiment.manifest_file_path or "" }}</dd>
+  </dl>
+</section>
+
+<section class="details-stack">
+  {% for key in ["answer_models", "grader_models", "scoring", "exports", "provenance", "raw_manifest"] %}
+    {% if experiment.get(key) %}
+    <details class="panel">
+      <summary>{{ key }}</summary>
+      <pre>{{ experiment.get(key) | json_pretty }}</pre>
+    </details>
+    {% endif %}
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h2>Recent Runs</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Run</th>
+        <th>Status</th>
+        <th>Dataset</th>
+        <th>Model</th>
+        <th>Started</th>
+        <th>Completed</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td><a href="{{ url_for('run_detail', run_id=run.experiment_pipeline_run_id) }}">{{ run.experiment_pipeline_run_id }}</a></td>
+        <td><span class="status">{{ run.status }}</span></td>
+        <td>{{ run.dataset_version }}</td>
+        <td>{{ run.answer_model | model_label }}</td>
+        <td>{{ run.started_at }}</td>
+        <td>{{ run.completed_at or "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
