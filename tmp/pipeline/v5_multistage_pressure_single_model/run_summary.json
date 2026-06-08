@@ -1,7 +1,7 @@
 {
   "experiment_slug": "v5_multistage_pressure_single_model",
   "name": "v5_multistage_pressure_single_model",
-  "pipeline_run_key": "v5_multistage_pressure_single_model-20260608T110715Z-5b8b8b02",
+  "pipeline_run_key": "v5_multistage_pressure_single_model-20260608T123736Z-b3add7bb",
   "experiment_file": "experiments\\v5_multistage_pressure_single_model.yaml",
   "experiment_manifest_sha256": "273ff4ddc8fd9e504e4192d657e76dd508e4d471c35fd9731cb912572d2c298f",
   "dataset_version": "v5_multistage_pressure_pilot_v0",
@@ -55,7 +55,7 @@
     },
     {
       "label": "export_outputs",
-      "command": "'C:\\python\\TARA\\moral-sycophancy-eval\\.venv\\Scripts\\python.exe' src/moral_sycophancy_eval/export_behaviour_outputs.py 'C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\inspect_logs\\2026-06-08T11-07-18-00-00_moral-reasoning-integrity-behaviour_fVkMMaVzZnrrVE7Kyx2D7M.eval' --csv 'C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\v5_multistage_pressure_single_model_export.csv'",
+      "command": "'C:\\python\\TARA\\moral-sycophancy-eval\\.venv\\Scripts\\python.exe' src/moral_sycophancy_eval/export_behaviour_outputs.py 'C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\inspect_logs\\2026-06-08T12-37-40-00-00_moral-reasoning-integrity-behaviour_gNGp3Fhk5EBByrrRLfm7FH.eval' --csv 'C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\v5_multistage_pressure_single_model_export.csv'",
       "returncode": 0,
       "stdout_path": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\export_outputs.stdout.txt",
       "stderr_path": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\export_outputs.stderr.txt"
@@ -69,13 +69,13 @@
     }
   ],
   "experiment_manifest_id": 1,
-  "experiment_pipeline_run_id": 1,
-  "original_eval_log": "C:\\python\\TARA\\moral-sycophancy-eval\\logs\\2026-06-08T11-07-18-00-00_moral-reasoning-integrity-behaviour_fVkMMaVzZnrrVE7Kyx2D7M.eval",
-  "eval_log": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\inspect_logs\\2026-06-08T11-07-18-00-00_moral-reasoning-integrity-behaviour_fVkMMaVzZnrrVE7Kyx2D7M.eval",
-  "eval_log_sha256": "949b448f8ab3efcb70f73b3f2754dc5cd2bc10ce872df5b9977497d364809022",
+  "experiment_pipeline_run_id": 2,
+  "original_eval_log": "C:\\python\\TARA\\moral-sycophancy-eval\\logs\\2026-06-08T12-37-40-00-00_moral-reasoning-integrity-behaviour_gNGp3Fhk5EBByrrRLfm7FH.eval",
+  "eval_log": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\inspect_logs\\2026-06-08T12-37-40-00-00_moral-reasoning-integrity-behaviour_gNGp3Fhk5EBByrrRLfm7FH.eval",
+  "eval_log_sha256": "6e067958da28a040cf63cac0e1198009589add898596356c1b991b4c76092bb3",
   "inspect_log_samples_ingested": 1,
   "outputs_csv": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\v5_multistage_pressure_single_model_export.csv",
-  "outputs_csv_sha256": "2f72730fcea8973e5ef4576963ddd083b1dd6701cd83a82227d49d6453c28beb",
+  "outputs_csv_sha256": "ff5b8f716f221d61727da66985d57e3d95d5f2836ae236b626652e543d44f75a",
   "case_trace_csv": {
     "path": "C:\\python\\TARA\\moral-sycophancy-eval\\tmp\\pipeline\\v5_multistage_pressure_single_model\\case_trace.csv",
     "row_count": 1,
