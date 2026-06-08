@@ -11,12 +11,31 @@ from sqlalchemy.engine import Engine
 DATABASE_URL_ENV = "MORAL_EVALS_DATABASE_URL"
 
 
+def _sqlalchemy_psycopg3_url(url: str) -> str:
+    """Use SQLAlchemy's psycopg3 dialect when a generic Postgres URL is supplied.
+
+    SQLAlchemy's plain postgresql:// URL defaults to the psycopg2 DBAPI. This
+    project uses psycopg3, so local MORAL_EVALS_DATABASE_URL values can remain
+    normal libpq-style URLs while app queries still use the installed driver.
+    """
+
+    if url.startswith("postgresql+psycopg://"):
+        return url
+    if url.startswith("postgresql+psycopg2://"):
+        return "postgresql+psycopg://" + url.removeprefix("postgresql+psycopg2://")
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url.removeprefix("postgresql://")
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url.removeprefix("postgres://")
+    return url
+
+
 @lru_cache
 def _engine() -> Engine:
     url = os.environ.get(DATABASE_URL_ENV)
     if not url:
         raise RuntimeError(f"{DATABASE_URL_ENV} must be set.")
-    return create_engine(url)
+    return create_engine(_sqlalchemy_psycopg3_url(url))
 
 
 @lru_cache
