@@ -564,7 +564,10 @@ def export_case_trace_csv(root: Path, outputs_csv: Path, out_path: Path, limit: 
 
     from postgres_schema_config import rpt_relation
 
-    run_label = outputs_csv.relative_to(root).with_suffix(""").as_posix() if outputs_csv.is_absolute() else outputs_csv.with_suffix("").as_posix()
+    if outputs_csv.is_absolute():
+        run_label = outputs_csv.relative_to(root).with_suffix("").as_posix()
+    else:
+        run_label = outputs_csv.with_suffix("").as_posix()
     views = ["case_run_trace_reporting", "case_run_trace"]
 
     with connect_db() as db, db.cursor() as cur:
