@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import MetaData, Table, create_engine, inspect, or_, select
 from sqlalchemy.engine import Engine
 
 
-DATABASE_URL_ENV = "MORAL_EVALS_DATABASE_URL"REFERENCE_TABLES = (
+DATABASE_URL_ENV = "MORAL_EVALS_DATABASE_URL"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REFERENCE_TABLES = (
     "moral_domain",
     "turn_type",
     "pressure_type",
@@ -17,6 +20,38 @@ DATABASE_URL_ENV = "MORAL_EVALS_DATABASE_URL"REFERENCE_TABLES = (
     "rubric",
     "failure_class",
 )
+
+
+def _load_db_env_file(path: Path) -> None:
+    """Load DB-related .env values without requiring the PowerShell env loader.
+
+    Existing shell values win. This intentionally loads DB/schema keys only, not
+    model API keys, because the browser/query layer is read-only.
+    """
+
+    if not path.exists():
+        return
+
+    allowed_exact = {DATABASE_URL_ENV}
+    allowed_prefixes = ("MORAL_EVALS_", "PG")
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.lower().startswith("export "):
+            line = line[7:].strip()
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        if key not in allowed_exact and not key.startswith(allowed_prefixes):
+            continue
+        if key in os.environ:
+            continue
+
+        os.environ[key] = value.strip().strip('"').strip("'")
 
 
 def _sqlalchemy_psycopg3_url(url: str) -> str:
@@ -40,9 +75,10 @@ def _sqlalchemy_psycopg3_url(url: str) -> str:
 
 @lru_cache
 def _engine() -> Engine:
+    _load_db_env_file(PROJECT_ROOT / ".env")
     url = os.environ.get(DATABASE_URL_ENV)
     if not url:
-        raise RuntimeError(f"{DATABASE_URL_ENV} must be set.")
+        raise RuntimeError(f"{DATABASE_URL_ENV} must be set or present in .env.")
     return create_engine(_sqlalchemy_psycopg3_url(url))
 
 
