@@ -72,9 +72,9 @@ a:hover {
 }
 
 .page {
-  width: calc(100vw - 32px);
+  width: calc(100vw - 12px);
   margin: 0 auto;
-  padding: 32px 0 56px;
+  padding: 28px 0 56px;
 }
 
 .topbar {
@@ -90,7 +90,7 @@ a:hover {
   align-items: center;
   gap: 8px;
   justify-content: space-between;
-  width: calc(100vw - 32px);
+  width: calc(100vw - 12px);
   margin: 0 auto;
   padding: 10px 0;
 }
@@ -184,7 +184,7 @@ a:hover {
   border-radius: 8px;
   box-shadow: var(--shadow);
   margin: 14px 0;
-  padding: 16px;
+  padding: 14px;
   overflow-x: auto;
 }
 
@@ -352,19 +352,45 @@ tr:last-child td {
 }
 
 .kv-table {
-  table-layout: fixed;
+  width: auto;
+  min-width: min(100%, 28rem);
+  max-width: 100%;
+  table-layout: auto;
   margin-top: 10px;
 }
 
+.kv-table th,
+.kv-table td {
+  padding: 8px 12px;
+}
+
 .kv-table th {
-  width: min(28rem, 34vw);
+  width: 11rem;
+  max-width: 15rem;
+  white-space: nowrap;
   text-transform: none;
   font-size: 12px;
   letter-spacing: 0;
 }
 
 .kv-table td {
+  min-width: 8rem;
   overflow-wrap: anywhere;
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.config-panel {
+  margin: 0;
+}
+
+.raw-json-panel {
+  grid-column: 1 / -1;
 }
 
 .path-details p {
@@ -510,7 +536,7 @@ pre {
 @media (max-width: 820px) {
   .page,
   .topnav {
-    width: calc(100vw - 20px);
+    width: calc(100vw - 12px);
   }
 
   .meta-grid {
@@ -521,12 +547,18 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .config-grid {
+    grid-template-columns: 1fr;
+  }
+
   .kv-table {
-    table-layout: auto;
+    width: 100%;
+    min-width: 0;
   }
 
   .kv-table th {
     width: auto;
+    white-space: normal;
   }
 
   .search-form {
