@@ -54,10 +54,10 @@
   </table>
 </section>
 
-<section class="details-stack">
+<section class="details-stack config-grid">
   {% for key, title in [("answer_models", "Answer models"), ("grader_models", "Grader models"), ("scoring", "Scoring"), ("exports", "Exports"), ("provenance", "Provenance")] %}
     {% if experiment.get(key) %}
-    <details class="panel" {% if key == "answer_models" %}open{% endif %}>
+    <details class="panel config-panel" {% if key == "answer_models" %}open{% endif %}>
       <summary>{{ title }}</summary>
       <table class="kv-table">
         <tbody>
@@ -74,7 +74,7 @@
   {% endfor %}
 
   {% if experiment.raw_manifest %}
-  <details class="panel">
+  <details class="panel raw-json-panel">
     <summary>raw_manifest</summary>
     <pre>{{ experiment.raw_manifest | json_pretty }}</pre>
   </details>
