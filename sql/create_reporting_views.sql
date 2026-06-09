@@ -1,9 +1,11 @@
 -- Recreate reporting and diagnostic views over public operational metadata
 -- and raw provenance rows.
 --
--- Expected prior migrations:
---   sql/017_move_import_tables_to_raw.sql
---   sql/019_promote_dataset_and_run.sql
+-- Expected prior steps:
+--   raw import tables exist and are populated.
+--   public dataset/run dimensions have been promoted from raw.
+--   public operational response/case tables have been backfilled from raw.
+--   public case expectations and structured decisions have been promoted from raw.
 --
 -- This migration keeps public compatibility views for reporting, but does not
 -- create public aliases for raw/import tables.
@@ -65,22 +67,22 @@ SELECT
     ci.pressure_legitimacy,
     ci.pressure_target,
     ci.conflict_type,
-    eb.expected_behaviour,
-    eb.ideal_behaviour,
-    eb.target_scope,
-    eb.minimum_acceptable_scope,
-    eb.maximum_acceptable_scope,
-    eb.target_release_scope,
-    eb.minimum_acceptable_release_scope,
-    eb.maximum_acceptable_release_scope,
-    eb.target_access,
-    eb.minimum_acceptable_access,
-    eb.maximum_acceptable_access,
-    eb.release_artifact,
-    eb.missing_evaluation_types,
+    ce.expected_behaviour,
+    ce.ideal_behaviour,
+    ce.target_scope,
+    ce.minimum_acceptable_scope,
+    ce.maximum_acceptable_scope,
+    ce.target_release_scope,
+    ce.minimum_acceptable_release_scope,
+    ce.maximum_acceptable_release_scope,
+    ce.target_access,
+    ce.minimum_acceptable_access,
+    ce.maximum_acceptable_access,
+    ce.release_artifact,
+    ce.missing_evaluation_types,
     ci.safeguard_type,
     ci.safeguard_features,
-    eb.failure_modes,
+    ce.failure_modes,
     ci.residual_risk_features,
     run.run_id,
     run.run_label,
@@ -89,16 +91,16 @@ SELECT
     run.run_timestamp,
     mresp.response_id,
     mresp.raw_response AS model_raw_response,
-    sdt.tuple_schema,
-    sdt.raw_tuple AS extracted_structured_tuple,
-    sdt.access_purpose AS extracted_access_purpose,
-    sdt.access_intent AS extracted_access_intent,
-    sdt.access_population AS extracted_access_population,
-    sdt.access_modality AS extracted_access_modality,
-    sdt.operational_status AS extracted_operational_status,
-    sdt.real_world_exposure AS extracted_real_world_exposure,
-    sdt.externalisation_level AS extracted_externalisation_level,
-    sdt.legacy_release_scope AS extracted_legacy_release_scope,
+    rsd.tuple_schema,
+    rsd.raw_tuple AS extracted_structured_tuple,
+    rsd.access_purpose AS extracted_access_purpose,
+    rsd.access_intent AS extracted_access_intent,
+    rsd.access_population AS extracted_access_population,
+    rsd.access_modality AS extracted_access_modality,
+    rsd.operational_status AS extracted_operational_status,
+    rsd.real_world_exposure AS extracted_real_world_exposure,
+    rsd.externalisation_level AS extracted_externalisation_level,
+    rsd.legacy_release_scope AS extracted_legacy_release_scope,
     ms.score_0_to_3 AS manual_score,
     fc.name AS failure_class,
     ms.confidence AS manual_confidence,
@@ -112,30 +114,38 @@ SELECT
     jsonb_strip_nulls(jsonb_build_object(
         'dataset_case', sf_case.file_path,
         'dataset_case_kind', sf_case.file_kind,
+        'case_expectation', sf_expectation.file_path,
         'model_response', sf_response.file_path,
+        'structured_decision', sf_structured.file_path,
         'manual_score', sf_manual.file_path,
         'deterministic_score', sf_deterministic.file_path,
         'dataset_source_sha256', sf_case.content_sha256,
+        'expectation_source_sha256', sf_expectation.content_sha256,
         'response_source_sha256', sf_response.content_sha256,
+        'structured_decision_source_sha256', sf_structured.content_sha256,
         'manual_source_sha256', sf_manual.content_sha256
     )) AS source_files
 FROM raw.dataset_case dc
 JOIN public.dataset d ON d.dataset_id = dc.dataset_id
+LEFT JOIN public.eval_case ec ON ec.dataset_case_pk = dc.case_pk
+LEFT JOIN public.case_expectation ce ON ce.eval_case_id = ec.eval_case_id
 LEFT JOIN raw.case_intervention ci ON ci.case_pk = dc.case_pk
-LEFT JOIN raw.expected_behaviour eb ON eb.case_pk = dc.case_pk
 LEFT JOIN raw.model_response mresp ON mresp.case_pk = dc.case_pk
+LEFT JOIN public.response resp ON resp.legacy_model_response_id = mresp.response_id
+LEFT JOIN public.response_structured_decision rsd ON rsd.response_id = resp.response_id
 LEFT JOIN public.run run ON run.run_id = mresp.run_id
-LEFT JOIN raw.structured_decision_tuple sdt ON sdt.response_id = mresp.response_id
 LEFT JOIN raw.manual_score ms ON ms.response_id = mresp.response_id
 LEFT JOIN public.failure_class fc ON fc.failure_class_id = ms.primary_failure_class_id
 LEFT JOIN raw.deterministic_score ds ON ds.response_id = mresp.response_id
 LEFT JOIN raw.source_file sf_case ON sf_case.source_file_id = dc.source_file_id
+LEFT JOIN raw.source_file sf_expectation ON sf_expectation.source_file_id = ce.source_file_id
 LEFT JOIN raw.source_file sf_response ON sf_response.source_file_id = mresp.source_file_id
+LEFT JOIN raw.source_file sf_structured ON sf_structured.source_file_id = rsd.source_file_id
 LEFT JOIN raw.source_file sf_manual ON sf_manual.source_file_id = ms.source_file_id
 LEFT JOIN raw.source_file sf_deterministic ON sf_deterministic.source_file_id = ds.source_file_id;
 
 COMMENT ON VIEW rpt.case_run_trace IS
-    'Reporting trace view over public dataset/run metadata plus raw response, score, and source provenance rows.';
+    'Reporting trace view over public operational dataset/run/expectation/extraction metadata plus raw response, score, and source provenance rows.';
 
 CREATE VIEW rpt.case_run_trace_reporting AS
 SELECT *
