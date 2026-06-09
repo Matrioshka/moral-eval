@@ -105,17 +105,7 @@ CREATE TABLE IF NOT EXISTS public.business_glossary_term_object (
     mapping_source text NOT NULL DEFAULT 'manual',
     notes text,
     created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (
-        business_glossary_term_id,
-        object_schema,
-        object_type,
-        object_name,
-        coalesce(parent_schema, ''),
-        coalesce(parent_object_type, ''),
-        coalesce(parent_object_name, ''),
-        mapping_type
-    )
+    updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS ix_business_glossary_term_object_object
@@ -125,6 +115,18 @@ CREATE INDEX IF NOT EXISTS ix_business_glossary_term_object_object
         object_name,
         parent_schema,
         parent_object_name
+    );
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_business_glossary_term_object_mapping
+    ON public.business_glossary_term_object (
+        business_glossary_term_id,
+        object_schema,
+        object_type,
+        object_name,
+        coalesce(parent_schema, ''),
+        coalesce(parent_object_type, ''),
+        coalesce(parent_object_name, ''),
+        mapping_type
     );
 
 COMMENT ON TABLE public.business_glossary_term IS
@@ -311,16 +313,7 @@ SELECT
     mapping_confidence,
     notes
 FROM resolved_mappings
-ON CONFLICT (
-    business_glossary_term_id,
-    object_schema,
-    object_type,
-    object_name,
-    coalesce(parent_schema, ''),
-    coalesce(parent_object_type, ''),
-    coalesce(parent_object_name, ''),
-    mapping_type
-) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 CREATE OR REPLACE VIEW rpt.business_glossary AS
 SELECT
