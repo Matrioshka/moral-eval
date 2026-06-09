@@ -6,6 +6,20 @@
 
 BEGIN;
 
+-- Reporting views may depend on structured-decision columns. Drop dependent
+-- views before slimming or rebuilding public.response_structured_decision.
+DROP VIEW IF EXISTS public.case_run_trace_reporting;
+DROP VIEW IF EXISTS public.case_run_trace;
+DROP VIEW IF EXISTS public.run_detail;
+DROP VIEW IF EXISTS rpt.case_run_trace_reporting;
+DROP VIEW IF EXISTS rpt.case_run_trace;
+DROP VIEW IF EXISTS rpt.run_detail;
+
+ALTER TABLE IF EXISTS public.response_structured_decision
+    DROP COLUMN IF EXISTS extracted_from,
+    DROP COLUMN IF EXISTS access_purpose,
+    DROP COLUMN IF EXISTS legacy_release_scope;
+
 CREATE TABLE IF NOT EXISTS public.case_expectation (
     case_expectation_id bigserial PRIMARY KEY,
     eval_case_id bigint NOT NULL UNIQUE REFERENCES public.eval_case(eval_case_id) ON DELETE CASCADE,
@@ -44,15 +58,12 @@ CREATE TABLE IF NOT EXISTS public.response_structured_decision (
     response_structured_decision_id bigserial PRIMARY KEY,
     response_id bigint NOT NULL UNIQUE REFERENCES public.response(response_id) ON DELETE CASCADE,
     tuple_schema text NOT NULL DEFAULT 'schema_v2_1_access_decision',
-    extracted_from text,
-    access_purpose text,
     access_intent text,
     access_population text,
     access_modality text,
     operational_status text,
     real_world_exposure text,
     externalisation_level text,
-    legacy_release_scope text,
     raw_tuple jsonb NOT NULL DEFAULT '{}'::jsonb,
     source_file_id bigint REFERENCES raw.source_file(source_file_id),
     legacy_structured_decision_tuple_id bigint UNIQUE,
@@ -155,15 +166,12 @@ ON CONFLICT (eval_case_id) DO UPDATE SET
 INSERT INTO public.response_structured_decision AS response_structured_decision (
     response_id,
     tuple_schema,
-    extracted_from,
-    access_purpose,
     access_intent,
     access_population,
     access_modality,
     operational_status,
     real_world_exposure,
     externalisation_level,
-    legacy_release_scope,
     raw_tuple,
     source_file_id,
     legacy_structured_decision_tuple_id,
@@ -174,15 +182,12 @@ INSERT INTO public.response_structured_decision AS response_structured_decision 
 SELECT
     r.response_id,
     COALESCE(sdt.tuple_schema, 'schema_v2_1_access_decision'),
-    sdt.extracted_from,
-    sdt.access_purpose,
     sdt.access_intent,
     sdt.access_population,
     sdt.access_modality,
     sdt.operational_status,
     sdt.real_world_exposure,
     sdt.externalisation_level,
-    sdt.legacy_release_scope,
     COALESCE(sdt.raw_tuple, '{}'::jsonb),
     sdt.source_file_id,
     sdt.tuple_id,
@@ -197,15 +202,12 @@ JOIN public.response r
     ON r.legacy_model_response_id = sdt.response_id
 ON CONFLICT (response_id) DO UPDATE SET
     tuple_schema = EXCLUDED.tuple_schema,
-    extracted_from = EXCLUDED.extracted_from,
-    access_purpose = EXCLUDED.access_purpose,
     access_intent = EXCLUDED.access_intent,
     access_population = EXCLUDED.access_population,
     access_modality = EXCLUDED.access_modality,
     operational_status = EXCLUDED.operational_status,
     real_world_exposure = EXCLUDED.real_world_exposure,
     externalisation_level = EXCLUDED.externalisation_level,
-    legacy_release_scope = EXCLUDED.legacy_release_scope,
     raw_tuple = EXCLUDED.raw_tuple,
     source_file_id = EXCLUDED.source_file_id,
     legacy_structured_decision_tuple_id = EXCLUDED.legacy_structured_decision_tuple_id,
