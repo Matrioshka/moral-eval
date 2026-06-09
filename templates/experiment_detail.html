@@ -16,21 +16,10 @@
     <dt>Dataset</dt><dd>{% if experiment.dataset_version %}<a href="{{ url_for('search') }}?q={{ experiment.dataset_version | urlencode }}">{{ experiment.dataset_version }}</a>{% endif %}</dd>
     <dt>Task</dt><dd>{{ experiment.task }}</dd>
     <dt>Prompt style</dt><dd>{{ experiment.prompt_style or "" }}</dd>
-    <dt>Created</dt><dd class="datetime-small">{{ experiment.created_at or "" }}</dd>
-    <dt>Updated</dt><dd class="datetime-small">{{ experiment.updated_at or "" }}</dd>
+    <dt>Created</dt><dd class="datetime-small">{{ experiment.created_at | format_datetime }}</dd>
+    <dt>Updated</dt><dd class="datetime-small">{{ experiment.updated_at | format_datetime }}</dd>
     <dt>Manifest file</dt><dd class="mono">{{ experiment.manifest_file_path or "" }}</dd>
   </dl>
-</section>
-
-<section class="details-stack">
-  {% for key in ["answer_models", "grader_models", "scoring", "exports", "provenance", "raw_manifest"] %}
-    {% if experiment.get(key) %}
-    <details class="panel">
-      <summary>{{ key }}</summary>
-      <pre>{{ experiment.get(key) | json_pretty }}</pre>
-    </details>
-    {% endif %}
-  {% endfor %}
 </section>
 
 <section class="panel">
@@ -57,11 +46,38 @@
           {% endif %}
         </td>
         <td>{{ run.answer_model | model_label }}</td>
-        <td class="datetime-small">{{ run.started_at }}</td>
-        <td class="datetime-small">{{ run.completed_at or "" }}</td>
+        <td class="datetime-small">{{ run.started_at | format_datetime }}</td>
+        <td class="datetime-small">{{ run.completed_at | format_datetime }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+</section>
+
+<section class="details-stack">
+  {% for key, title in [("answer_models", "Answer models"), ("grader_models", "Grader models"), ("scoring", "Scoring"), ("exports", "Exports"), ("provenance", "Provenance")] %}
+    {% if experiment.get(key) %}
+    <details class="panel" {% if key == "answer_models" %}open{% endif %}>
+      <summary>{{ title }}</summary>
+      <table class="kv-table">
+        <tbody>
+          {% for row in experiment.get(key) | kv_rows %}
+          <tr>
+            <th title="{{ row.key }}">{{ row.label }}</th>
+            <td>{{ row.value }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+  {% endfor %}
+
+  {% if experiment.raw_manifest %}
+  <details class="panel">
+    <summary>raw_manifest</summary>
+    <pre>{{ experiment.raw_manifest | json_pretty }}</pre>
+  </details>
+  {% endif %}
 </section>
 {% endblock %}
