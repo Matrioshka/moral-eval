@@ -76,9 +76,9 @@ RAW_IMPORT_TABLES = (
 DERIVED_OPERATIONAL_TABLES = ("dataset", "run", "scenario", "eval_case", "case_turn", "response", "score_event")
 INGEST_OWNED_LOOKUP_TABLES = ("rubric", "failure_class")
 SPLIT_LAYOUT_DERIVED_REBUILD_SQL_FILES = (
-    "019_promote_dataset_and_run.sql",
-    "016_backfill_public_operational_from_raw.sql",
-    "018_create_rpt_reporting_views_from_raw.sql",
+    "promote_public_dimensions_from_raw.sql", # "019_promote_dataset_and_run.sql",
+    "backfill_public_operational_from_raw.sql", # "016_backfill_public_operational_from_raw.sql",
+    "create_reporting_views.sql", # "018_create_rpt_reporting_views_from_raw.sql",
 )
 
 
