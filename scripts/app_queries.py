@@ -93,6 +93,16 @@ def _case_run_trace_reporting() -> Table:
 
 
 @lru_cache
+def _run_summary() -> Table:
+    return Table("run_summary", MetaData(), schema="rpt", autoload_with=_engine())
+
+
+@lru_cache
+def _run_detail() -> Table:
+    return Table("run_detail", MetaData(), schema="rpt", autoload_with=_engine())
+
+
+@lru_cache
 def _experiment_manifest() -> Table:
     return Table("experiment_manifest", MetaData(), schema="public", autoload_with=_engine())
 
@@ -131,6 +141,45 @@ def list_cases(limit: int = 20) -> list[dict[str, Any]]:
     stmt = select(case_run_trace_reporting).limit(limit)
     if "response_id" in case_run_trace_reporting.c:
         stmt = stmt.order_by(case_run_trace_reporting.c.response_id.desc())
+    with _engine().connect() as conn:
+        return [dict(row) for row in conn.execute(stmt).mappings()]
+
+
+def list_runs(limit: int = 50) -> list[dict[str, Any]]:
+    run_summary = _run_summary()
+    stmt = (
+        select(run_summary)
+        .order_by(
+            run_summary.c.run_timestamp.desc().nulls_last(),
+            run_summary.c.run_id.desc(),
+        )
+        .limit(limit)
+    )
+    with _engine().connect() as conn:
+        return [dict(row) for row in conn.execute(stmt).mappings()]
+
+
+def get_run_summary(run_id: int) -> dict[str, Any] | None:
+    run_summary = _run_summary()
+    stmt = select(run_summary).where(run_summary.c.run_id == run_id).limit(1)
+    with _engine().connect() as conn:
+        row = conn.execute(stmt).mappings().first()
+    return dict(row) if row else None
+
+
+def get_run_detail(run_id: int, limit: int | None = None) -> list[dict[str, Any]]:
+    run_detail = _run_detail()
+    stmt = (
+        select(run_detail)
+        .where(run_detail.c.run_id == run_id)
+        .order_by(
+            run_detail.c.sample_id.asc().nulls_last(),
+            run_detail.c.turn_index.asc().nulls_last(),
+            run_detail.c.response_id.asc().nulls_last(),
+        )
+    )
+    if limit is not None:
+        stmt = stmt.limit(limit)
     with _engine().connect() as conn:
         return [dict(row) for row in conn.execute(stmt).mappings()]
 
@@ -334,6 +383,7 @@ def get_latest_run_for_experiment(experiment_slug: str) -> dict[str, Any] | None
 
 
 if __name__ == "__main__":
+    print("[pipeline runs]")
     for run in list_pipeline_runs(limit=3):
         run_id = run["experiment_pipeline_run_id"]
         print(
@@ -343,5 +393,18 @@ if __name__ == "__main__":
                 "status": run["status"],
                 "started_at": run["started_at"],
                 "sample_count": len(list_run_samples(run_id)),
+            }
+        )
+
+    print("[model runs]")
+    for run in list_runs(limit=3):
+        print(
+            {
+                "run_id": run["run_id"],
+                "run_label": run["run_label"],
+                "model_name": run["model_name"],
+                "dataset_version": run["dataset_version"],
+                "response_count": run["response_count"],
+                "score_event_count": run["score_event_count"],
             }
         )
