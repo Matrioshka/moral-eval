@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 '''Ingest eval artefacts into the PostgreSQL provenance layer.
 
 Files remain the source of truth; this script builds a re-runnable query index.
@@ -73,9 +73,10 @@ RAW_IMPORT_TABLES = (
     "structured_decision_tuple",
     "response_failure_class",
 )
-DERIVED_OPERATIONAL_TABLES = ("scenario", "eval_case", "case_turn", "response", "score_event")
+DERIVED_OPERATIONAL_TABLES = ("dataset", "run", "scenario", "eval_case", "case_turn", "response", "score_event")
 INGEST_OWNED_LOOKUP_TABLES = ("rubric", "failure_class")
 SPLIT_LAYOUT_DERIVED_REBUILD_SQL_FILES = (
+    "019_promote_dataset_and_run.sql",
     "016_backfill_public_operational_from_raw.sql",
     "018_create_rpt_reporting_views_from_raw.sql",
 )
@@ -113,7 +114,6 @@ def connect(args):
     - --dsn "postgresql://..."
     - libpq-style environment variables: PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD
     '''
-    # db_url = f"postgresql://{os.getenv('PGUSER')}:{os.getenv('PGPASSWORD')}@{os.getenv('PGHOST')}:{os.getenv('PGPORT')}/{os.getenv('PGDATABASE')}"
     dsn = args.dsn or os.getenv("MORAL_EVALS_DATABASE_URL")
     if dsn:
         conn = psycopg.connect(dsn)
@@ -674,4 +674,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
