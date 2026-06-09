@@ -20,6 +20,49 @@ REFERENCE_TABLES = (
     "rubric",
     "failure_class",
 )
+REPORTING_VIEWS = (
+    {
+        "view_name": "run_summary",
+        "label": "Run summary",
+        "description": "One row per model/eval run for run list pages.",
+    },
+    {
+        "view_name": "run_detail",
+        "label": "Run detail",
+        "description": "Response-level rows for a model/eval run detail page.",
+    },
+    {
+        "view_name": "case_run_trace",
+        "label": "Case run trace",
+        "description": "Case-level trace surface for case cards and response review.",
+    },
+    {
+        "view_name": "case_run_trace_reporting",
+        "label": "Case run trace reporting",
+        "description": "Reporting-safe case trace view where present.",
+    },
+    {
+        "view_name": "technical_data_dictionary",
+        "label": "Technical data dictionary",
+        "description": "Live PostgreSQL catalog metadata for schemas, tables, views, and columns.",
+    },
+    {
+        "view_name": "data_dictionary",
+        "label": "Data dictionary",
+        "description": "Joined technical metadata, PostgreSQL comments, and curated governance metadata.",
+    },
+    {
+        "view_name": "data_dictionary_missing_comment",
+        "label": "Missing comments",
+        "description": "Objects or columns missing PostgreSQL comments, where the diagnostic view exists.",
+    },
+    {
+        "view_name": "data_dictionary_governance_gap",
+        "label": "Governance gaps",
+        "description": "Data dictionary governance gaps, where the diagnostic view exists.",
+    },
+)
+REPORTING_VIEW_NAMES = tuple(view["view_name"] for view in REPORTING_VIEWS)
 
 
 def _load_db_env_file(path: Path) -> None:
@@ -124,8 +167,20 @@ def _reference_table(table_name: str) -> Table:
     return Table(table_name, MetaData(), schema="public", autoload_with=_engine())
 
 
+@lru_cache
+def _reporting_view(view_name: str) -> Table:
+    if view_name not in REPORTING_VIEW_NAMES:
+        raise ValueError(f"Unsupported reporting view: {view_name}")
+    return Table(view_name, MetaData(), schema="rpt", autoload_with=_engine())
+
+
 def _public_table_exists(table_name: str) -> bool:
     return inspect(_engine()).has_table(table_name, schema="public")
+
+
+def _rpt_view_exists(view_name: str) -> bool:
+    inspector = inspect(_engine())
+    return view_name in inspector.get_view_names(schema="rpt") or inspector.has_table(view_name, schema="rpt")
 
 
 def get_case_by_response_id(response_id: int) -> dict[str, Any] | None:
@@ -180,6 +235,32 @@ def get_run_detail(run_id: int, limit: int | None = None) -> list[dict[str, Any]
     )
     if limit is not None:
         stmt = stmt.limit(limit)
+    with _engine().connect() as conn:
+        return [dict(row) for row in conn.execute(stmt).mappings()]
+
+
+def list_reporting_views() -> list[dict[str, str]]:
+    return [dict(view) for view in REPORTING_VIEWS if _rpt_view_exists(view["view_name"])]
+
+
+def list_reporting_view_rows(view_name: str, limit: int = 200) -> list[dict[str, Any]]:
+    if view_name not in REPORTING_VIEW_NAMES or not _rpt_view_exists(view_name):
+        return []
+
+    view = _reporting_view(view_name)
+    stmt = select(view).limit(limit)
+    for column_name in (
+        "run_id",
+        "response_id",
+        "sample_id",
+        "object_schema",
+        "parent_object_name",
+        "object_name",
+    ):
+        if column_name in view.c:
+            stmt = stmt.order_by(view.c[column_name].asc().nulls_last())
+            break
+
     with _engine().connect() as conn:
         return [dict(row) for row in conn.execute(stmt).mappings()]
 
@@ -408,3 +489,7 @@ if __name__ == "__main__":
                 "score_event_count": run["score_event_count"],
             }
         )
+
+    print("[reporting views]")
+    for view in list_reporting_views():
+        print(view)
