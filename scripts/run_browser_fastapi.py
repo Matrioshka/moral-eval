@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -31,6 +32,8 @@ from scripts.app_queries import (
 app = FastAPI(title="Moral Sycophancy Eval Run Browser")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RAW_EVAL_LOG_DISPLAY_LIMIT_BYTES = 2 * 1024 * 1024
 
 
 def json_pretty(value: Any) -> str:
@@ -73,6 +76,32 @@ def basename(value: Any) -> str:
     if not value:
         return ""
     return str(value).replace("\\", "/").rstrip("/").split("/")[-1]
+
+
+def inspect_view_command(value: Any) -> str:
+    if not value:
+        return ""
+    path = str(value)
+    if any(char.isspace() for char in path):
+        path = f'"{path}"'
+    return f"inspect view {path}"
+
+
+def safe_eval_log_path(value: Any) -> Path:
+    if not value:
+        raise HTTPException(status_code=404, detail="Pipeline run has no eval log path.")
+
+    raw_path = Path(str(value))
+    candidate = raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path
+    resolved = candidate.resolve()
+    project_root = PROJECT_ROOT.resolve()
+    allowed_roots = ((project_root / "tmp").resolve(), (project_root / "logs").resolve())
+
+    if not resolved.is_relative_to(project_root) or not any(resolved.is_relative_to(root) for root in allowed_roots):
+        raise HTTPException(status_code=403, detail="Eval log path is outside the allowed project log directories.")
+    if not resolved.exists() or not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Eval log file not found.")
+    return resolved
 
 
 def status_kind(value: Any) -> str:
@@ -296,6 +325,7 @@ templates.env.filters["format_datetime"] = format_datetime
 templates.env.filters["model_label"] = model_label
 templates.env.filters["message_role_label"] = message_role_label
 templates.env.filters["basename"] = basename
+templates.env.filters["inspect_view_command"] = inspect_view_command
 templates.env.filters["status_kind"] = status_kind
 templates.env.filters["status_label"] = status_label
 templates.env.filters["task_label"] = task_label
@@ -468,6 +498,53 @@ def pipeline_run_detail(request: Request, pipeline_run_id: int):
             run=run,
             samples=samples,
             sample_count=len(samples),
+        ),
+    )
+
+
+@app.get("/pipeline-runs/{pipeline_run_id}/eval-log")
+def pipeline_run_eval_log(request: Request, pipeline_run_id: int):
+    run = get_pipeline_run(pipeline_run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Pipeline run not found.")
+    if not run.get("eval_log_path"):
+        raise HTTPException(status_code=404, detail="Pipeline run has no eval log path.")
+    samples = list_run_samples(pipeline_run_id)
+    return templates.TemplateResponse(
+        request=request,
+        name="eval_log.html",
+        context=with_active_nav(
+            "pipeline_runs",
+            run=run,
+            samples=samples,
+            sample_count=len(samples),
+        ),
+    )
+
+
+@app.get("/pipeline-runs/{pipeline_run_id}/eval-log/raw")
+def pipeline_run_eval_log_raw(request: Request, pipeline_run_id: int):
+    run = get_pipeline_run(pipeline_run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Pipeline run not found.")
+    eval_log_path = safe_eval_log_path(run.get("eval_log_path"))
+
+    with eval_log_path.open("rb") as handle:
+        content = handle.read(RAW_EVAL_LOG_DISPLAY_LIMIT_BYTES + 1)
+    truncated = len(content) > RAW_EVAL_LOG_DISPLAY_LIMIT_BYTES
+    if truncated:
+        content = content[:RAW_EVAL_LOG_DISPLAY_LIMIT_BYTES]
+
+    return templates.TemplateResponse(
+        request=request,
+        name="eval_log_raw.html",
+        context=with_active_nav(
+            "pipeline_runs",
+            run=run,
+            eval_log_path=eval_log_path,
+            raw_text=content.decode("utf-8", errors="replace"),
+            truncated=truncated,
+            display_limit_mb=RAW_EVAL_LOG_DISPLAY_LIMIT_BYTES // (1024 * 1024),
         ),
     )
 

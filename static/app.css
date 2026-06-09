@@ -402,6 +402,27 @@ tr:last-child td {
   margin: 0 0 8px;
 }
 
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.command-box {
+  margin-top: 6px;
+}
+
+.raw-log {
+  max-height: 72vh;
+  overflow: auto;
+}
+
+.warning-panel {
+  border-color: var(--warning-text);
+  color: var(--warning-text);
+}
+
 .table-panel {
   overflow-x: auto;
 }

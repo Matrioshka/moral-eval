@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Raw Eval Log {{ run.experiment_pipeline_run_id }}{% endblock %}
+
+{% block content %}
+<nav class="crumb"><a href="{{ url_for('pipeline_run_detail', pipeline_run_id=run.experiment_pipeline_run_id) }}">Pipeline Run {{ run.experiment_pipeline_run_id }}</a> / Raw eval log</nav>
+
+<header class="page-header">
+  <p class="eyebrow">{{ eval_log_path.name }}</p>
+  <h1>Raw Eval Log</h1>
+</header>
+
+<section class="panel">
+  <dl class="meta-grid">
+    <dt>Pipeline run</dt><dd>{{ run.experiment_pipeline_run_id }}</dd>
+    <dt>Eval log</dt><dd class="mono" title="{{ run.eval_log_path or '' }}">{{ run.eval_log_path | basename }}</dd>
+    <dt>Resolved path</dt><dd class="mono">{{ eval_log_path }}</dd>
+  </dl>
+</section>
+
+{% if truncated %}
+<section class="panel warning-panel">
+  This file is larger than {{ display_limit_mb }} MB. The displayed text is truncated.
+</section>
+{% endif %}
+
+<section class="panel">
+  <pre class="raw-log">{{ raw_text }}</pre>
+</section>
+{% endblock %}

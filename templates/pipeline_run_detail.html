@@ -25,6 +25,18 @@
   </dl>
 </section>
 
+{% if run.eval_log_path %}
+<section class="panel">
+  <h2>Eval Log</h2>
+  <div class="action-row">
+    <a class="button-link" href="{{ url_for('pipeline_run_eval_log', pipeline_run_id=run.experiment_pipeline_run_id) }}">View parsed eval log</a>
+    <a class="button-link" href="{{ url_for('pipeline_run_eval_log_raw', pipeline_run_id=run.experiment_pipeline_run_id) }}">View raw eval log</a>
+  </div>
+  <p class="eyebrow">Inspect command</p>
+  <pre class="command-box">{{ run.eval_log_path | inspect_view_command }}</pre>
+</section>
+{% endif %}
+
 {% if run.outputs_csv_path or run.eval_log_path %}
 <details class="panel path-details">
   <summary>Full log paths</summary>

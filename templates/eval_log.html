@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Eval Log {{ run.experiment_pipeline_run_id }}{% endblock %}
+
+{% block content %}
+<nav class="crumb"><a href="{{ url_for('pipeline_run_detail', pipeline_run_id=run.experiment_pipeline_run_id) }}">Pipeline Run {{ run.experiment_pipeline_run_id }}</a> / Eval log</nav>
+
+<header class="page-header">
+  <p class="eyebrow">{{ run.experiment_slug }}</p>
+  <h1>Parsed Eval Log</h1>
+</header>
+
+<section class="panel">
+  <dl class="meta-grid">
+    <dt>Pipeline run</dt><dd>{{ run.experiment_pipeline_run_id }}</dd>
+    <dt>Status</dt><dd><span class="status-badge status-{{ run.status | status_kind }}">{{ run.status | status_label }}</span></dd>
+    <dt>Dataset</dt><dd>{% if run.dataset_version %}<a href="{{ url_for('search') }}?q={{ run.dataset_version | urlencode }}">{{ run.dataset_version }}</a>{% endif %}</dd>
+    <dt>Eval log</dt><dd class="mono" title="{{ run.eval_log_path or '' }}">{{ run.eval_log_path | basename }}</dd>
+    <dt>Samples</dt><dd>{{ sample_count }}</dd>
+    <dt>Started</dt><dd class="datetime-small">{{ run.started_at | format_datetime }}</dd>
+    <dt>Completed</dt><dd class="datetime-small">{{ run.completed_at | format_datetime }}</dd>
+  </dl>
+</section>
+
+<section class="panel">
+  <h2>Eval Log Actions</h2>
+  <div class="action-row">
+    <a class="button-link" href="{{ url_for('pipeline_run_eval_log_raw', pipeline_run_id=run.experiment_pipeline_run_id) }}">View raw eval log</a>
+    <a class="button-link" href="{{ url_for('pipeline_run_detail', pipeline_run_id=run.experiment_pipeline_run_id) }}">Back to pipeline run</a>
+  </div>
+  <p class="eyebrow">Inspect command</p>
+  <pre class="command-box">{{ run.eval_log_path | inspect_view_command }}</pre>
+</section>
+
+<section class="panel">
+  <h2>Samples</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Sample</th>
+        <th>Input Preview</th>
+        <th>Target Preview</th>
+        <th>Final Response Preview</th>
+        <th>Usage</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for sample in samples %}
+      <tr>
+        <td><a href="{{ url_for('sample_detail', pipeline_run_id=run.experiment_pipeline_run_id, sample_id=sample.sample_id) }}">{{ sample.sample_id }}</a></td>
+        <td>{{ sample.input_text | preview_text(300) }}</td>
+        <td>{{ sample.target_text | preview_text(300) }}</td>
+        <td>{{ sample.final_response | preview_text(420) }}</td>
+        <td class="mono">{{ sample.usage | preview_text(180) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
