@@ -19,6 +19,8 @@ from scripts.app_queries import (
     list_pipeline_runs,
     list_reference_rows,
     list_reference_tables,
+    list_reporting_view_rows,
+    list_reporting_views,
     list_runs as list_model_runs,
     list_runs_for_experiment,
     list_run_samples,
@@ -142,6 +144,53 @@ def reference_columns(rows: list[dict[str, Any]]) -> list[str]:
     id_columns = [key for key in rows[0] if key.endswith("_id")]
     columns = [key for key in (*id_columns, *useful) if key in keys]
     return list(dict.fromkeys(columns))
+
+
+def view_columns(view_name: str, rows: list[dict[str, Any]]) -> list[str]:
+    if not rows:
+        return []
+
+    data_dictionary_columns = (
+        "object_schema",
+        "object_type",
+        "parent_object_name",
+        "object_name",
+        "logical_name",
+        "business_name",
+        "data_domain",
+        "subject_area",
+        "data_type",
+        "is_nullable",
+        "is_primary_key",
+        "is_foreign_key",
+        "postgres_comment",
+        "generated_definition",
+        "review_status",
+    )
+    run_columns = (
+        "run_id",
+        "run_label",
+        "model_name",
+        "dataset_version",
+        "response_count",
+        "score_event_count",
+        "run_timestamp",
+        "response_id",
+        "sample_id",
+        "case_id",
+        "turn_index",
+        "response_text",
+        "model_raw_response",
+        "score",
+        "label",
+    )
+
+    available = set(rows[0])
+    preferred = data_dictionary_columns if "data_dictionary" in view_name else run_columns
+    columns = [column for column in preferred if column in available]
+    if columns:
+        return columns
+    return list(rows[0])[:14]
 
 
 def sample_metadata_badges(sample: dict[str, Any]) -> list[dict[str, Any]]:
@@ -279,6 +328,37 @@ def reference_table(request: Request, table_name: str):
             table_name=table_name,
             rows=rows,
             columns=reference_columns(rows),
+        ),
+    )
+
+
+@app.get("/views")
+def views(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="views.html",
+        context=with_active_nav(
+            "views",
+            views=list_reporting_views(),
+        ),
+    )
+
+
+@app.get("/views/{view_name}")
+def view_detail(request: Request, view_name: str):
+    available = {view["view_name"]: view for view in list_reporting_views()}
+    view = available.get(view_name)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Reporting view not found.")
+    rows = list_reporting_view_rows(view_name)
+    return templates.TemplateResponse(
+        request=request,
+        name="view_detail.html",
+        context=with_active_nav(
+            "views",
+            view=view,
+            rows=rows,
+            columns=view_columns(view_name, rows),
         ),
     )
 

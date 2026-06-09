@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}{{ view.label }}{% endblock %}
+
+{% block content %}
+<nav class="crumb"><a href="{{ url_for('views') }}">Views</a> / rpt.{{ view.view_name }}</nav>
+
+<header class="page-header">
+  <p class="eyebrow">rpt.{{ view.view_name }}</p>
+  <h1>{{ view.label }}</h1>
+</header>
+
+<section class="panel">
+  <p class="view-description">{{ view.description }}</p>
+  <p class="eyebrow">{{ rows | length }} displayed row{% if rows | length != 1 %}s{% endif %}</p>
+</section>
+
+<section class="panel table-panel">
+  <table>
+    <thead>
+      <tr>
+        {% for column in columns %}
+        <th>{{ column }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        {% for column in columns %}
+        <td class="{% if column in ['postgres_comment', 'generated_definition', 'response_text', 'model_raw_response'] %}text-cell{% elif column.endswith('_at') or column.endswith('timestamp') %}datetime-small{% endif %}">
+          {{ row.get(column) | preview_text(360) }}
+        </td>
+        {% endfor %}
+      </tr>
+      {% else %}
+      <tr><td colspan="{{ columns | length if columns else 1 }}">No rows are available for this reporting view.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% if rows %}
+<details class="panel">
+  <summary>Displayed rows as JSON</summary>
+  <pre>{{ rows | json_pretty }}</pre>
+</details>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Reporting Views{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <p class="eyebrow">Allowlisted rpt views</p>
+  <h1>Reporting Views</h1>
+</header>
+
+<section class="panel">
+  <table>
+    <thead>
+      <tr>
+        <th>View</th>
+        <th>Description</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for view in views %}
+      <tr>
+        <td>
+          <a class="reference-display-name" href="{{ url_for('view_detail', view_name=view.view_name) }}">{{ view.label }}</a>
+          <span class="reference-table-name">rpt.{{ view.view_name }}</span>
+        </td>
+        <td>{{ view.description }}</td>
+        <td><a class="button-link" href="{{ url_for('view_detail', view_name=view.view_name) }}">Browse</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3">No allowlisted reporting views are available.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

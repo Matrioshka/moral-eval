@@ -355,6 +355,20 @@ tr:last-child td {
   overflow-wrap: anywhere;
 }
 
+.view-description {
+  margin: 0 0 8px;
+}
+
+.table-panel {
+  overflow-x: auto;
+}
+
+.text-cell {
+  min-width: 18rem;
+  max-width: 34rem;
+  overflow-wrap: anywhere;
+}
+
 .details-stack {
   display: grid;
   gap: 10px;
