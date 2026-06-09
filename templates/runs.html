@@ -35,7 +35,7 @@
         </td>
         <td>{{ run.response_count or 0 }}</td>
         <td>{{ run.score_event_count or 0 }}</td>
-        <td class="datetime-small">{{ run.run_timestamp or "" }}</td>
+        <td class="datetime-small">{{ run.run_timestamp | format_datetime }}</td>
         <td class="mono" title="{{ run.source_file_path or '' }}">
           {% if run.source_file_path %}
           {{ run.source_file_path | basename }}
