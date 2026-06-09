@@ -14,6 +14,7 @@
         <a class="{% if active_nav == 'pipeline_runs' %}active{% endif %}" href="{{ url_for('pipeline_runs') }}">Pipeline Runs</a>
         <a class="{% if active_nav == 'experiments' %}active{% endif %}" href="{{ url_for('experiments') }}">Experiments</a>
         <a class="{% if active_nav == 'reference' %}active{% endif %}" href="{{ url_for('reference') }}">Reference</a>
+        <a class="{% if active_nav == 'views' %}active{% endif %}" href="{{ url_for('reporting_views') }}">Views</a>
       </div>
       <form class="nav-search {% if active_nav == 'search' %}active{% endif %}" action="{{ url_for('search') }}" method="get">
         <span class="search-label" aria-hidden="true"><span class="search-icon">&#128269;</span> Search</span>
