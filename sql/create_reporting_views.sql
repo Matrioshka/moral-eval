@@ -190,7 +190,7 @@ SELECT
     resp.updated_at AS response_updated_at
 FROM public.run rn
 LEFT JOIN public.dataset d ON d.dataset_id = rn.dataset_id
-LEFT JOIN public.response resp ON resp.run_id = rn.run_id
+JOIN public.response resp ON resp.run_id = rn.run_id
 LEFT JOIN public.case_turn ct ON ct.case_turn_id = resp.case_turn_id
 LEFT JOIN public.eval_case ec ON ec.eval_case_id = ct.eval_case_id
 LEFT JOIN public.scenario scenario ON scenario.scenario_id = ec.scenario_id
