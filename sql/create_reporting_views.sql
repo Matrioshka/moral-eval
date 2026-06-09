@@ -14,13 +14,195 @@ BEGIN;
 
 CREATE SCHEMA IF NOT EXISTS rpt;
 
+DROP VIEW IF EXISTS public.run_detail;
+DROP VIEW IF EXISTS public.run_summary;
 DROP VIEW IF EXISTS public.case_run_trace_reporting;
 DROP VIEW IF EXISTS public.case_run_trace;
 DROP VIEW IF EXISTS public.score_linkage_status;
 
+DROP VIEW IF EXISTS rpt.run_detail;
+DROP VIEW IF EXISTS rpt.run_summary;
 DROP VIEW IF EXISTS rpt.case_run_trace_reporting;
 DROP VIEW IF EXISTS rpt.case_run_trace;
 DROP VIEW IF EXISTS rpt.score_linkage_status;
+
+CREATE VIEW rpt.run_summary AS
+WITH response_summary AS (
+    SELECT
+        resp.run_id,
+        count(DISTINCT resp.response_id) AS response_count,
+        count(DISTINCT ec.eval_case_id) AS case_count,
+        count(DISTINCT ct.case_turn_id) AS case_turn_count,
+        count(DISTINCT rsd.response_structured_decision_id) AS structured_decision_count,
+        min(resp.created_at) AS first_response_created_at,
+        max(resp.created_at) AS latest_response_created_at
+    FROM public.response resp
+    LEFT JOIN public.case_turn ct ON ct.case_turn_id = resp.case_turn_id
+    LEFT JOIN public.eval_case ec ON ec.eval_case_id = ct.eval_case_id
+    LEFT JOIN public.response_structured_decision rsd ON rsd.response_id = resp.response_id
+    GROUP BY resp.run_id
+), score_summary AS (
+    SELECT
+        resp.run_id,
+        count(DISTINCT se.response_id) AS scored_response_count,
+        count(se.score_event_id) AS score_event_count,
+        count(se.score_event_id) FILTER (WHERE scorer.scorer_type = 'imported_manual_audit') AS manual_score_count,
+        count(se.score_event_id) FILTER (WHERE scorer.scorer_type = 'deterministic') AS deterministic_score_count
+    FROM public.response resp
+    JOIN public.score_event se ON se.response_id = resp.response_id
+    LEFT JOIN public.scorer scorer ON scorer.scorer_id = se.scorer_id
+    GROUP BY resp.run_id
+)
+SELECT
+    rn.run_id,
+    rn.run_label,
+    rn.model_name,
+    rn.provider,
+    rn.dataset_id,
+    COALESCE(d.dataset_version, rn.dataset_version) AS dataset_version,
+    d.dataset_family,
+    rn.prompt_style,
+    rn.run_timestamp,
+    rn.source_file_id,
+    COALESCE(response_summary.response_count, 0)::bigint AS response_count,
+    COALESCE(response_summary.case_count, 0)::bigint AS case_count,
+    COALESCE(response_summary.case_turn_count, 0)::bigint AS case_turn_count,
+    COALESCE(response_summary.structured_decision_count, 0)::bigint AS structured_decision_count,
+    COALESCE(score_summary.scored_response_count, 0)::bigint AS scored_response_count,
+    COALESCE(score_summary.score_event_count, 0)::bigint AS score_event_count,
+    COALESCE(score_summary.manual_score_count, 0)::bigint AS manual_score_count,
+    COALESCE(score_summary.deterministic_score_count, 0)::bigint AS deterministic_score_count,
+    response_summary.first_response_created_at,
+    response_summary.latest_response_created_at,
+    rn.created_at AS run_created_at,
+    rn.updated_at AS run_updated_at
+FROM public.run rn
+LEFT JOIN public.dataset d ON d.dataset_id = rn.dataset_id
+LEFT JOIN response_summary ON response_summary.run_id = rn.run_id
+LEFT JOIN score_summary ON score_summary.run_id = rn.run_id;
+
+COMMENT ON VIEW rpt.run_summary IS
+    'One row per public.run with response, case, structured-decision, and score counts for run list pages.';
+
+CREATE VIEW rpt.run_detail AS
+WITH score_rollup AS (
+    SELECT
+        se.response_id,
+        count(se.score_event_id) AS score_event_count,
+        count(se.score_event_id) FILTER (WHERE scorer.scorer_type = 'imported_manual_audit') AS manual_score_count,
+        count(se.score_event_id) FILTER (WHERE scorer.scorer_type = 'deterministic') AS deterministic_score_count,
+        max(se.score) FILTER (WHERE scorer.scorer_type = 'imported_manual_audit') AS manual_score,
+        max(fc.name) FILTER (WHERE scorer.scorer_type = 'imported_manual_audit') AS failure_class,
+        max(se.confidence_label) FILTER (WHERE scorer.scorer_type = 'imported_manual_audit') AS manual_confidence,
+        max(se.label) FILTER (WHERE scorer.scorer_type = 'imported_manual_audit') AS manual_action,
+        max(se.rationale) FILTER (WHERE scorer.scorer_type = 'imported_manual_audit') AS grading_rationale,
+        COALESCE(
+            jsonb_agg(
+                jsonb_strip_nulls(jsonb_build_object(
+                    'score_event_id', se.score_event_id,
+                    'scorer_type', scorer.scorer_type,
+                    'scorer_name', scorer.name,
+                    'score', se.score,
+                    'label', se.label,
+                    'failure_class', fc.name,
+                    'confidence', se.confidence,
+                    'confidence_label', se.confidence_label,
+                    'rationale', se.rationale
+                ))
+                ORDER BY se.score_event_id
+            ) FILTER (WHERE se.score_event_id IS NOT NULL),
+            '[]'::jsonb
+        ) AS score_events
+    FROM public.score_event se
+    LEFT JOIN public.scorer scorer ON scorer.scorer_id = se.scorer_id
+    LEFT JOIN public.failure_class fc ON fc.failure_class_id = se.failure_class_id
+    GROUP BY se.response_id
+)
+SELECT
+    rn.run_id,
+    rn.run_label,
+    rn.model_name,
+    rn.provider,
+    rn.dataset_id,
+    COALESCE(d.dataset_version, rn.dataset_version) AS dataset_version,
+    d.dataset_family,
+    rn.prompt_style AS run_prompt_style,
+    rn.run_timestamp,
+    ec.eval_case_id,
+    ec.dataset_case_pk AS case_pk,
+    ec.sample_id,
+    ec.case_id,
+    ec.source_item_id,
+    scenario.scenario_id,
+    scenario.name AS scenario_name,
+    scenario.scenario_text AS scenario,
+    ce.expected_behaviour,
+    ce.ideal_behaviour,
+    ce.target_scope,
+    ce.minimum_acceptable_scope,
+    ce.maximum_acceptable_scope,
+    ce.target_release_scope,
+    ce.minimum_acceptable_release_scope,
+    ce.maximum_acceptable_release_scope,
+    ce.target_access,
+    ce.minimum_acceptable_access,
+    ce.maximum_acceptable_access,
+    ce.release_artifact,
+    ce.missing_evaluation_types,
+    ce.failure_modes,
+    ct.case_turn_id,
+    ct.parent_turn_id,
+    ct.turn_index,
+    ct.turn_type,
+    tt.slug AS turn_type_slug,
+    ct.turn_text,
+    ct.intervention_role,
+    ct.pressure_type,
+    pt.slug AS pressure_type_slug,
+    eq.slug AS evidence_quality_slug,
+    eq.name AS evidence_quality_name,
+    resp.response_id,
+    resp.legacy_model_response_id,
+    resp.response_role,
+    resp.response_text AS model_raw_response,
+    rsd.tuple_schema,
+    rsd.raw_tuple AS extracted_structured_tuple,
+    rsd.access_purpose AS extracted_access_purpose,
+    rsd.access_intent AS extracted_access_intent,
+    rsd.access_population AS extracted_access_population,
+    rsd.access_modality AS extracted_access_modality,
+    rsd.operational_status AS extracted_operational_status,
+    rsd.real_world_exposure AS extracted_real_world_exposure,
+    rsd.externalisation_level AS extracted_externalisation_level,
+    rsd.legacy_release_scope AS extracted_legacy_release_scope,
+    COALESCE(score_rollup.score_event_count, 0)::bigint AS score_event_count,
+    COALESCE(score_rollup.manual_score_count, 0)::bigint AS manual_score_count,
+    COALESCE(score_rollup.deterministic_score_count, 0)::bigint AS deterministic_score_count,
+    score_rollup.manual_score,
+    score_rollup.failure_class,
+    score_rollup.manual_confidence,
+    score_rollup.manual_action,
+    score_rollup.grading_rationale,
+    COALESCE(score_rollup.score_events, '[]'::jsonb) AS score_events,
+    resp.source_file_id AS response_source_file_id,
+    resp.source_row AS response_source_row,
+    resp.created_at AS response_created_at,
+    resp.updated_at AS response_updated_at
+FROM public.run rn
+LEFT JOIN public.dataset d ON d.dataset_id = rn.dataset_id
+LEFT JOIN public.response resp ON resp.run_id = rn.run_id
+LEFT JOIN public.case_turn ct ON ct.case_turn_id = resp.case_turn_id
+LEFT JOIN public.eval_case ec ON ec.eval_case_id = ct.eval_case_id
+LEFT JOIN public.scenario scenario ON scenario.scenario_id = ec.scenario_id
+LEFT JOIN public.case_expectation ce ON ce.eval_case_id = ec.eval_case_id
+LEFT JOIN public.response_structured_decision rsd ON rsd.response_id = resp.response_id
+LEFT JOIN public.turn_type tt ON tt.turn_type_id = ct.turn_type_id
+LEFT JOIN public.pressure_type pt ON pt.pressure_type_id = ct.pressure_type_id
+LEFT JOIN public.evidence_quality eq ON eq.evidence_quality_id = ct.evidence_quality_id
+LEFT JOIN score_rollup ON score_rollup.response_id = resp.response_id;
+
+COMMENT ON VIEW rpt.run_detail IS
+    'One row per response within a public.run, with case, turn, expectation, structured decision, and score rollup fields.';
 
 CREATE VIEW rpt.case_run_trace AS
 SELECT
@@ -224,6 +406,18 @@ LEFT JOIN raw.source_file sf_operational
 
 COMMENT ON VIEW rpt.score_linkage_status IS
     'Read-only diagnostic view showing whether each raw.manual_score row is linked to a response-level score_event, and why unlinked rows remain outside score_event.';
+
+CREATE VIEW public.run_summary AS
+SELECT * FROM rpt.run_summary;
+
+COMMENT ON VIEW public.run_summary IS
+    'Compatibility view. Prefer rpt.run_summary for new run-list queries.';
+
+CREATE VIEW public.run_detail AS
+SELECT * FROM rpt.run_detail;
+
+COMMENT ON VIEW public.run_detail IS
+    'Compatibility view. Prefer rpt.run_detail for new run-detail queries.';
 
 CREATE VIEW public.case_run_trace AS
 SELECT * FROM rpt.case_run_trace;
