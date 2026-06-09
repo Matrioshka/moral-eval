@@ -54,11 +54,11 @@ SELECT
     d.dataset_version,
     d.dataset_family,
     d.source_file_id,
-    jsonb_strip_nulls(jsonb_build_object(
+    COALESCE(d.raw_metadata, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
         'legacy_table', 'raw.dataset',
         'promotion_migration', '019'
     )),
-    d.created_at,
+    d.first_seen_at,
     d.updated_at
 FROM raw.dataset d
 ON CONFLICT (dataset_id) DO UPDATE SET
