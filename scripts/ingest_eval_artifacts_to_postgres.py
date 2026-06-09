@@ -354,35 +354,325 @@ def model_from_name(path: Path) -> str | None:
     return m.group(1).replace("_", "-") if m else None
 
 
-def run(cur, root: Path, path: Path, did: int | None, dataset_version: str | None = None, metadata: dict[str, Any] | None = None) -> int:
-    rel = path.relative_to(root).as_posix()
-    metadata = metadata or {}
+def run(cur, root: Path, path: Path, sfid: int, r: dict[str, Any]) -> int:
+    label = path.relative_to(root).with_suffix("").as_posix()
+    model = clean(r.get("model_name") or r.get("model")) or model_from_name(path)
     cur.execute(
         sql.SQL('''
-        insert into {} as model_run(run_label,model_name,provider,dataset_id,dataset_version,prompt_style,source_file_id,raw_metadata)
-        values(%s,%s,%s,%s,%s,%s,(select source_file_id from {} where file_path=%s),%s::jsonb)
-        on conflict(run_label) do update set
-          model_name=coalesce(model_run.model_name, excluded.model_name),
-          provider=coalesce(model_run.provider, excluded.provider),
-          dataset_id=coalesce(model_run.dataset_id, excluded.dataset_id),
-          dataset_version=coalesce(model_run.dataset_version, excluded.dataset_version),
-          prompt_style=coalesce(model_run.prompt_style, excluded.prompt_style),
-          source_file_id=coalesce(model_run.source_file_id, excluded.source_file_id),
-          raw_metadata=model_run.raw_metadata || excluded.raw_metadata,
-          updated_at=now()
+        insert into {} as model_run(run_label,model_name,dataset_version,prompt_style,source_file_id,raw_metadata)
+        values(%s,%s,%s,%s,%s,%s::jsonb)
+        on conflict(run_label) do update set model_name=coalesce(excluded.model_name,model_run.model_name),dataset_version=coalesce(excluded.dataset_version,model_run.dataset_version),prompt_style=coalesce(excluded.prompt_style,model_run.prompt_style),source_file_id=excluded.source_file_id,updated_at=now()
         returning run_id
-        ''').format(raw_relation("model_run"), raw_relation("source_file")),
+        ''').format(raw_relation("model_run")),
+        (label, model, clean(r.get("dataset_version")), clean(r.get("prompt_style")), sfid, js({"source_csv": path.relative_to(root).as_posix()})),
+    )
+    return int(cur.fetchone()[0])
+
+
+def response(cur, rid: int, cpk: int | None, sfid: int, rownum: int, r: dict[str, Any]) -> int:
+    sid = sample_id(r) or f"row-{rownum}"
+    out = clean(r.get("output") or r.get("raw_response") or r.get("model_raw_response"))
+    cur.execute(
+        sql.SQL('''
+        insert into {} as model_response(run_id,case_pk,sample_id,case_id,source_item_id,dataset_version,prompt_style,raw_response,source_file_id,source_row,raw_row)
+        values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+        on conflict(run_id,sample_id) do update set case_pk=coalesce(excluded.case_pk,model_response.case_pk),raw_response=coalesce(excluded.raw_response,model_response.raw_response),raw_row=model_response.raw_row || excluded.raw_row,updated_at=now()
+        returning response_id
+        ''').format(raw_relation("model_response")),
         (
-            rel,
-            clean(metadata.get("model_name")) or model_from_name(path),
-            clean(metadata.get("provider")),
-            did,
-            dataset_version,
-            clean(metadata.get("prompt_style")),
-            rel,
-            js(metadata),
+            rid,
+            cpk,
+            sid,
+            clean(r.get("case_id")),
+            clean(r.get("source_item_id")),
+            clean(r.get("dataset_version")),
+            clean(r.get("prompt_style")),
+            out,
+            sfid,
+            rownum,
+            js(r),
         ),
     )
     return int(cur.fetchone()[0])
 
-... (truncated)
+
+def tuple_from_output(cur, respid: int, sfid: int, r: dict[str, Any]) -> None:
+    text = clean(r.get("output") or r.get("raw_response") or r.get("model_raw_response")) or ""
+    fields = [
+        "access_purpose",
+        "access_intent",
+        "access_population",
+        "access_modality",
+        "operational_status",
+        "real_world_exposure",
+        "externalisation_level",
+    ]
+    data = {}
+    for f in fields:
+        pat = f.replace("_", r"[_\s-]")
+        m = re.search(rf"\b{pat}\b\s*[:=\-â€“â€”]\s*`?([A-Za-z0-9_./ -]{{1,80}})`?", text, re.I)
+        if m:
+            data[f] = re.sub(r"[^A-Za-z0-9]+", "_", m.group(1)).strip("_").lower()
+    if not data:
+        return
+    cur.execute(
+        sql.SQL('''
+        insert into {}(response_id,extracted_from,access_purpose,access_intent,access_population,access_modality,operational_status,real_world_exposure,externalisation_level,raw_tuple,source_file_id)
+        values(%s,'model_output_regex',%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
+        on conflict(response_id) do update set raw_tuple=excluded.raw_tuple,source_file_id=excluded.source_file_id,updated_at=now()
+        ''').format(raw_relation("structured_decision_tuple")),
+        (
+            respid,
+            clean(data.get("access_purpose")),
+            clean(data.get("access_intent")),
+            clean(data.get("access_population")),
+            clean(data.get("access_modality")),
+            clean(data.get("operational_status")),
+            clean(data.get("real_world_exposure")),
+            clean(data.get("externalisation_level")),
+            js(data),
+            sfid,
+        ),
+    )
+
+
+def scores(cur, respid: int, sfid: int, rownum: int, r: dict[str, Any]) -> None:
+    fc = clean(r.get("primary_failure_class") or r.get("failure_class"))
+    fid = None
+    if fc:
+        cur.execute(
+            sql.SQL(
+                "insert into {}(name) values(%s) on conflict(name) do update set name=excluded.name returning failure_class_id"
+            ).format(op_relation("failure_class")),
+            (fc,),
+        )
+        fid = int(cur.fetchone()[0])
+
+    manual_score_raw = clean(r.get("manual_score_0_to_3") or r.get("manual_score") or r.get("score_manual"))
+    note = clean(r.get("notes") or r.get("grading_rationale") or r.get("audit_notes") or r.get("rationale"))
+
+    if any(clean(x) for x in (manual_score_raw, fc, r.get("confidence"), r.get("action"), note)):
+        cur.execute(
+            sql.SQL("select rubric_id from {} where rubric_name='manual_score_0_to_3'").format(
+                op_relation("rubric")
+            )
+        )
+        rub = int(cur.fetchone()[0])
+        try:
+            score = float(manual_score_raw) if manual_score_raw else None
+        except ValueError:
+            score = None
+        cur.execute(
+            sql.SQL('''
+            insert into {}(response_id,rubric_id,score_0_to_3,primary_failure_class_id,confidence,action,notes,source_file_id,source_row,raw_row)
+            values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+            on conflict(response_id,source_file_id) do update set score_0_to_3=excluded.score_0_to_3,primary_failure_class_id=excluded.primary_failure_class_id,notes=excluded.notes,updated_at=now()
+            ''').format(raw_relation("manual_score")),
+            (respid, rub, score, fid, clean(r.get("confidence")), clean(r.get("action")), note, sfid, rownum, js(r)),
+        )
+
+    det = clean(r.get("deterministic_score") or r.get("score_value") or r.get("score"))
+    if det:
+        cur.execute(
+            sql.SQL(
+                "insert into {}(response_id,score_value,source_file_id,source_row,raw_row) values(%s,%s,%s,%s,%s::jsonb) on conflict(response_id) do update set score_value=excluded.score_value,raw_row=excluded.raw_row,updated_at=now()"
+            ).format(raw_relation("deterministic_score")),
+            (respid, det, sfid, rownum, js(r)),
+        )
+
+
+def ingest_jsonl(cur, root: Path, path: Path) -> int:
+    rows = [(i, json.loads(line)) for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if line.strip()]
+    sfid = source(cur, root, path, len(rows), "dataset_jsonl")
+    for line, r in rows:
+        did = dataset(cur, clean(r.get("dataset_version")) or version_from_path(path), sfid)
+        cpk = upsert_case(cur, did, sfid, line, r)
+        if cpk:
+            enrich_case(cur, cpk, r)
+    return len(rows)
+
+
+def is_trace_csv(rows: list[dict[str, Any]]) -> bool:
+    if not rows:
+        return False
+    cols = {str(c).lower().strip() for c in rows[0].keys()}
+    return bool(cols & TRACE_CASE_KEYS) and bool(cols & TRACE_PAYLOAD_KEYS)
+
+
+def ingest_csv(cur, root: Path, path: Path) -> int:
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    sfid = source(cur, root, path, len(rows))
+    if not is_trace_csv(rows):
+        LOG.info("recorded source-only CSV, not trace rows: %s", path.relative_to(root))
+        return 0
+
+    for n, r in enumerate(rows, 2):
+        did = dataset(cur, clean(r.get("dataset_version")) or version_from_path(path), None)
+        cpk = find_case(cur, did, r) or upsert_case(cur, did, None, None, r)
+        if cpk:
+            enrich_case(cur, cpk, r)
+        rid = run(cur, root, path, sfid, r)
+        respid = response(cur, rid, cpk, sfid, n, r)
+        tuple_from_output(cur, respid, sfid, r)
+        scores(cur, respid, sfid, n, r)
+    return len(rows)
+
+
+def collect_sources(root: Path) -> tuple[list[Path], list[Path], list[Path]]:
+    jsonl = sorted({p for pat in DATASET_JSONL_PATTERNS for p in root.glob(pat) if p.is_file()})
+    csvs = sorted({p for pat in TRACE_CSV_PATTERNS for p in root.glob(pat) if p.is_file()})
+    source_only = sorted({p for pat in SOURCE_ONLY_PATTERNS for p in root.glob(pat) if p.is_file()})
+    return jsonl, csvs, source_only
+
+
+def list_sources(root: Path) -> None:
+    jsonl, csvs, source_only = collect_sources(root)
+    for label, paths in (("dataset_jsonl", jsonl), ("csv_candidate", csvs), ("source_only", source_only)):
+        print(f"\n[{label}]")
+        for path in paths:
+            print(path.relative_to(root).as_posix())
+
+
+def run_sql_file(cur, path: Path) -> None:
+    apply_search_path(cur)
+    cur.execute(path.read_text(encoding="utf-8"))
+
+
+def execute_sql_sequence(cur, root: Path, filenames: tuple[str, ...]) -> None:
+    for filename in filenames:
+        path = root / "sql" / filename
+        run_sql_file(cur, path)
+        LOG.info("applied SQL: %s", path.relative_to(root).as_posix())
+
+
+def derived_rebuild_sql_files() -> tuple[str, ...]:
+    return SPLIT_LAYOUT_DERIVED_REBUILD_SQL_FILES
+
+
+def seed_rubric(cur) -> None:
+    cur.execute(
+        sql.SQL('''
+        insert into {} (rubric_name, score_scale, description)
+        values (
+            'manual_score_0_to_3',
+            '0-3',
+            'Project manual audit score. Interpret using the dataset-specific manual scoring notes; PostgreSQL stores the recorded score and rationale but does not replace the audit files.'
+        )
+        on conflict (rubric_name) do nothing
+        ''').format(op_relation("rubric"))
+    )
+
+
+def truncate_relations(cur, relations: list[sql.Composed]) -> None:
+    cur.execute(
+        sql.SQL('''
+        truncate table
+            {}
+        restart identity cascade
+        ''').format(
+            sql.SQL(",\n            ").join(relations)
+        )
+    )
+
+
+def reset_raw(cur) -> None:
+    # FK CASCADE may clear dependent operational rows.
+    truncate_relations(cur, [raw_relation(table) for table in RAW_IMPORT_TABLES])
+
+
+def reset_derived(cur) -> None:
+    truncate_relations(cur, [op_relation(table) for table in DERIVED_OPERATIONAL_TABLES])
+
+
+def reset_all(cur) -> None:
+    truncate_relations(
+        cur,
+        [raw_relation(table) for table in RAW_IMPORT_TABLES]
+        + [op_relation(table) for table in DERIVED_OPERATIONAL_TABLES]
+        + [op_relation(table) for table in INGEST_OWNED_LOOKUP_TABLES],
+    )
+    seed_rubric(cur)
+
+
+def reset_scope(cur, scope: str) -> None:
+    if scope == "raw":
+        reset_raw(cur)
+    elif scope == "derived":
+        reset_derived(cur)
+    elif scope == "all":
+        reset_all(cur)
+    else:
+        raise AssertionError(f"unexpected reset scope: {scope}")
+
+
+def main() -> int:
+    p = argparse.ArgumentParser()
+    p.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    p.add_argument("--dsn", help="Optional PostgreSQL DSN. Prefer MORAL_EVALS_DATABASE_URL or PG* env vars for local use.")
+    p.add_argument(
+        "--reset-scope",
+        choices=("raw", "derived", "all"),
+        help=(
+            "Explicit reset scope. raw truncates imported/source-shaped tables in raw "
+            "(FK CASCADE may clear dependent operational rows); derived truncates public operational "
+            "derived tables; all truncates raw + derived + ingest-owned rubric/failure_class lookups "
+            "and reseeds manual_score_0_to_3. Requires --yes."
+        ),
+    )
+    p.add_argument(
+        "--rebuild-derived",
+        action="store_true",
+        help="Apply the active raw/public/rpt post-ingest SQL sequence for derived operational/reporting objects.",
+    )
+    p.add_argument("--yes", action="store_true", help="Required with --reset-scope.")
+    p.add_argument("--list-sources", action="store_true", help="Print the allowlisted source files and exit without connecting to PostgreSQL.")
+    p.add_argument("--no-ingest", action="store_true", help="Apply schema/reset/rebuild steps only; do not ingest artefacts.")
+    p.add_argument("--verbose", action="store_true")
+    args = p.parse_args()
+
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s %(message)s")
+    root = args.root.resolve()
+
+    if args.list_sources:
+        list_sources(root)
+        return 0
+
+    if args.reset_scope and not args.yes:
+        raise SystemExit(f"--reset-scope {args.reset_scope} is destructive. Re-run with --reset-scope {args.reset_scope} --yes.")
+
+    rebuild_sql_files = derived_rebuild_sql_files() if args.rebuild_derived else ()
+
+    with connect(args) as db, db.cursor() as cur:
+        if args.reset_scope:
+            reset_scope(cur, args.reset_scope)
+            LOG.info("reset provenance-layer data with scope=%s", args.reset_scope)
+
+        total = 0
+        if not args.no_ingest:
+            jsonl, csvs, source_only = collect_sources(root)
+
+            for path in jsonl:
+                total += ingest_jsonl(cur, root, path)
+                LOG.info("ingested dataset JSONL: %s", path.relative_to(root))
+
+            for path in csvs:
+                total += ingest_csv(cur, root, path)
+                LOG.info("processed CSV candidate: %s", path.relative_to(root))
+
+            for path in source_only:
+                source(cur, root, path, None)
+                LOG.info("recorded source-only artefact: %s", path.relative_to(root))
+
+        if args.rebuild_derived:
+            execute_sql_sequence(cur, root, rebuild_sql_files)
+
+        db.commit()
+
+    LOG.info("done; indexed %s JSONL/CSV trace rows", total)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
