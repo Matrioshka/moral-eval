@@ -11,10 +11,19 @@
 </header>
 
 {% if metadata_badges %}
-<section class="badge-strip">
-  {% for badge in metadata_badges %}
-  <span class="badge"><strong>{{ badge.label }}</strong> {{ badge.value }}</span>
-  {% endfor %}
+<section class="panel compact-panel">
+  <dl class="metadata-grid">
+    {% for badge in metadata_badges %}
+    <dt>{{ badge.label }}</dt>
+    <dd>
+      {% if badge.is_badge %}
+      <span class="badge">{{ badge.value }}</span>
+      {% else %}
+      {{ badge.value }}
+      {% endif %}
+    </dd>
+    {% endfor %}
+  </dl>
 </section>
 {% endif %}
 
@@ -22,9 +31,16 @@
   <dl class="meta-grid">
     <dt>Inspect sample row</dt><dd>{{ sample.inspect_log_sample_id }}</dd>
     <dt>Run</dt><dd>{{ sample.experiment_pipeline_run_id }}</dd>
-    <dt>Source log</dt><dd class="mono">{{ sample.source_log_path or "" }}</dd>
+    <dt>Source log</dt><dd class="mono" title="{{ sample.source_log_path or '' }}">{{ sample.source_log_path | basename }}</dd>
   </dl>
 </section>
+
+{% if sample.source_log_path %}
+<details class="panel path-details">
+  <summary>Full source log path</summary>
+  <p class="mono">{{ sample.source_log_path }}</p>
+</details>
+{% endif %}
 
 <section class="three-stack">
   <article class="panel">

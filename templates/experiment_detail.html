@@ -13,7 +13,7 @@
 <section class="panel">
   <dl class="meta-grid">
     <dt>Name</dt><dd>{{ experiment.name or "" }}</dd>
-    <dt>Dataset</dt><dd>{{ experiment.dataset_version }}</dd>
+    <dt>Dataset</dt><dd>{% if experiment.dataset_version %}<a href="{{ url_for('search') }}?q={{ experiment.dataset_version | urlencode }}">{{ experiment.dataset_version }}</a>{% endif %}</dd>
     <dt>Task</dt><dd>{{ experiment.task }}</dd>
     <dt>Prompt style</dt><dd>{{ experiment.prompt_style or "" }}</dd>
     <dt>Created</dt><dd>{{ experiment.created_at or "" }}</dd>
@@ -50,8 +50,12 @@
       {% for run in runs %}
       <tr>
         <td><a href="{{ url_for('run_detail', run_id=run.experiment_pipeline_run_id) }}">{{ run.experiment_pipeline_run_id }}</a></td>
-        <td><span class="status">{{ run.status }}</span></td>
-        <td>{{ run.dataset_version }}</td>
+        <td><span class="status-badge status-{{ run.status | status_kind }}">{{ run.status | status_label }}</span></td>
+        <td>
+          {% if run.dataset_version %}
+          <a href="{{ url_for('search') }}?q={{ run.dataset_version | urlencode }}">{{ run.dataset_version }}</a>
+          {% endif %}
+        </td>
         <td>{{ run.answer_model | model_label }}</td>
         <td>{{ run.started_at }}</td>
         <td>{{ run.completed_at or "" }}</td>

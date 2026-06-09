@@ -8,6 +8,16 @@
   --line: #deded8;
   --accent: #475467;
   --link: #264f78;
+  --ok-bg: #e8f7ef;
+  --ok-text: #12613a;
+  --error-bg: #fdecec;
+  --error-text: #9d1c1c;
+  --running-bg: #e9f2ff;
+  --running-text: #1f5f99;
+  --warning-bg: #fff5d6;
+  --warning-text: #7a5300;
+  --unknown-bg: #eeeeea;
+  --unknown-text: #5f6064;
   --bubble-user: #eef4ff;
   --bubble-assistant: #f6f6f3;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
@@ -23,6 +33,16 @@
     --line: #363636;
     --accent: #d0d5dd;
     --link: #9ac7ff;
+    --ok-bg: #173b2a;
+    --ok-text: #a9f0c8;
+    --error-bg: #4a2020;
+    --error-text: #ffb8b8;
+    --running-bg: #1f3147;
+    --running-text: #b9d8ff;
+    --warning-bg: #43351a;
+    --warning-text: #ffe2a3;
+    --unknown-bg: #303030;
+    --unknown-text: #c8c8c2;
     --bubble-user: #1f3147;
     --bubble-assistant: #252525;
     --shadow: none;
@@ -181,7 +201,6 @@ tr:last-child td {
 }
 
 .button-link,
-.status,
 .badge {
   display: inline-flex;
   align-items: center;
@@ -196,6 +215,42 @@ tr:last-child td {
 
 .badge {
   gap: 5px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 9px;
+  white-space: nowrap;
+}
+
+.status-ok {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+
+.status-error {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.status-running {
+  background: var(--running-bg);
+  color: var(--running-text);
+}
+
+.status-warning {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.status-unknown {
+  background: var(--unknown-bg);
+  color: var(--unknown-text);
 }
 
 .button-link:hover {
@@ -223,6 +278,40 @@ tr:last-child td {
 .meta-grid dd {
   margin: 0;
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.metadata-grid dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.metadata-grid dd {
+  margin: 2px 0 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.compact-panel {
+  padding: 12px 14px;
+}
+
+.task-cell {
+  max-width: 24rem;
+  overflow-wrap: anywhere;
+}
+
+.path-details p {
+  margin: 10px 0 0;
   overflow-wrap: anywhere;
 }
 
@@ -358,6 +447,10 @@ pre {
   }
 
   .meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metadata-grid {
     grid-template-columns: 1fr;
   }
 

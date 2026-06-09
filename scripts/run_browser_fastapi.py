@@ -43,6 +43,34 @@ def preview_text(value: Any, limit: int = 420) -> str:
     return text[: limit - 3].rstrip() + "..."
 
 
+def basename(value: Any) -> str:
+    if not value:
+        return ""
+    return str(value).replace("\\", "/").rstrip("/").split("/")[-1]
+
+
+def status_kind(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if status in {"ok", "success", "succeeded", "complete", "completed", "passed"}:
+        return "ok"
+    if status in {"failed", "failure", "error", "errored"}:
+        return "error"
+    if status in {"running", "in_progress", "in-progress", "started", "pending"}:
+        return "running"
+    if status in {"partial", "warning", "warn", "completed_with_warnings"}:
+        return "warning"
+    return "unknown"
+
+
+def status_label(value: Any) -> str:
+    label = str(value or "unknown")
+    return f"✓ {label}" if status_kind(value) == "ok" else label
+
+
+def task_label(value: Any, limit: int = 52) -> str:
+    return preview_text(value, limit)
+
+
 def model_label(value: Any) -> str:
     if value is None:
         return ""
@@ -115,6 +143,7 @@ def reference_columns(rows: list[dict[str, Any]]) -> list[str]:
 
 def sample_metadata_badges(sample: dict[str, Any]) -> list[dict[str, Any]]:
     metadata = sample.get("metadata") if isinstance(sample.get("metadata"), dict) else {}
+    categorical = {"moral_domain", "risk_track", "evidence_quality", "pressure_type", "expected_update", "difficulty"}
     fields = (
         ("dataset_version", sample.get("dataset_version")),
         ("case_id", metadata.get("case_id")),
@@ -126,7 +155,11 @@ def sample_metadata_badges(sample: dict[str, Any]) -> list[dict[str, Any]]:
         ("expected_update", metadata.get("expected_update")),
         ("difficulty", metadata.get("difficulty")),
     )
-    return [{"label": label, "value": value} for label, value in fields if value not in (None, "")]
+    return [
+        {"label": label, "value": value, "is_badge": label in categorical}
+        for label, value in fields
+        if value not in (None, "")
+    ]
 
 
 def with_active_nav(active_nav: str, **context: Any) -> dict[str, Any]:
@@ -137,6 +170,10 @@ templates.env.filters["json_pretty"] = json_pretty
 templates.env.filters["preview_text"] = preview_text
 templates.env.filters["model_label"] = model_label
 templates.env.filters["message_role_label"] = message_role_label
+templates.env.filters["basename"] = basename
+templates.env.filters["status_kind"] = status_kind
+templates.env.filters["status_label"] = status_label
+templates.env.filters["task_label"] = task_label
 
 
 @app.get("/")

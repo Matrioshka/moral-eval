@@ -24,8 +24,12 @@
       {% for experiment in experiments %}
       <tr>
         <td><a href="{{ url_for('experiment_detail', experiment_slug=experiment.experiment_slug) }}">{{ experiment.experiment_slug }}</a></td>
-        <td>{{ experiment.dataset_version }}</td>
-        <td>{{ experiment.task }}</td>
+        <td>
+          {% if experiment.dataset_version %}
+          <a href="{{ url_for('search') }}?q={{ experiment.dataset_version | urlencode }}">{{ experiment.dataset_version }}</a>
+          {% endif %}
+        </td>
+        <td class="task-cell" title="{{ experiment.task or '' }}">{{ experiment.task | task_label }}</td>
         <td>{{ experiment.prompt_style or "" }}</td>
         <td>{{ experiment.created_at or "" }}</td>
         <td>{{ experiment.updated_at or "" }}</td>
