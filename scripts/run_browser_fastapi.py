@@ -64,7 +64,7 @@ def status_kind(value: Any) -> str:
 
 def status_label(value: Any) -> str:
     label = str(value or "unknown")
-    return f"✓ {label}" if status_kind(value) == "ok" else label
+    return f"\u2713 {label}" if status_kind(value) == "ok" else label
 
 
 def task_label(value: Any, limit: int = 52) -> str:
