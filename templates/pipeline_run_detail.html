@@ -18,8 +18,8 @@
     <dt>Model</dt><dd>{{ run.answer_model | model_label }}</dd>
     <dt>Samples</dt><dd>{{ sample_count }}</dd>
     <dt>Prompt style</dt><dd>{{ run.prompt_style or "" }}</dd>
-    <dt>Started</dt><dd class="datetime-small">{{ run.started_at }}</dd>
-    <dt>Completed</dt><dd class="datetime-small">{{ run.completed_at or "" }}</dd>
+    <dt>Started</dt><dd class="datetime-small">{{ run.started_at | format_datetime }}</dd>
+    <dt>Completed</dt><dd class="datetime-small">{{ run.completed_at | format_datetime }}</dd>
     <dt>Output CSV</dt><dd class="mono" title="{{ run.outputs_csv_path or '' }}">{{ run.outputs_csv_path | basename }}</dd>
     <dt>Eval log</dt><dd class="mono" title="{{ run.eval_log_path or '' }}">{{ run.eval_log_path | basename }}</dd>
   </dl>
