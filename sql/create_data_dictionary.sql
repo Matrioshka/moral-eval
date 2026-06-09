@@ -6,6 +6,8 @@
 
 BEGIN;
 
+CREATE SCHEMA IF NOT EXISTS rpt;
+
 CREATE TABLE IF NOT EXISTS public.data_dictionary (
     data_dictionary_id bigserial PRIMARY KEY,
     object_schema text NOT NULL,
