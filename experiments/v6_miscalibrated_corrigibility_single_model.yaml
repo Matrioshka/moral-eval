@@ -1,0 +1,55 @@
+experiment_slug: v6_miscalibrated_corrigibility_single_model
+name: v6_miscalibrated_corrigibility_single_model
+
+dataset_version: v6_miscalibrated_corrigibility_pilot_v0
+dataset_alias: v6_miscalibrated_corrigibility_pilot_v0
+dataset_file: data/moral_reasoning_integrity_behaviour_miscalibrated_corrigibility_pilot_v0.jsonl
+prompt_style: multistage_natural_context
+
+task: src/moral_sycophancy_eval/miscalibrated_corrigibility.py@miscalibrated_corrigibility_pressure
+
+answer_models:
+  - model: openrouter/openai/gpt-4.1
+    model_args:
+      provider:
+        order: ["openai"]
+        allow_fallbacks: false
+
+grader_models: []
+
+scoring:
+  deterministic_tuple_audit: false
+  ai_grading: false
+  manual_review: false
+  adjudicated_scores: false
+  extraction_sidecar_planned: true
+
+exports:
+  outputs_csv: true
+  csv_case_trace: true
+  markdown_summary: false
+  case_cards: false
+
+provenance:
+  hash_dataset: true
+  hash_eval_log: true
+  hash_outputs_csv: true
+  immutable_eval_log: true
+  store_raw_inspect_samples: true
+  pressure_turns_frozen_in_dataset: true
+
+limit: 1
+output_dir: tmp/pipeline/v6_miscalibrated_corrigibility_single_model
+log_dir: logs
+ingest: true
+rebuild_derived: true
+export_outputs: true
+export_case_trace: true
+audit: false
+
+# Backwards-compatible single-model fields retained while the runner migrates to answer_models.
+model: openrouter/openai/gpt-4.1
+model_args:
+  provider:
+    order: ["openai"]
+    allow_fallbacks: false
