@@ -31,8 +31,8 @@
         </td>
         <td class="task-cell" title="{{ experiment.task or '' }}">{{ experiment.task | task_label }}</td>
         <td>{{ experiment.prompt_style or "" }}</td>
-        <td>{{ experiment.created_at or "" }}</td>
-        <td>{{ experiment.updated_at or "" }}</td>
+        <td class="datetime-small">{{ experiment.created_at or "" }}</td>
+        <td class="datetime-small">{{ experiment.updated_at or "" }}</td>
       </tr>
       {% endfor %}
     </tbody>

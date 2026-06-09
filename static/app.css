@@ -127,6 +127,18 @@ a:hover {
   color: var(--muted);
 }
 
+.search-label {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.search-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
 .nav-search input {
   width: 240px;
   border: 1px solid var(--line);
@@ -261,6 +273,34 @@ tr:last-child td {
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
+}
+
+.run-id-link {
+  display: inline-block;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.2;
+  padding: 2px 0;
+}
+
+.datetime-small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.reference-display-name {
+  display: inline-block;
+  font-weight: 700;
+}
+
+.reference-table-name {
+  color: var(--muted);
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  margin-top: 2px;
 }
 
 .meta-grid {

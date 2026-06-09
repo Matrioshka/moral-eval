@@ -25,7 +25,7 @@
     <tbody>
       {% for run in runs %}
       <tr>
-        <td class="mono"><a href="{{ url_for('run_detail', run_id=run.experiment_pipeline_run_id) }}">{{ run.experiment_pipeline_run_id }}</a></td>
+        <td class="mono"><a class="run-id-link" href="{{ url_for('run_detail', run_id=run.experiment_pipeline_run_id) }}">{{ run.experiment_pipeline_run_id }}</a></td>
         <td><a href="{{ url_for('experiment_detail', experiment_slug=run.experiment_slug) }}">{{ run.experiment_slug }}</a></td>
         <td><span class="status-badge status-{{ run.status | status_kind }}">{{ run.status | status_label }}</span></td>
         <td>
@@ -35,8 +35,8 @@
         </td>
         <td>{{ run.answer_model | model_label }}</td>
         <td>{{ run.sample_count }}</td>
-        <td>{{ run.started_at }}</td>
-        <td>{{ run.completed_at or "" }}</td>
+        <td class="datetime-small">{{ run.started_at }}</td>
+        <td class="datetime-small">{{ run.completed_at or "" }}</td>
       </tr>
       {% endfor %}
     </tbody>

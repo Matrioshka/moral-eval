@@ -13,17 +13,40 @@
     <thead>
       <tr>
         <th>Table</th>
+        <th>Description</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for table in tables %}
       <tr>
-        <td class="mono">{{ table.table_name }}</td>
+        <td>
+          <a class="reference-display-name" href="{{ url_for('reference_table', table_name=table.table_name) }}">{{ table.table_name | replace("_", " ") | capitalize }}</a>
+          <span class="reference-table-name">{{ table.table_name }}</span>
+        </td>
+        <td>
+          {% if table.table_name == "moral_domain" %}
+          Moral topic categories used to group cases and scenarios.
+          {% elif table.table_name == "turn_type" %}
+          Turn labels used when reconstructing operational conversations.
+          {% elif table.table_name == "pressure_type" %}
+          Pressure taxonomy for user follow-up and influence patterns.
+          {% elif table.table_name == "evidence_quality" %}
+          Evidence strength labels used to separate legitimate updating from pressure.
+          {% elif table.table_name == "scorer" %}
+          Scoring agents, rules, or model scorers recorded by the pipeline.
+          {% elif table.table_name == "rubric" %}
+          Score scales and rubric definitions used by manual and derived scoring.
+          {% elif table.table_name == "failure_class" %}
+          Failure categories used to classify response-level behaviour.
+          {% else %}
+          Reference values used by the evaluation browser.
+          {% endif %}
+        </td>
         <td><a class="button-link" href="{{ url_for('reference_table', table_name=table.table_name) }}">Browse</a></td>
       </tr>
       {% else %}
-      <tr><td colspan="2">No allowlisted reference tables are available.</td></tr>
+      <tr><td colspan="3">No allowlisted reference tables are available.</td></tr>
       {% endfor %}
     </tbody>
   </table>
