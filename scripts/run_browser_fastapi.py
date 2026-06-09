@@ -12,11 +12,14 @@ from fastapi.templating import Jinja2Templates
 from scripts.app_queries import (
     get_experiment_manifest,
     get_pipeline_run,
+    get_run_detail,
     get_run_sample,
+    get_run_summary,
     list_experiment_manifests,
     list_pipeline_runs,
     list_reference_rows,
     list_reference_tables,
+    list_runs as list_model_runs,
     list_runs_for_experiment,
     list_run_samples,
     search_browser,
@@ -183,12 +186,21 @@ def index() -> RedirectResponse:
 
 @app.get("/runs")
 def runs(request: Request):
-    runs = list_pipeline_runs(limit=50)
     return templates.TemplateResponse(
         request=request,
         name="runs.html",
+        context=with_active_nav("runs", runs=list_model_runs(limit=50)),
+    )
+
+
+@app.get("/pipeline-runs")
+def pipeline_runs(request: Request):
+    runs = list_pipeline_runs(limit=50)
+    return templates.TemplateResponse(
+        request=request,
+        name="pipeline_runs.html",
         context=with_active_nav(
-            "runs",
+            "pipeline_runs",
             runs=[
                 {
                     **run,
@@ -273,15 +285,31 @@ def reference_table(request: Request, table_name: str):
 
 @app.get("/runs/{run_id}")
 def run_detail(request: Request, run_id: int):
-    run = get_pipeline_run(run_id)
+    run = get_run_summary(run_id)
     if not run:
-        raise HTTPException(status_code=404, detail="Pipeline run not found.")
-    samples = list_run_samples(run_id)
+        raise HTTPException(status_code=404, detail="Model/eval run not found.")
     return templates.TemplateResponse(
         request=request,
         name="run_detail.html",
         context=with_active_nav(
             "runs",
+            run=run,
+            rows=get_run_detail(run_id),
+        ),
+    )
+
+
+@app.get("/pipeline-runs/{pipeline_run_id}")
+def pipeline_run_detail(request: Request, pipeline_run_id: int):
+    run = get_pipeline_run(pipeline_run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Pipeline run not found.")
+    samples = list_run_samples(pipeline_run_id)
+    return templates.TemplateResponse(
+        request=request,
+        name="pipeline_run_detail.html",
+        context=with_active_nav(
+            "pipeline_runs",
             run=run,
             samples=samples,
             sample_count=len(samples),
@@ -289,17 +317,17 @@ def run_detail(request: Request, run_id: int):
     )
 
 
-@app.get("/runs/{run_id}/samples/{sample_id}")
-def sample_detail(request: Request, run_id: int, sample_id: str):
-    sample = get_run_sample(run_id, sample_id)
+@app.get("/pipeline-runs/{pipeline_run_id}/samples/{sample_id}")
+def sample_detail(request: Request, pipeline_run_id: int, sample_id: str):
+    sample = get_run_sample(pipeline_run_id, sample_id)
     if not sample:
         raise HTTPException(status_code=404, detail="Run sample not found.")
     return templates.TemplateResponse(
         request=request,
         name="sample_detail.html",
         context=with_active_nav(
-            "runs",
-            run_id=run_id,
+            "pipeline_runs",
+            pipeline_run_id=pipeline_run_id,
             sample=sample,
             metadata_badges=sample_metadata_badges(sample),
             transcript=transcript_cards(sample),

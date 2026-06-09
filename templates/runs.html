@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 
-{% block title %}Pipeline Runs{% endblock %}
+{% block title %}Model/Eval Runs{% endblock %}
 
 {% block content %}
 <header class="page-header">
-  <p class="eyebrow">Experiment Browser</p>
-  <h1>Pipeline Runs</h1>
+  <p class="eyebrow">Model responses and scoring</p>
+  <h1>Model/Eval Runs</h1>
 </header>
 
 <section class="panel">
@@ -13,30 +13,36 @@
     <thead>
       <tr>
         <th>Run</th>
-        <th>Experiment</th>
-        <th>Status</th>
-        <th>Dataset</th>
+        <th>Label</th>
         <th>Model</th>
-        <th>Samples</th>
-        <th>Started</th>
-        <th>Completed</th>
+        <th>Dataset</th>
+        <th>Responses</th>
+        <th>Scores</th>
+        <th>Timestamp</th>
+        <th>Source</th>
       </tr>
     </thead>
     <tbody>
       {% for run in runs %}
       <tr>
-        <td class="mono"><a class="run-id-link" href="{{ url_for('run_detail', run_id=run.experiment_pipeline_run_id) }}">{{ run.experiment_pipeline_run_id }}</a></td>
-        <td><a href="{{ url_for('experiment_detail', experiment_slug=run.experiment_slug) }}">{{ run.experiment_slug }}</a></td>
-        <td><span class="status-badge status-{{ run.status | status_kind }}">{{ run.status | status_label }}</span></td>
+        <td class="mono"><a class="run-id-link" href="{{ url_for('run_detail', run_id=run.run_id) }}">{{ run.run_id }}</a></td>
+        <td>{{ run.run_label or "" }}</td>
+        <td>{{ run.model_name or "" }}</td>
         <td>
           {% if run.dataset_version %}
           <a href="{{ url_for('search') }}?q={{ run.dataset_version | urlencode }}">{{ run.dataset_version }}</a>
           {% endif %}
         </td>
-        <td>{{ run.answer_model | model_label }}</td>
-        <td>{{ run.sample_count }}</td>
-        <td class="datetime-small">{{ run.started_at }}</td>
-        <td class="datetime-small">{{ run.completed_at or "" }}</td>
+        <td>{{ run.response_count or 0 }}</td>
+        <td>{{ run.score_event_count or 0 }}</td>
+        <td class="datetime-small">{{ run.run_timestamp or "" }}</td>
+        <td class="mono" title="{{ run.source_file_path or '' }}">
+          {% if run.source_file_path %}
+          {{ run.source_file_path | basename }}
+          {% elif run.source_file_id %}
+          source_file_id {{ run.source_file_id }}
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

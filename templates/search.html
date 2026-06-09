@@ -16,7 +16,7 @@
 {% if q %}
 <section class="count-strip">
   <span class="badge">Experiments {{ results.experiments | length }}</span>
-  <span class="badge">Runs {{ results.runs | length }}</span>
+  <span class="badge">Pipeline runs {{ results.runs | length }}</span>
   <span class="badge">Samples {{ results.samples | length }}</span>
 </section>
 
@@ -42,12 +42,12 @@
 </section>
 
 <section class="panel">
-  <h2>Runs</h2>
+  <h2>Pipeline Runs</h2>
   <table>
     <tbody>
       {% for run in results.runs %}
       <tr>
-        <td><a href="{{ url_for('run_detail', run_id=run.experiment_pipeline_run_id) }}">Run {{ run.experiment_pipeline_run_id }}</a></td>
+        <td><a href="{{ url_for('pipeline_run_detail', pipeline_run_id=run.experiment_pipeline_run_id) }}">Pipeline Run {{ run.experiment_pipeline_run_id }}</a></td>
         <td>{{ run.experiment_slug }}</td>
         <td>
           {% if run.dataset_version %}
@@ -57,7 +57,7 @@
         <td><span class="status-badge status-{{ run.status | status_kind }}">{{ run.status | status_label }}</span></td>
       </tr>
       {% else %}
-      <tr><td>No run matches.</td></tr>
+      <tr><td>No pipeline run matches.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -77,8 +77,8 @@
     <tbody>
       {% for sample in results.samples %}
       <tr>
-        <td><a href="{{ url_for('sample_detail', run_id=sample.experiment_pipeline_run_id, sample_id=sample.sample_id) }}">{{ sample.sample_id }}</a></td>
-        <td><a href="{{ url_for('run_detail', run_id=sample.experiment_pipeline_run_id) }}">{{ sample.experiment_pipeline_run_id }}</a></td>
+        <td><a href="{{ url_for('sample_detail', pipeline_run_id=sample.experiment_pipeline_run_id, sample_id=sample.sample_id) }}">{{ sample.sample_id }}</a></td>
+        <td><a href="{{ url_for('pipeline_run_detail', pipeline_run_id=sample.experiment_pipeline_run_id) }}">{{ sample.experiment_pipeline_run_id }}</a></td>
         <td>{{ sample.experiment_slug }}</td>
         <td>{{ (sample.final_response or sample.input_text or sample.target_text) | preview_text(420) }}</td>
       </tr>

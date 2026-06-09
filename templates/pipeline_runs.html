@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Pipeline Runs{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <p class="eyebrow">Orchestration and provenance</p>
+  <h1>Pipeline Runs</h1>
+</header>
+
+<section class="panel">
+  <table>
+    <thead>
+      <tr>
+        <th>Pipeline Run</th>
+        <th>Experiment</th>
+        <th>Status</th>
+        <th>Dataset</th>
+        <th>Model</th>
+        <th>Samples</th>
+        <th>Started</th>
+        <th>Completed</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td class="mono"><a class="run-id-link" href="{{ url_for('pipeline_run_detail', pipeline_run_id=run.experiment_pipeline_run_id) }}">{{ run.experiment_pipeline_run_id }}</a></td>
+        <td><a href="{{ url_for('experiment_detail', experiment_slug=run.experiment_slug) }}">{{ run.experiment_slug }}</a></td>
+        <td><span class="status-badge status-{{ run.status | status_kind }}">{{ run.status | status_label }}</span></td>
+        <td>
+          {% if run.dataset_version %}
+          <a href="{{ url_for('search') }}?q={{ run.dataset_version | urlencode }}">{{ run.dataset_version }}</a>
+          {% endif %}
+        </td>
+        <td>{{ run.answer_model | model_label }}</td>
+        <td>{{ run.sample_count }}</td>
+        <td class="datetime-small">{{ run.started_at }}</td>
+        <td class="datetime-small">{{ run.completed_at or "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

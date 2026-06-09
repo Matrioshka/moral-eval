@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 
-{% block title %}Sample {{ sample.sample_id }}{% endblock %}
+{% block title %}Inspect Log Sample {{ sample.sample_id }}{% endblock %}
 
 {% block content %}
-<nav class="crumb"><a href="{{ url_for('run_detail', run_id=run_id) }}">Run {{ run_id }}</a> / Sample {{ sample.sample_id }}</nav>
+<nav class="crumb"><a href="{{ url_for('pipeline_run_detail', pipeline_run_id=pipeline_run_id) }}">Pipeline Run {{ pipeline_run_id }}</a> / Sample {{ sample.sample_id }}</nav>
 
 <header class="page-header">
-  <p class="eyebrow">{{ sample.dataset_version or "Sample" }}</p>
-  <h1>{{ sample.sample_id }}</h1>
+  <p class="eyebrow">{{ sample.dataset_version or "Inspect Log Sample" }}</p>
+  <h1>Inspect Log Sample {{ sample.sample_id }}</h1>
 </header>
 
 {% if metadata_badges %}
@@ -30,7 +30,7 @@
 <section class="panel">
   <dl class="meta-grid">
     <dt>Inspect sample row</dt><dd>{{ sample.inspect_log_sample_id }}</dd>
-    <dt>Run</dt><dd>{{ sample.experiment_pipeline_run_id }}</dd>
+    <dt>Pipeline run</dt><dd>{{ sample.experiment_pipeline_run_id }}</dd>
     <dt>Source log</dt><dd class="mono" title="{{ sample.source_log_path or '' }}">{{ sample.source_log_path | basename }}</dd>
   </dl>
 </section>

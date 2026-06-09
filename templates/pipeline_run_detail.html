@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Pipeline Run {{ run.experiment_pipeline_run_id }}{% endblock %}
+
+{% block content %}
+<nav class="crumb"><a href="{{ url_for('pipeline_runs') }}">Pipeline Runs</a> / Run {{ run.experiment_pipeline_run_id }}</nav>
+
+<header class="page-header">
+  <p class="eyebrow">{{ run.experiment_slug }}</p>
+  <h1>Pipeline Run {{ run.experiment_pipeline_run_id }}</h1>
+</header>
+
+<section class="panel">
+  <dl class="meta-grid">
+    <dt>Status</dt><dd><span class="status-badge status-{{ run.status | status_kind }}">{{ run.status | status_label }}</span></dd>
+    <dt>Experiment</dt><dd><a href="{{ url_for('experiment_detail', experiment_slug=run.experiment_slug) }}">{{ run.experiment_slug }}</a></dd>
+    <dt>Dataset</dt><dd>{% if run.dataset_version %}<a href="{{ url_for('search') }}?q={{ run.dataset_version | urlencode }}">{{ run.dataset_version }}</a>{% endif %}</dd>
+    <dt>Model</dt><dd>{{ run.answer_model | model_label }}</dd>
+    <dt>Samples</dt><dd>{{ sample_count }}</dd>
+    <dt>Prompt style</dt><dd>{{ run.prompt_style or "" }}</dd>
+    <dt>Started</dt><dd class="datetime-small">{{ run.started_at }}</dd>
+    <dt>Completed</dt><dd class="datetime-small">{{ run.completed_at or "" }}</dd>
+    <dt>Output CSV</dt><dd class="mono" title="{{ run.outputs_csv_path or '' }}">{{ run.outputs_csv_path | basename }}</dd>
+    <dt>Eval log</dt><dd class="mono" title="{{ run.eval_log_path or '' }}">{{ run.eval_log_path | basename }}</dd>
+  </dl>
+</section>
+
+{% if run.outputs_csv_path or run.eval_log_path %}
+<details class="panel path-details">
+  <summary>Full log paths</summary>
+  <dl class="meta-grid">
+    {% if run.outputs_csv_path %}<dt>Output CSV</dt><dd class="mono">{{ run.outputs_csv_path }}</dd>{% endif %}
+    {% if run.eval_log_path %}<dt>Eval log</dt><dd class="mono">{{ run.eval_log_path }}</dd>{% endif %}
+  </dl>
+</details>
+{% endif %}
+
+<section class="details-stack">
+  {% for key in ["answer_model", "scoring", "exports", "provenance", "run_summary", "raw_run_metadata"] %}
+    {% if run.get(key) %}
+    <details class="panel">
+      <summary>{{ key }}</summary>
+      <pre>{{ run.get(key) | json_pretty }}</pre>
+    </details>
+    {% endif %}
+  {% endfor %}
+</section>
+
+{% if run.error %}
+<section class="panel">
+  <h2>Error</h2>
+  <pre>{{ run.error }}</pre>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Inspect Log Samples</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Sample</th>
+        <th>Dataset</th>
+        <th>Target Preview</th>
+        <th>Final Response Preview</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for sample in samples %}
+      <tr>
+        <td><a href="{{ url_for('sample_detail', pipeline_run_id=run.experiment_pipeline_run_id, sample_id=sample.sample_id) }}">{{ sample.sample_id }}</a></td>
+        <td>
+          {% if sample.dataset_version %}
+          <a href="{{ url_for('search') }}?q={{ sample.dataset_version | urlencode }}">{{ sample.dataset_version }}</a>
+          {% endif %}
+        </td>
+        <td>{{ sample.target_text | preview_text(360) }}</td>
+        <td>{{ sample.final_response | preview_text(480) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

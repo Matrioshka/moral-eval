@@ -34,11 +34,11 @@
 </section>
 
 <section class="panel">
-  <h2>Recent Runs</h2>
+  <h2>Recent Pipeline Runs</h2>
   <table>
     <thead>
       <tr>
-        <th>Run</th>
+        <th>Pipeline Run</th>
         <th>Status</th>
         <th>Dataset</th>
         <th>Model</th>
@@ -49,7 +49,7 @@
     <tbody>
       {% for run in runs %}
       <tr>
-        <td><a href="{{ url_for('run_detail', run_id=run.experiment_pipeline_run_id) }}">{{ run.experiment_pipeline_run_id }}</a></td>
+        <td><a href="{{ url_for('pipeline_run_detail', pipeline_run_id=run.experiment_pipeline_run_id) }}">{{ run.experiment_pipeline_run_id }}</a></td>
         <td><span class="status-badge status-{{ run.status | status_kind }}">{{ run.status | status_label }}</span></td>
         <td>
           {% if run.dataset_version %}
