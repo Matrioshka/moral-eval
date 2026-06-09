@@ -35,8 +35,8 @@
         </td>
         <td>{{ run.answer_model | model_label }}</td>
         <td>{{ run.sample_count }}</td>
-        <td class="datetime-small">{{ run.started_at }}</td>
-        <td class="datetime-small">{{ run.completed_at or "" }}</td>
+        <td class="datetime-small">{{ run.started_at | format_datetime }}</td>
+        <td class="datetime-small">{{ run.completed_at | format_datetime }}</td>
       </tr>
       {% endfor %}
     </tbody>

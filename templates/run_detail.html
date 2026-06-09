@@ -22,9 +22,9 @@
     <dt>Score events</dt><dd>{{ run.score_event_count or 0 }}</dd>
     <dt>Manual scores</dt><dd>{{ run.manual_score_count or 0 }}</dd>
     <dt>Deterministic scores</dt><dd>{{ run.deterministic_score_count or 0 }}</dd>
-    <dt>Run timestamp</dt><dd class="datetime-small">{{ run.run_timestamp or "" }}</dd>
-    <dt>First response</dt><dd class="datetime-small">{{ run.first_response_created_at or "" }}</dd>
-    <dt>Latest response</dt><dd class="datetime-small">{{ run.latest_response_created_at or "" }}</dd>
+    <dt>Run timestamp</dt><dd class="datetime-small">{{ run.run_timestamp | format_datetime }}</dd>
+    <dt>First response</dt><dd class="datetime-small">{{ run.first_response_created_at | format_datetime }}</dd>
+    <dt>Latest response</dt><dd class="datetime-small">{{ run.latest_response_created_at | format_datetime }}</dd>
     <dt>Source</dt><dd class="mono">{% if run.source_file_path %}<span title="{{ run.source_file_path }}">{{ run.source_file_path | basename }}</span>{% elif run.source_file_id %}source_file_id {{ run.source_file_id }}{% endif %}</dd>
   </dl>
 </section>

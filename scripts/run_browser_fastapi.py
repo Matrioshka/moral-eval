@@ -48,6 +48,27 @@ def preview_text(value: Any, limit: int = 420) -> str:
     return text[: limit - 3].rstrip() + "..."
 
 
+def format_datetime(value: Any) -> str:
+    """Render datetimes compactly for browser pages.
+
+    The DB stores UTC timestamps with a +00:00 suffix. For this local browser the
+    suffix is noisy, so the display layer strips it everywhere by default while
+    leaving the underlying values unchanged.
+    """
+
+    if value is None:
+        return ""
+    if hasattr(value, "isoformat"):
+        text = value.isoformat(sep=" ")
+    else:
+        text = str(value)
+    if text.endswith("+00:00"):
+        text = text[:-6]
+    if text.endswith("Z"):
+        text = text[:-1]
+    return text
+
+
 def basename(value: Any) -> str:
     if not value:
         return ""
@@ -74,6 +95,57 @@ def status_label(value: Any) -> str:
 
 def task_label(value: Any, limit: int = 52) -> str:
     return preview_text(value, limit)
+
+
+def human_label(value: Any) -> str:
+    return str(value or "").replace("_", " ").strip().capitalize()
+
+
+def is_scalar(value: Any) -> bool:
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def kv_rows(value: Any, prefix: str = "", max_depth: int = 5) -> list[dict[str, str]]:
+    """Flatten dict/list configuration into readable key/value rows."""
+
+    rows: list[dict[str, str]] = []
+
+    def add_row(key: str, item: Any) -> None:
+        if item is None:
+            display_value = ""
+        elif isinstance(item, bool):
+            display_value = "true" if item else "false"
+        else:
+            display_value = str(item)
+        rows.append({"key": key, "label": human_label(key.split(".")[-1]), "value": display_value})
+
+    def walk(item: Any, path: str, depth: int) -> None:
+        if depth > max_depth:
+            add_row(path or "value", json_pretty(item))
+            return
+        if is_scalar(item):
+            add_row(path or "value", item)
+            return
+        if isinstance(item, dict):
+            if not item:
+                add_row(path or "value", "{}")
+                return
+            for key, child in item.items():
+                child_path = f"{path}.{key}" if path else str(key)
+                walk(child, child_path, depth + 1)
+            return
+        if isinstance(item, (list, tuple)):
+            if not item:
+                add_row(path or "items", "[]")
+                return
+            for index, child in enumerate(item, start=1):
+                child_path = f"{path}[{index}]" if path else f"item[{index}]"
+                walk(child, child_path, depth + 1)
+            return
+        add_row(path or "value", json_pretty(item))
+
+    walk(value, prefix, 0)
+    return rows
 
 
 def model_label(value: Any) -> str:
@@ -220,12 +292,15 @@ def with_active_nav(active_nav: str, **context: Any) -> dict[str, Any]:
 
 templates.env.filters["json_pretty"] = json_pretty
 templates.env.filters["preview_text"] = preview_text
+templates.env.filters["format_datetime"] = format_datetime
 templates.env.filters["model_label"] = model_label
 templates.env.filters["message_role_label"] = message_role_label
 templates.env.filters["basename"] = basename
 templates.env.filters["status_kind"] = status_kind
 templates.env.filters["status_label"] = status_label
 templates.env.filters["task_label"] = task_label
+templates.env.filters["human_label"] = human_label
+templates.env.filters["kv_rows"] = kv_rows
 
 
 @app.get("/")
