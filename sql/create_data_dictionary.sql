@@ -1,111 +1,152 @@
--- Build a queryable data dictionary for raw, public, and rpt schemas.
+-- Create the data-dictionary governance table and live catalog-backed views.
 --
--- This is deliberately derived from PostgreSQL's live catalog so it stays aligned
--- with the current database shape. Curated descriptions override generated
--- fallbacks for the project-specific operational spine.
+-- PostgreSQL comments are the canonical object definitions.
+-- public.data_dictionary_entry stores only curated governance/business metadata.
+-- rpt.technical_data_dictionary pulls technical metadata live from PostgreSQL.
+-- rpt.data_dictionary joins live technical metadata, native comments, and curated metadata.
 
 BEGIN;
 
 CREATE SCHEMA IF NOT EXISTS rpt;
 
-CREATE TABLE IF NOT EXISTS public.data_dictionary (
-    data_dictionary_id bigserial PRIMARY KEY,
+DROP VIEW IF EXISTS rpt.data_dictionary_governance_gap;
+DROP VIEW IF EXISTS rpt.data_dictionary_missing_comment;
+DROP VIEW IF EXISTS rpt.data_dictionary;
+DROP VIEW IF EXISTS rpt.technical_data_dictionary;
+DROP VIEW IF EXISTS rpt.postgres_object_comments;
+DROP TABLE IF EXISTS public.data_dictionary;
+
+CREATE TABLE IF NOT EXISTS public.data_dictionary_entry (
+    data_dictionary_entry_id bigserial PRIMARY KEY,
     object_schema text NOT NULL,
-    object_name text NOT NULL DEFAULT '',
     object_type text NOT NULL CHECK (object_type IN ('schema', 'table', 'view', 'column')),
-    column_name text NOT NULL DEFAULT '',
-    ordinal_position integer,
-    data_type text,
-    is_nullable boolean,
-    column_default text,
-    is_primary_key boolean NOT NULL DEFAULT false,
-    is_foreign_key boolean NOT NULL DEFAULT false,
-    references_schema text,
-    references_table text,
-    references_column text,
-    semantic_group text NOT NULL DEFAULT 'unspecified',
-    lifecycle_role text NOT NULL DEFAULT 'unspecified',
-    description text NOT NULL,
+    object_name text NOT NULL,
+    parent_schema text,
+    parent_object_type text CHECK (parent_object_type IS NULL OR parent_object_type IN ('table', 'view')),
+    parent_object_name text,
+    logical_name text,
+    business_name text,
+    data_domain text,
+    subject_area text,
+    semantic_group text,
+    lifecycle_role text,
+    is_pii boolean,
+    pii_type text,
+    is_sensitive boolean,
+    sensitivity_classification text,
+    confidentiality_level text,
+    security_classification text,
+    is_critical_data_element boolean,
+    data_owner text,
+    data_steward text,
+    review_status text NOT NULL DEFAULT 'draft',
+    reviewed_at timestamptz,
+    reviewed_by text,
+    allowed_values text,
+    example_value text,
+    validation_rule text,
     notes text,
     created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (object_schema, object_name, object_type, column_name)
+    updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS ix_data_dictionary_object
-    ON public.data_dictionary(object_schema, object_name, object_type);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_data_dictionary_entry_object
+    ON public.data_dictionary_entry (
+        object_schema,
+        object_type,
+        object_name,
+        coalesce(parent_schema, ''),
+        coalesce(parent_object_type, ''),
+        coalesce(parent_object_name, '')
+    );
 
-CREATE INDEX IF NOT EXISTS ix_data_dictionary_column
-    ON public.data_dictionary(object_schema, object_name, column_name);
+CREATE INDEX IF NOT EXISTS ix_data_dictionary_entry_parent
+    ON public.data_dictionary_entry(parent_schema, parent_object_name, object_type);
 
-COMMENT ON TABLE public.data_dictionary IS
-    'Queryable data dictionary for raw, public, and rpt schemas, generated from PostgreSQL catalog metadata plus curated project descriptions.';
+COMMENT ON TABLE public.data_dictionary_entry IS
+    'Curated DMBOK-style governance and business metadata for database objects. Technical metadata is pulled live from PostgreSQL catalog views.';
 
-DELETE FROM public.data_dictionary
-WHERE object_schema IN ('raw', 'public', 'rpt');
-
-WITH curated(object_schema, object_name, column_name, description, notes) AS (
+WITH seed(
+    object_schema,
+    object_type,
+    object_name,
+    parent_schema,
+    parent_object_type,
+    parent_object_name,
+    logical_name,
+    semantic_group,
+    lifecycle_role,
+    data_domain,
+    subject_area,
+    review_status
+) AS (
     VALUES
-        ('raw', '', '', 'Imported source-shaped provenance and landing schema. Raw tables preserve source artefact shape and lineage.', NULL),
-        ('public', '', '', 'Operational schema for curated datasets, cases, turns, responses, scores, runs, lookup tables, and app-facing metadata.', NULL),
-        ('rpt', '', '', 'Reporting schema for stable query surfaces and web-interface views over operational and provenance data.', NULL),
+        ('raw', 'schema', 'raw', NULL, NULL, NULL, 'Raw provenance schema', 'provenance', 'source_landing', 'Evaluation provenance', 'PostgreSQL metadata', 'draft'),
+        ('public', 'schema', 'public', NULL, NULL, NULL, 'Operational schema', 'operational', 'application_operational', 'Evaluation operations', 'PostgreSQL metadata', 'draft'),
+        ('rpt', 'schema', 'rpt', NULL, NULL, NULL, 'Reporting schema', 'reporting', 'reporting_surface', 'Evaluation reporting', 'PostgreSQL metadata', 'draft'),
+        ('public', 'table', 'dataset', NULL, NULL, NULL, 'Dataset', 'operational', 'application_operational', 'Evaluation operations', 'Datasets', 'draft'),
+        ('public', 'table', 'run', NULL, NULL, NULL, 'Model run', 'operational', 'application_operational', 'Evaluation operations', 'Runs', 'draft'),
+        ('public', 'table', 'eval_case', NULL, NULL, NULL, 'Evaluation case', 'operational', 'application_operational', 'Evaluation operations', 'Cases', 'draft'),
+        ('public', 'table', 'case_turn', NULL, NULL, NULL, 'Case turn', 'operational', 'application_operational', 'Evaluation operations', 'Cases', 'draft'),
+        ('public', 'table', 'case_expectation', NULL, NULL, NULL, 'Case expectation', 'operational', 'application_operational', 'Evaluation operations', 'Case expectations', 'draft'),
+        ('public', 'table', 'response', NULL, NULL, NULL, 'Model response', 'operational', 'application_operational', 'Evaluation operations', 'Responses', 'draft'),
+        ('public', 'table', 'response_structured_decision', NULL, NULL, NULL, 'Response structured decision', 'operational', 'application_operational', 'Evaluation operations', 'Structured decisions', 'draft'),
+        ('public', 'table', 'score_event', NULL, NULL, NULL, 'Score event', 'operational', 'application_operational', 'Evaluation operations', 'Scoring', 'draft'),
+        ('public', 'table', 'data_dictionary_entry', NULL, NULL, NULL, 'Data dictionary entry', 'metadata', 'governance_metadata', 'Metadata management', 'Data dictionary', 'draft'),
+        ('rpt', 'view', 'run_summary', NULL, NULL, NULL, 'Run summary', 'reporting', 'reporting_surface', 'Evaluation reporting', 'Run pages', 'draft'),
+        ('rpt', 'view', 'run_detail', NULL, NULL, NULL, 'Run detail', 'reporting', 'reporting_surface', 'Evaluation reporting', 'Run pages', 'draft'),
+        ('rpt', 'view', 'case_run_trace', NULL, NULL, NULL, 'Case run trace', 'reporting', 'reporting_surface', 'Evaluation reporting', 'Case cards', 'draft'),
+        ('rpt', 'view', 'technical_data_dictionary', NULL, NULL, NULL, 'Technical data dictionary', 'metadata', 'reporting_surface', 'Metadata management', 'Data dictionary', 'draft'),
+        ('rpt', 'view', 'data_dictionary', NULL, NULL, NULL, 'Data dictionary', 'metadata', 'reporting_surface', 'Metadata management', 'Data dictionary', 'draft')
+)
+INSERT INTO public.data_dictionary_entry (
+    object_schema,
+    object_type,
+    object_name,
+    parent_schema,
+    parent_object_type,
+    parent_object_name,
+    logical_name,
+    semantic_group,
+    lifecycle_role,
+    data_domain,
+    subject_area,
+    review_status
+)
+SELECT
+    seed.object_schema,
+    seed.object_type,
+    seed.object_name,
+    seed.parent_schema,
+    seed.parent_object_type,
+    seed.parent_object_name,
+    seed.logical_name,
+    seed.semantic_group,
+    seed.lifecycle_role,
+    seed.data_domain,
+    seed.subject_area,
+    seed.review_status
+FROM seed
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM public.data_dictionary_entry existing
+    WHERE existing.object_schema = seed.object_schema
+      AND existing.object_type = seed.object_type
+      AND existing.object_name = seed.object_name
+      AND existing.parent_schema IS NOT DISTINCT FROM seed.parent_schema
+      AND existing.parent_object_type IS NOT DISTINCT FROM seed.parent_object_type
+      AND existing.parent_object_name IS NOT DISTINCT FROM seed.parent_object_name
+);
 
-        ('public', 'dataset', '', 'Curated dataset/version dimension promoted from raw.dataset.', NULL),
-        ('public', 'run', '', 'Model/eval run that produced responses. Distinct from experiment_pipeline_run orchestration executions.', NULL),
-        ('public', 'eval_case', '', 'Curated evaluation case within a dataset.', NULL),
-        ('public', 'case_turn', '', 'Prompt, scenario, or pressure/intervention turn belonging to an eval_case.', NULL),
-        ('public', 'case_expectation', '', 'Operational expected behaviour, acceptable bounds, access tuple targets, and failure modes for an eval_case.', NULL),
-        ('public', 'response', '', 'Model response to one case_turn in one run.', NULL),
-        ('public', 'response_structured_decision', '', 'Operational structured extraction attached to a response, used for access/release-scope analysis.', 'Keep only fields that are scored, filtered, grouped, displayed, or needed for audit.'),
-        ('public', 'score_event', '', 'Score, label, rationale, and failure-class judgement attached to a response.', NULL),
-        ('public', 'data_dictionary', '', 'Queryable metadata describing schemas, tables, views, and columns.', NULL),
-
-        ('rpt', 'run_summary', '', 'One row per public.run with response, case, structured-decision, and score counts for run-list pages.', NULL),
-        ('rpt', 'run_detail', '', 'One row per response in a public.run, with case, turn, expectation, extraction, and score-rollup fields.', NULL),
-        ('rpt', 'case_run_trace', '', 'Wide case/response/reporting trace view for case cards and diagnostics.', NULL),
-        ('rpt', 'case_run_trace_reporting', '', 'Reporting-safe subset of case_run_trace excluding smoke, summary, expansion-candidate, and rewrite-candidate artefacts.', NULL),
-        ('rpt', 'score_linkage_status', '', 'Diagnostic view showing whether raw manual scores link to operational score_event rows.', NULL),
-
-        ('raw', 'source_file', '', 'Source artefact registry with path, kind, hash, size, record count, and ingestion timestamps.', NULL),
-        ('raw', 'dataset_case', '', 'Imported dataset/case rows before operational normalisation into eval_case, scenario, case_turn, and case_expectation.', NULL),
-        ('raw', 'case_intervention', '', 'Imported follow-up or intervention metadata before pressure-turn normalisation.', NULL),
-        ('raw', 'expected_behaviour', '', 'Imported expected-behaviour metadata before promotion to public.case_expectation.', NULL),
-        ('raw', 'model_response', '', 'Imported model response rows before promotion to public.response.', NULL),
-        ('raw', 'structured_decision_tuple', '', 'Imported structured extraction rows before promotion to public.response_structured_decision.', NULL),
-        ('raw', 'manual_score', '', 'Imported manual audit rows before promotion to public.score_event.', NULL),
-        ('raw', 'deterministic_score', '', 'Imported deterministic scorer rows before promotion to public.score_event.', NULL),
-
-        ('public', 'run', 'run_id', 'Primary key for a model/eval run.', NULL),
-        ('public', 'run', 'run_label', 'Human-readable/source-derived identifier for a model/eval run.', NULL),
-        ('public', 'run', 'model_name', 'Model name used for the run, when known or inferred.', NULL),
-        ('public', 'run', 'dataset_id', 'Dataset declared for the run. Should match the dataset of responses through case_turn/eval_case.', NULL),
-        ('public', 'run', 'run_timestamp', 'Timestamp associated with the model/eval run when known.', NULL),
-        ('public', 'response', 'response_id', 'Primary key for an operational response.', NULL),
-        ('public', 'response', 'case_turn_id', 'Case turn answered by this response.', NULL),
-        ('public', 'response', 'run_id', 'Model/eval run that produced this response.', NULL),
-        ('public', 'response', 'response_text', 'Model response text.', NULL),
-        ('public', 'case_turn', 'turn_index', 'Order of the turn within its eval_case.', NULL),
-        ('public', 'case_turn', 'turn_text', 'Text of the scenario, prompt, intervention, or pressure turn.', NULL),
-        ('public', 'case_expectation', 'expected_behaviour', 'Concise expected behaviour or target judgement for the case.', NULL),
-        ('public', 'case_expectation', 'target_access', 'Target access tuple for schema-v2.1 style release/access decisions.', NULL),
-        ('public', 'case_expectation', 'maximum_acceptable_access', 'Most permissive acceptable access tuple before the response should be treated as over-expansive.', NULL),
-        ('public', 'response_structured_decision', 'tuple_schema', 'Schema contract used to interpret the structured extraction row.', NULL),
-        ('public', 'response_structured_decision', 'access_intent', 'Extracted intended use or access intent approved/implied by the response.', NULL),
-        ('public', 'response_structured_decision', 'access_population', 'Extracted population or audience allowed by the response.', NULL),
-        ('public', 'response_structured_decision', 'access_modality', 'Extracted access mode, channel, or deployment modality.', NULL),
-        ('public', 'response_structured_decision', 'operational_status', 'Extracted operational/deployment status implied by the response.', NULL),
-        ('public', 'response_structured_decision', 'real_world_exposure', 'Extracted degree of real-world exposure implied by the response.', NULL),
-        ('public', 'response_structured_decision', 'externalisation_level', 'Extracted degree of external release or exposure implied by the response.', NULL),
-        ('public', 'response_structured_decision', 'raw_tuple', 'Lossless structured extraction payload used to audit or recover fields beyond the promoted operational columns.', NULL),
-        ('public', 'response_structured_decision', 'legacy_structured_decision_tuple_id', 'Lineage key back to raw.structured_decision_tuple.tuple_id.', NULL),
-        ('public', 'score_event', 'score', 'Numeric score assigned by a manual, deterministic, or future scorer.', NULL),
-        ('public', 'score_event', 'rationale', 'Reasoning or grading rationale for the score.', NULL)
-), schema_rows AS (
+CREATE VIEW rpt.technical_data_dictionary AS
+WITH schema_rows AS (
     SELECT
-        n.nspname AS object_schema,
-        ''::text AS object_name,
+        ns.nspname AS object_schema,
         'schema'::text AS object_type,
-        ''::text AS column_name,
+        ns.nspname AS object_name,
+        NULL::text AS parent_schema,
+        NULL::text AS parent_object_type,
+        NULL::text AS parent_object_name,
         NULL::integer AS ordinal_position,
         NULL::text AS data_type,
         NULL::boolean AS is_nullable,
@@ -113,37 +154,36 @@ WITH curated(object_schema, object_name, column_name, description, notes) AS (
         false AS is_primary_key,
         false AS is_foreign_key,
         NULL::text AS references_schema,
-        NULL::text AS references_table,
-        NULL::text AS references_column,
-        CASE n.nspname
+        NULL::text AS references_object_name,
+        NULL::text AS references_column_name,
+        obj_description(ns.oid, 'pg_namespace') AS postgres_comment,
+        'Schema ' || ns.nspname || '.' AS generated_definition,
+        CASE ns.nspname
             WHEN 'raw' THEN 'provenance'
             WHEN 'public' THEN 'operational'
             WHEN 'rpt' THEN 'reporting'
             ELSE 'unspecified'
-        END AS semantic_group,
-        CASE n.nspname
+        END AS inferred_semantic_group,
+        CASE ns.nspname
             WHEN 'raw' THEN 'source_landing'
             WHEN 'public' THEN 'application_operational'
             WHEN 'rpt' THEN 'reporting_surface'
             ELSE 'unspecified'
-        END AS lifecycle_role,
-        COALESCE(curated.description, 'Schema ' || n.nspname || '.') AS description,
-        curated.notes AS notes
-    FROM pg_namespace n
-    LEFT JOIN curated ON curated.object_schema = n.nspname AND curated.object_name = '' AND curated.column_name = ''
-    WHERE n.nspname IN ('raw', 'public', 'rpt')
+        END AS inferred_lifecycle_role
+    FROM pg_namespace ns
+    WHERE ns.nspname IN ('raw', 'public', 'rpt')
 ), object_rows AS (
     SELECT
         ns.nspname AS object_schema,
-        cls.relname AS object_name,
         CASE cls.relkind
-            WHEN 'r' THEN 'table'
-            WHEN 'p' THEN 'table'
             WHEN 'v' THEN 'view'
             WHEN 'm' THEN 'view'
             ELSE 'table'
         END AS object_type,
-        ''::text AS column_name,
+        cls.relname AS object_name,
+        NULL::text AS parent_schema,
+        NULL::text AS parent_object_type,
+        NULL::text AS parent_object_name,
         NULL::integer AS ordinal_position,
         NULL::text AS data_type,
         NULL::boolean AS is_nullable,
@@ -151,46 +191,60 @@ WITH curated(object_schema, object_name, column_name, description, notes) AS (
         false AS is_primary_key,
         false AS is_foreign_key,
         NULL::text AS references_schema,
-        NULL::text AS references_table,
-        NULL::text AS references_column,
+        NULL::text AS references_object_name,
+        NULL::text AS references_column_name,
+        obj_description(cls.oid, 'pg_class') AS postgres_comment,
+        initcap(replace(cls.relname, '_', ' ')) || ' ' || CASE cls.relkind WHEN 'v' THEN 'view' WHEN 'm' THEN 'view' ELSE 'table' END || '.' AS generated_definition,
         CASE
             WHEN ns.nspname = 'raw' THEN 'provenance'
             WHEN ns.nspname = 'rpt' THEN 'reporting'
             WHEN cls.relname IN ('moral_domain', 'turn_type', 'pressure_type', 'evidence_quality', 'scorer', 'rubric', 'failure_class') THEN 'reference'
-            WHEN cls.relname IN ('data_dictionary') THEN 'metadata'
+            WHEN cls.relname IN ('data_dictionary_entry') THEN 'metadata'
             ELSE 'operational'
-        END AS semantic_group,
+        END AS inferred_semantic_group,
         CASE
             WHEN ns.nspname = 'raw' THEN 'source_landing'
             WHEN ns.nspname = 'rpt' THEN 'reporting_surface'
             WHEN cls.relname IN ('moral_domain', 'turn_type', 'pressure_type', 'evidence_quality', 'scorer', 'rubric', 'failure_class') THEN 'lookup'
-            WHEN cls.relname IN ('data_dictionary') THEN 'metadata'
+            WHEN cls.relname IN ('data_dictionary_entry') THEN 'governance_metadata'
             ELSE 'application_operational'
-        END AS lifecycle_role,
-        COALESCE(curated.description, obj_description(cls.oid), initcap(replace(cls.relname, '_', ' ')) || ' ' || CASE cls.relkind WHEN 'v' THEN 'view' ELSE 'table' END || '.') AS description,
-        curated.notes AS notes
+        END AS inferred_lifecycle_role
     FROM pg_class cls
     JOIN pg_namespace ns ON ns.oid = cls.relnamespace
-    LEFT JOIN curated ON curated.object_schema = ns.nspname AND curated.object_name = cls.relname AND curated.column_name = ''
     WHERE ns.nspname IN ('raw', 'public', 'rpt')
       AND cls.relkind IN ('r', 'p', 'v', 'm')
 ), column_catalog AS (
     SELECT
         ns.nspname AS object_schema,
-        cls.relname AS object_name,
+        'column'::text AS object_type,
+        att.attname AS object_name,
+        ns.nspname AS parent_schema,
         CASE cls.relkind
-            WHEN 'r' THEN 'table'
-            WHEN 'p' THEN 'table'
             WHEN 'v' THEN 'view'
             WHEN 'm' THEN 'view'
             ELSE 'table'
         END AS parent_object_type,
-        att.attname AS column_name,
+        cls.relname AS parent_object_name,
         att.attnum AS ordinal_position,
         format_type(att.atttypid, att.atttypmod) AS data_type,
         NOT att.attnotnull AS is_nullable,
         pg_get_expr(def.adbin, def.adrelid) AS column_default,
-        col_description(cls.oid, att.attnum) AS catalog_description,
+        col_description(cls.oid, att.attnum) AS postgres_comment,
+        initcap(replace(att.attname, '_', ' ')) || ' column on ' || ns.nspname || '.' || cls.relname || '.' AS generated_definition,
+        CASE
+            WHEN ns.nspname = 'raw' THEN 'provenance'
+            WHEN ns.nspname = 'rpt' THEN 'reporting'
+            WHEN cls.relname IN ('moral_domain', 'turn_type', 'pressure_type', 'evidence_quality', 'scorer', 'rubric', 'failure_class') THEN 'reference'
+            WHEN cls.relname IN ('data_dictionary_entry') THEN 'metadata'
+            ELSE 'operational'
+        END AS inferred_semantic_group,
+        CASE
+            WHEN ns.nspname = 'raw' THEN 'source_landing_column'
+            WHEN ns.nspname = 'rpt' THEN 'reporting_column'
+            WHEN cls.relname IN ('moral_domain', 'turn_type', 'pressure_type', 'evidence_quality', 'scorer', 'rubric', 'failure_class') THEN 'lookup_column'
+            WHEN cls.relname IN ('data_dictionary_entry') THEN 'governance_metadata_column'
+            ELSE 'application_operational_column'
+        END AS inferred_lifecycle_role,
         cls.oid AS table_oid
     FROM pg_class cls
     JOIN pg_namespace ns ON ns.oid = cls.relnamespace
@@ -200,9 +254,9 @@ WITH curated(object_schema, object_name, column_name, description, notes) AS (
       AND cls.relkind IN ('r', 'p', 'v', 'm')
 ), primary_key_columns AS (
     SELECT
-        ns.nspname AS object_schema,
-        cls.relname AS object_name,
-        att.attname AS column_name
+        ns.nspname AS parent_schema,
+        cls.relname AS parent_object_name,
+        att.attname AS object_name
     FROM pg_constraint con
     JOIN pg_class cls ON cls.oid = con.conrelid
     JOIN pg_namespace ns ON ns.oid = cls.relnamespace
@@ -211,12 +265,12 @@ WITH curated(object_schema, object_name, column_name, description, notes) AS (
     WHERE con.contype = 'p'
 ), foreign_key_columns AS (
     SELECT
-        ns.nspname AS object_schema,
-        cls.relname AS object_name,
-        att.attname AS column_name,
+        ns.nspname AS parent_schema,
+        cls.relname AS parent_object_name,
+        att.attname AS object_name,
         ref_ns.nspname AS references_schema,
-        ref_cls.relname AS references_table,
-        ref_att.attname AS references_column
+        ref_cls.relname AS references_object_name,
+        ref_att.attname AS references_column_name
     FROM pg_constraint con
     JOIN pg_class cls ON cls.oid = con.conrelid
     JOIN pg_namespace ns ON ns.oid = cls.relnamespace
@@ -230,47 +284,33 @@ WITH curated(object_schema, object_name, column_name, description, notes) AS (
 ), column_rows AS (
     SELECT
         col.object_schema,
+        col.object_type,
         col.object_name,
-        'column'::text AS object_type,
-        col.column_name,
+        col.parent_schema,
+        col.parent_object_type,
+        col.parent_object_name,
         col.ordinal_position,
         col.data_type,
         col.is_nullable,
         col.column_default,
-        (pk.column_name IS NOT NULL) AS is_primary_key,
-        (fk.column_name IS NOT NULL) AS is_foreign_key,
+        (pk.object_name IS NOT NULL) AS is_primary_key,
+        (fk.object_name IS NOT NULL) AS is_foreign_key,
         fk.references_schema,
-        fk.references_table,
-        fk.references_column,
-        CASE
-            WHEN col.object_schema = 'raw' THEN 'provenance'
-            WHEN col.object_schema = 'rpt' THEN 'reporting'
-            WHEN col.object_name IN ('moral_domain', 'turn_type', 'pressure_type', 'evidence_quality', 'scorer', 'rubric', 'failure_class') THEN 'reference'
-            WHEN col.object_name IN ('data_dictionary') THEN 'metadata'
-            ELSE 'operational'
-        END AS semantic_group,
-        CASE
-            WHEN col.object_schema = 'raw' THEN 'source_landing_column'
-            WHEN col.object_schema = 'rpt' THEN 'reporting_column'
-            WHEN col.object_name IN ('moral_domain', 'turn_type', 'pressure_type', 'evidence_quality', 'scorer', 'rubric', 'failure_class') THEN 'lookup_column'
-            WHEN col.object_name IN ('data_dictionary') THEN 'metadata_column'
-            ELSE 'application_operational_column'
-        END AS lifecycle_role,
-        COALESCE(curated.description, col.catalog_description, initcap(replace(col.column_name, '_', ' ')) || ' column on ' || col.object_schema || '.' || col.object_name || '.') AS description,
-        curated.notes AS notes
+        fk.references_object_name,
+        fk.references_column_name,
+        col.postgres_comment,
+        col.generated_definition,
+        col.inferred_semantic_group,
+        col.inferred_lifecycle_role
     FROM column_catalog col
     LEFT JOIN primary_key_columns pk
-        ON pk.object_schema = col.object_schema
+        ON pk.parent_schema = col.parent_schema
+       AND pk.parent_object_name = col.parent_object_name
        AND pk.object_name = col.object_name
-       AND pk.column_name = col.column_name
     LEFT JOIN foreign_key_columns fk
-        ON fk.object_schema = col.object_schema
+        ON fk.parent_schema = col.parent_schema
+       AND fk.parent_object_name = col.parent_object_name
        AND fk.object_name = col.object_name
-       AND fk.column_name = col.column_name
-    LEFT JOIN curated
-        ON curated.object_schema = col.object_schema
-       AND curated.object_name = col.object_name
-       AND curated.column_name = col.column_name
 ), all_rows AS (
     SELECT * FROM schema_rows
     UNION ALL
@@ -278,30 +318,13 @@ WITH curated(object_schema, object_name, column_name, description, notes) AS (
     UNION ALL
     SELECT * FROM column_rows
 )
-INSERT INTO public.data_dictionary (
-    object_schema,
-    object_name,
-    object_type,
-    column_name,
-    ordinal_position,
-    data_type,
-    is_nullable,
-    column_default,
-    is_primary_key,
-    is_foreign_key,
-    references_schema,
-    references_table,
-    references_column,
-    semantic_group,
-    lifecycle_role,
-    description,
-    notes
-)
 SELECT
     object_schema,
-    object_name,
     object_type,
-    column_name,
+    object_name,
+    parent_schema,
+    parent_object_type,
+    parent_object_name,
     ordinal_position,
     data_type,
     is_nullable,
@@ -309,26 +332,99 @@ SELECT
     is_primary_key,
     is_foreign_key,
     references_schema,
-    references_table,
-    references_column,
-    semantic_group,
-    lifecycle_role,
-    description,
-    notes
-FROM all_rows
-ORDER BY
-    object_schema,
-    object_name,
-    CASE object_type WHEN 'schema' THEN 0 WHEN 'table' THEN 1 WHEN 'view' THEN 1 WHEN 'column' THEN 2 ELSE 9 END,
-    ordinal_position NULLS FIRST,
-    column_name;
+    references_object_name,
+    references_column_name,
+    postgres_comment,
+    generated_definition,
+    inferred_semantic_group,
+    inferred_lifecycle_role
+FROM all_rows;
 
-CREATE OR REPLACE VIEW rpt.data_dictionary AS
-SELECT *
-FROM public.data_dictionary
-ORDER BY object_schema, object_name, object_type, ordinal_position NULLS FIRST, column_name;
+COMMENT ON VIEW rpt.technical_data_dictionary IS
+    'Live technical metadata for raw, public, and rpt schemas, tables, views, and columns, sourced from PostgreSQL catalog tables and native comments.';
+
+CREATE VIEW rpt.data_dictionary AS
+SELECT
+    tech.object_schema,
+    tech.object_type,
+    tech.object_name,
+    tech.parent_schema,
+    tech.parent_object_type,
+    tech.parent_object_name,
+    entry.logical_name,
+    entry.business_name,
+    tech.postgres_comment AS definition,
+    tech.generated_definition,
+    COALESCE(tech.postgres_comment, tech.generated_definition) AS description,
+    tech.ordinal_position,
+    tech.data_type,
+    tech.is_nullable,
+    tech.column_default,
+    tech.is_primary_key,
+    tech.is_foreign_key,
+    tech.references_schema,
+    tech.references_object_name,
+    tech.references_column_name,
+    COALESCE(entry.semantic_group, tech.inferred_semantic_group) AS semantic_group,
+    COALESCE(entry.lifecycle_role, tech.inferred_lifecycle_role) AS lifecycle_role,
+    entry.data_domain,
+    entry.subject_area,
+    entry.is_pii,
+    entry.pii_type,
+    entry.is_sensitive,
+    entry.sensitivity_classification,
+    entry.confidentiality_level,
+    entry.security_classification,
+    entry.is_critical_data_element,
+    entry.data_owner,
+    entry.data_steward,
+    entry.review_status,
+    entry.reviewed_at,
+    entry.reviewed_by,
+    entry.allowed_values,
+    entry.example_value,
+    entry.validation_rule,
+    entry.notes,
+    entry.data_dictionary_entry_id,
+    (entry.data_dictionary_entry_id IS NOT NULL) AS has_governance_entry
+FROM rpt.technical_data_dictionary tech
+LEFT JOIN public.data_dictionary_entry entry
+    ON entry.object_schema = tech.object_schema
+   AND entry.object_type = tech.object_type
+   AND entry.object_name = tech.object_name
+   AND entry.parent_schema IS NOT DISTINCT FROM tech.parent_schema
+   AND entry.parent_object_type IS NOT DISTINCT FROM tech.parent_object_type
+   AND entry.parent_object_name IS NOT DISTINCT FROM tech.parent_object_name;
 
 COMMENT ON VIEW rpt.data_dictionary IS
-    'Reporting view over public.data_dictionary for schema/table/view/column browsing.';
+    'Joined data dictionary for web/interface use. Technical metadata and definitions come live from PostgreSQL; governance metadata comes from public.data_dictionary_entry.';
+
+CREATE VIEW rpt.data_dictionary_missing_comment AS
+SELECT *
+FROM rpt.data_dictionary
+WHERE definition IS NULL
+ORDER BY object_schema, parent_object_name NULLS FIRST, object_type, ordinal_position NULLS FIRST, object_name;
+
+COMMENT ON VIEW rpt.data_dictionary_missing_comment IS
+    'Database objects in raw, public, or rpt without native PostgreSQL COMMENT definitions.';
+
+CREATE VIEW rpt.data_dictionary_governance_gap AS
+SELECT
+    dd.*,
+    array_remove(ARRAY[
+        CASE WHEN dd.logical_name IS NULL THEN 'missing_logical_name' END,
+        CASE WHEN dd.object_type = 'column' AND dd.is_pii IS NULL THEN 'missing_pii_review' END,
+        CASE WHEN dd.review_status IS NULL THEN 'missing_review_status' END,
+        CASE WHEN dd.data_domain IS NULL THEN 'missing_data_domain' END
+    ], NULL) AS gap_reasons
+FROM rpt.data_dictionary dd
+WHERE dd.logical_name IS NULL
+   OR (dd.object_type = 'column' AND dd.is_pii IS NULL)
+   OR dd.review_status IS NULL
+   OR dd.data_domain IS NULL
+ORDER BY dd.object_schema, dd.parent_object_name NULLS FIRST, dd.object_type, dd.ordinal_position NULLS FIRST, dd.object_name;
+
+COMMENT ON VIEW rpt.data_dictionary_governance_gap IS
+    'Objects missing curated governance metadata such as logical name, PII review, review status, or data domain.';
 
 COMMIT;
