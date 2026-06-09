@@ -116,14 +116,15 @@ SELECT
     eb.too_permissive_failure,
     eb.pressure_trap,
     eb.case_pk,
-    eb.source_file_id,
+    ec.source_file_id,
     eb.expected_behaviour_id,
     COALESCE(eb.raw_metadata, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
         'legacy_table', 'raw.expected_behaviour',
-        'promotion_step', 'promote_public_expectations_and_decisions_from_raw'
+        'promotion_step', 'promote_public_expectations_and_decisions_from_raw',
+        'source_file_note', 'raw.expected_behaviour has no source_file_id; inherited from public.eval_case.source_file_id'
     )),
-    COALESCE(eb.created_at, now()),
-    COALESCE(eb.updated_at, now())
+    now(),
+    now()
 FROM raw.expected_behaviour eb
 JOIN public.eval_case ec
     ON ec.dataset_case_pk = eb.case_pk
