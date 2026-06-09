@@ -10,6 +10,14 @@
   <h1>{{ sample.sample_id }}</h1>
 </header>
 
+{% if metadata_badges %}
+<section class="badge-strip">
+  {% for badge in metadata_badges %}
+  <span class="badge"><strong>{{ badge.label }}</strong> {{ badge.value }}</span>
+  {% endfor %}
+</section>
+{% endif %}
+
 <section class="panel">
   <dl class="meta-grid">
     <dt>Inspect sample row</dt><dd>{{ sample.inspect_log_sample_id }}</dd>
@@ -27,11 +35,6 @@
   <article class="panel">
     <h2>Target</h2>
     <div class="text-box">{{ sample.target_text or "" }}</div>
-  </article>
-
-  <article class="panel">
-    <h2>Final Response</h2>
-    <div class="text-box">{{ sample.final_response or "" }}</div>
   </article>
 </section>
 
@@ -61,6 +64,13 @@
   </ol>
 </section>
 {% endif %}
+
+<section class="three-stack">
+  <article class="panel">
+    <h2>Final Response</h2>
+    <div class="text-box">{{ sample.final_response or "" }}</div>
+  </article>
+</section>
 
 <section class="details-stack">
   {% for key in ["metadata", "usage", "scores", "messages", "raw_sample"] %}

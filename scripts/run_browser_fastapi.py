@@ -113,6 +113,26 @@ def reference_columns(rows: list[dict[str, Any]]) -> list[str]:
     return list(dict.fromkeys(columns))
 
 
+def sample_metadata_badges(sample: dict[str, Any]) -> list[dict[str, Any]]:
+    metadata = sample.get("metadata") if isinstance(sample.get("metadata"), dict) else {}
+    fields = (
+        ("dataset_version", sample.get("dataset_version")),
+        ("case_id", metadata.get("case_id")),
+        ("moral_domain", metadata.get("moral_domain")),
+        ("risk_track", metadata.get("risk_track")),
+        ("evidence_quality", metadata.get("evidence_quality")),
+        ("pressure_type", metadata.get("pressure_type")),
+        ("pressure_turn_count", metadata.get("pressure_turn_count")),
+        ("expected_update", metadata.get("expected_update")),
+        ("difficulty", metadata.get("difficulty")),
+    )
+    return [{"label": label, "value": value} for label, value in fields if value not in (None, "")]
+
+
+def with_active_nav(active_nav: str, **context: Any) -> dict[str, Any]:
+    return {"active_nav": active_nav, **context}
+
+
 templates.env.filters["json_pretty"] = json_pretty
 templates.env.filters["preview_text"] = preview_text
 templates.env.filters["model_label"] = model_label
@@ -126,12 +146,20 @@ def index() -> RedirectResponse:
 
 @app.get("/runs")
 def runs(request: Request):
+    runs = list_pipeline_runs(limit=50)
     return templates.TemplateResponse(
         request=request,
         name="runs.html",
-        context={
-            "runs": list_pipeline_runs(limit=50),
-        },
+        context=with_active_nav(
+            "runs",
+            runs=[
+                {
+                    **run,
+                    "sample_count": len(list_run_samples(run["experiment_pipeline_run_id"])),
+                }
+                for run in runs
+            ],
+        ),
     )
 
 
@@ -140,9 +168,10 @@ def experiments(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="experiments.html",
-        context={
-            "experiments": list_experiment_manifests(),
-        },
+        context=with_active_nav(
+            "experiments",
+            experiments=list_experiment_manifests(),
+        ),
     )
 
 
@@ -154,10 +183,11 @@ def experiment_detail(request: Request, experiment_slug: str):
     return templates.TemplateResponse(
         request=request,
         name="experiment_detail.html",
-        context={
-            "experiment": experiment,
-            "runs": list_runs_for_experiment(experiment_slug),
-        },
+        context=with_active_nav(
+            "experiments",
+            experiment=experiment,
+            runs=list_runs_for_experiment(experiment_slug),
+        ),
     )
 
 
@@ -166,10 +196,11 @@ def search(request: Request, q: str = Query(default="")):
     return templates.TemplateResponse(
         request=request,
         name="search.html",
-        context={
-            "q": q,
-            "results": search_browser(q),
-        },
+        context=with_active_nav(
+            "search",
+            q=q,
+            results=search_browser(q),
+        ),
     )
 
 
@@ -178,9 +209,10 @@ def reference(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="reference.html",
-        context={
-            "tables": list_reference_tables(),
-        },
+        context=with_active_nav(
+            "reference",
+            tables=list_reference_tables(),
+        ),
     )
 
 
@@ -193,11 +225,12 @@ def reference_table(request: Request, table_name: str):
     return templates.TemplateResponse(
         request=request,
         name="reference_table.html",
-        context={
-            "table_name": table_name,
-            "rows": rows,
-            "columns": reference_columns(rows),
-        },
+        context=with_active_nav(
+            "reference",
+            table_name=table_name,
+            rows=rows,
+            columns=reference_columns(rows),
+        ),
     )
 
 
@@ -206,13 +239,16 @@ def run_detail(request: Request, run_id: int):
     run = get_pipeline_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Pipeline run not found.")
+    samples = list_run_samples(run_id)
     return templates.TemplateResponse(
         request=request,
         name="run_detail.html",
-        context={
-            "run": run,
-            "samples": list_run_samples(run_id),
-        },
+        context=with_active_nav(
+            "runs",
+            run=run,
+            samples=samples,
+            sample_count=len(samples),
+        ),
     )
 
 
@@ -224,9 +260,11 @@ def sample_detail(request: Request, run_id: int, sample_id: str):
     return templates.TemplateResponse(
         request=request,
         name="sample_detail.html",
-        context={
-            "run_id": run_id,
-            "sample": sample,
-            "transcript": transcript_cards(sample),
-        },
+        context=with_active_nav(
+            "runs",
+            run_id=run_id,
+            sample=sample,
+            metadata_badges=sample_metadata_badges(sample),
+            transcript=transcript_cards(sample),
+        ),
     )

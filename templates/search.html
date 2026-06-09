@@ -4,16 +4,22 @@
 
 {% block content %}
 <header class="page-header">
-  <p class="eyebrow">Global</p>
-  <h1>Search</h1>
+  <p class="eyebrow">Global search</p>
+  <h1>{% if q %}Results for "{{ q }}"{% else %}Search{% endif %}</h1>
 </header>
 
-<form class="search-form" action="{{ url_for('search') }}" method="get">
+<form class="search-form compact" action="{{ url_for('search') }}" method="get">
   <input type="search" name="q" value="{{ q }}" placeholder="Experiment, dataset, sample, input, target, response">
   <button type="submit">Search</button>
 </form>
 
 {% if q %}
+<section class="count-strip">
+  <span class="badge">Experiments {{ results.experiments | length }}</span>
+  <span class="badge">Runs {{ results.runs | length }}</span>
+  <span class="badge">Samples {{ results.samples | length }}</span>
+</section>
+
 <section class="panel">
   <h2>Experiments</h2>
   <table>

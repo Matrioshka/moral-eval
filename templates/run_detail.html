@@ -16,6 +16,7 @@
     <dt>Experiment</dt><dd><a href="{{ url_for('experiment_detail', experiment_slug=run.experiment_slug) }}">{{ run.experiment_slug }}</a></dd>
     <dt>Dataset</dt><dd>{{ run.dataset_version }}</dd>
     <dt>Model</dt><dd>{{ run.answer_model | model_label }}</dd>
+    <dt>Samples</dt><dd>{{ sample_count }}</dd>
     <dt>Prompt style</dt><dd>{{ run.prompt_style or "" }}</dd>
     <dt>Started</dt><dd>{{ run.started_at }}</dd>
     <dt>Completed</dt><dd>{{ run.completed_at or "" }}</dd>

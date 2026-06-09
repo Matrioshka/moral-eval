@@ -10,13 +10,13 @@
   <header class="topbar">
     <nav class="topnav">
       <div class="nav-links">
-        <a href="{{ url_for('runs') }}">Runs</a>
-        <a href="{{ url_for('experiments') }}">Experiments</a>
-        <a href="{{ url_for('reference') }}">Reference</a>
+        <a class="{% if active_nav == 'runs' %}active{% endif %}" href="{{ url_for('runs') }}">Runs</a>
+        <a class="{% if active_nav == 'experiments' %}active{% endif %}" href="{{ url_for('experiments') }}">Experiments</a>
+        <a class="{% if active_nav == 'reference' %}active{% endif %}" href="{{ url_for('reference') }}">Reference</a>
       </div>
-      <form class="nav-search" action="{{ url_for('search') }}" method="get">
-        <span aria-hidden="true">⌕</span>
-        <input type="search" name="q" value="{{ q or '' }}" placeholder="Search experiments, samples, responses…">
+      <form class="nav-search {% if active_nav == 'search' %}active{% endif %}" action="{{ url_for('search') }}" method="get">
+        <span aria-hidden="true">Search</span>
+        <input type="search" name="q" value="{{ q or '' }}" placeholder="Search experiments, samples, responses...">
       </form>
     </nav>
   </header>
