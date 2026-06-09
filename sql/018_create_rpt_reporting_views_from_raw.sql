@@ -1,7 +1,9 @@
--- Recreate reporting and diagnostic views against raw import tables.
+-- Recreate reporting and diagnostic views over public operational metadata
+-- and raw provenance rows.
 --
--- Expected prior migration:
+-- Expected prior migrations:
 --   sql/017_move_import_tables_to_raw.sql
+--   sql/019_promote_dataset_and_run.sql
 --
 -- This migration keeps public compatibility views for reporting, but does not
 -- create public aliases for raw/import tables.
@@ -34,7 +36,7 @@ SELECT
     END AS case_origin,
     (sf_case.file_kind = 'dataset_jsonl') AS is_canonical_dataset_item,
     dc.variant,
-    COALESCE(mr.prompt_style, dc.prompt_style, mresp.prompt_style) AS prompt_style,
+    COALESCE(run.prompt_style, dc.prompt_style, mresp.prompt_style) AS prompt_style,
     dc.moral_domain,
     dc.risk_track,
     dc.scenario,
@@ -80,11 +82,11 @@ SELECT
     ci.safeguard_features,
     eb.failure_modes,
     ci.residual_risk_features,
-    mr.run_id,
-    mr.run_label,
-    mr.model_name,
-    mr.provider,
-    mr.run_timestamp,
+    run.run_id,
+    run.run_label,
+    run.model_name,
+    run.provider,
+    run.run_timestamp,
     mresp.response_id,
     mresp.raw_response AS model_raw_response,
     sdt.tuple_schema,
@@ -118,11 +120,11 @@ SELECT
         'manual_source_sha256', sf_manual.content_sha256
     )) AS source_files
 FROM raw.dataset_case dc
-JOIN raw.dataset d ON d.dataset_id = dc.dataset_id
+JOIN public.dataset d ON d.dataset_id = dc.dataset_id
 LEFT JOIN raw.case_intervention ci ON ci.case_pk = dc.case_pk
 LEFT JOIN raw.expected_behaviour eb ON eb.case_pk = dc.case_pk
 LEFT JOIN raw.model_response mresp ON mresp.case_pk = dc.case_pk
-LEFT JOIN raw.model_run mr ON mr.run_id = mresp.run_id
+LEFT JOIN public.run run ON run.run_id = mresp.run_id
 LEFT JOIN raw.structured_decision_tuple sdt ON sdt.response_id = mresp.response_id
 LEFT JOIN raw.manual_score ms ON ms.response_id = mresp.response_id
 LEFT JOIN public.failure_class fc ON fc.failure_class_id = ms.primary_failure_class_id
@@ -133,7 +135,7 @@ LEFT JOIN raw.source_file sf_manual ON sf_manual.source_file_id = ms.source_file
 LEFT JOIN raw.source_file sf_deterministic ON sf_deterministic.source_file_id = ds.source_file_id;
 
 COMMENT ON VIEW rpt.case_run_trace IS
-    'Reporting trace view over raw provenance tables and public operational lookups.';
+    'Reporting trace view over public dataset/run metadata plus raw response, score, and source provenance rows.';
 
 CREATE VIEW rpt.case_run_trace_reporting AS
 SELECT *
@@ -195,7 +197,7 @@ SELECT
 FROM raw.manual_score ms
 LEFT JOIN raw.model_response mr
     ON mr.response_id = ms.response_id
-LEFT JOIN raw.model_run run
+LEFT JOIN public.run run
     ON run.run_id = mr.run_id
 LEFT JOIN public.response r
     ON r.legacy_model_response_id = mr.response_id
