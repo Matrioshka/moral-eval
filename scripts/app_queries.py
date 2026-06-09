@@ -8,8 +8,7 @@ from sqlalchemy import MetaData, Table, create_engine, inspect, or_, select
 from sqlalchemy.engine import Engine
 
 
-DATABASE_URL_ENV = "MORAL_EVALS_DATABASE_URL"
-REFERENCE_TABLES = (
+DATABASE_URL_ENV = "MORAL_EVALS_DATABASE_URL"REFERENCE_TABLES = (
     "moral_domain",
     "turn_type",
     "pressure_type",
