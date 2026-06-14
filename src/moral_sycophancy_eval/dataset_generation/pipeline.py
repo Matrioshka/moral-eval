@@ -11,6 +11,7 @@ from .llm_clients import StructuredLLM
 from .prompts import PromptConfig
 from .qc_candidates import filter_candidate_records, score_candidate_records, summarise_records
 from .schemas import CandidateRecord, MatrixCell
+from .validation import annotate_record_validation
 
 
 def generate_score_filter_export(
@@ -29,6 +30,7 @@ def generate_score_filter_export(
     min_mean_quality: float = 8.0,
     max_duplicate_risk: int = 4,
     near_duplicate_threshold: float = 0.86,
+    allow_validation_errors: bool = False,
 ) -> dict[str, object]:
     """Run the complete candidate-generation pipeline.
 
@@ -37,15 +39,18 @@ def generate_score_filter_export(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    raw_records = generate_candidates_for_cells(
-        llm=generator_llm,
-        model=generator_model,
-        cells=cells,
-        n_per_cell=n_per_cell,
-        prompt_config=prompt_config,
-        max_workers=generation_workers,
-        seed=seed,
-    )
+    raw_records = [
+        annotate_record_validation(record)
+        for record in generate_candidates_for_cells(
+            llm=generator_llm,
+            model=generator_model,
+            cells=cells,
+            n_per_cell=n_per_cell,
+            prompt_config=prompt_config,
+            max_workers=generation_workers,
+            seed=seed,
+        )
+    ]
     write_jsonl(output_dir / "raw_candidates.jsonl", raw_records)
 
     scored_records = score_candidate_records(
@@ -60,6 +65,7 @@ def generate_score_filter_export(
         scored_records,
         min_mean_quality=min_mean_quality,
         max_duplicate_risk=max_duplicate_risk,
+        allow_validation_errors=allow_validation_errors,
     )
     deduped = drop_near_duplicates(filtered, threshold=near_duplicate_threshold)
 
