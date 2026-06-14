@@ -40,3 +40,4 @@ logs/
 tmp/sanity/
 tmp/score_linkage_diagnostics/
 tmp/sanity_list_sources.txt
+data/generated/**/*.zip
