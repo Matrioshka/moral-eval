@@ -8,8 +8,10 @@ from .dedupe_candidates import drop_near_duplicates, flag_near_duplicates
 from .export_jsonl import write_inspect_jsonl, write_jsonl
 from .generate_candidates import generate_candidates_for_cells
 from .llm_clients import StructuredLLM
+from .manual_review import write_manual_review_csv, write_manual_review_jsonl
 from .prompts import PromptConfig
-from .qc_candidates import filter_candidate_records, score_candidate_records, summarise_records
+from .qc_candidates import filter_candidate_records, score_candidate_records
+from .run_summary import build_run_config, build_summary_from_records, write_run_artifacts
 from .schemas import CandidateRecord, MatrixCell
 from .validation import annotate_record_validation
 
@@ -69,18 +71,45 @@ def generate_score_filter_export(
     )
     deduped = drop_near_duplicates(filtered, threshold=near_duplicate_threshold)
 
+    write_jsonl(output_dir / "filtered_candidates.jsonl", filtered)
     write_jsonl(output_dir / "kept_candidates.jsonl", deduped)
     write_inspect_jsonl(output_dir / "kept_candidates.inspect.jsonl", deduped)
+    write_manual_review_csv(output_dir / "manual_review_template.csv", deduped)
+    write_manual_review_jsonl(output_dir / "manual_review_template.jsonl", deduped)
 
     duplicate_pairs = flag_near_duplicates(filtered, threshold=near_duplicate_threshold)
-    return {
-        "raw": summarise_records(raw_records),
-        "scored": summarise_records(scored_records),
-        "filtered": summarise_records(filtered),
-        "deduped": summarise_records(deduped),
-        "near_duplicate_pairs": duplicate_pairs,
-        "output_dir": str(output_dir),
-    }
+    summary = build_summary_from_records(
+        raw_records=raw_records,
+        scored_records=scored_records,
+        filtered_records=filtered,
+        deduped_records=deduped,
+        near_duplicate_pairs=duplicate_pairs,
+        output_dir=output_dir,
+    )
+    run_config = build_run_config(
+        mode="single_pass",
+        output_dir=output_dir,
+        generator_model=generator_model,
+        judge_model=judge_model,
+        cells=cells,
+        seed=seed,
+        n_per_cell=n_per_cell,
+        min_mean_quality=min_mean_quality,
+        max_duplicate_risk=max_duplicate_risk,
+        near_duplicate_threshold=near_duplicate_threshold,
+        allow_validation_errors=allow_validation_errors,
+    )
+    write_run_artifacts(
+        output_dir=output_dir,
+        summary=summary,
+        run_config=run_config,
+        cells=cells,
+        raw_records=raw_records,
+        scored_records=scored_records,
+        filtered_records=filtered,
+        deduped_records=deduped,
+    )
+    return summary
 
 
 def select_manual_pilot(records: list[CandidateRecord], *, max_items: int = 12) -> list[CandidateRecord]:
