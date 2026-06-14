@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Protocol, TypeVar
@@ -37,15 +38,83 @@ class StructuredGenerationError(RuntimeError):
     pass
 
 
+def _header_float(headers, *names: str) -> float | None:
+    """Return a numeric HTTP header value, handling SDK header containers."""
+    if not headers:
+        return None
+    for name in names:
+        value = None
+        if hasattr(headers, "get"):
+            value = headers.get(name)
+        if value is None and hasattr(headers, "get"):
+            value = headers.get(name.lower())
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _retry_after_from_exception(exc: Exception) -> float | None:
+    """Extract a provider-suggested retry delay when one is available.
+
+    OpenAI-style SDK exceptions often expose response headers. The error body
+    can also contain phrases such as "Please try again in 746ms". This helper
+    is intentionally defensive so that it also works with OpenAI-compatible
+    providers whose exceptions differ slightly.
+    """
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+
+    retry_after_ms = _header_float(headers, "retry-after-ms", "x-ratelimit-reset-tokens")
+    if retry_after_ms is not None:
+        # retry-after-ms is milliseconds; reset headers are often seconds as a
+        # Unix-ish interval, but treating very large values as ms would be bad.
+        return retry_after_ms / 1000.0 if retry_after_ms > 60 else retry_after_ms
+
+    retry_after = _header_float(headers, "retry-after")
+    if retry_after is not None:
+        return retry_after
+
+    message = str(exc)
+    match_ms = re.search(r"try again in\s+([0-9]*\.?[0-9]+)\s*ms", message, flags=re.IGNORECASE)
+    if match_ms:
+        return float(match_ms.group(1)) / 1000.0
+
+    match_s = re.search(r"try again in\s+([0-9]*\.?[0-9]+)\s*s", message, flags=re.IGNORECASE)
+    if match_s:
+        return float(match_s.group(1))
+
+    return None
+
+
+def _looks_like_rate_limit(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    if status_code == 429:
+        return True
+    message = str(exc).lower()
+    return "rate limit" in message or "rate_limit" in message or "429" in message
+
+
 def retry_with_exponential_backoff(
     fn,
     *,
-    max_retries: int = 4,
-    initial_delay: float = 1.0,
-    max_delay: float = 30.0,
-    jitter: float = 0.25,
+    max_retries: int = 8,
+    initial_delay: float = 2.0,
+    max_delay: float = 90.0,
+    jitter: float = 0.35,
+    min_rate_limit_delay: float = 5.0,
 ):
-    """Small retry helper for transient API failures."""
+    """Retry transient API failures with rate-limit-aware backoff.
+
+    The previous short retry loop was too brittle for quota generation with
+    concurrent calls. Token-per-minute limits can be hit even when the provider
+    reports a sub-second retry delay, because several worker threads may be
+    retrying together. For 429-style errors we therefore respect provider retry
+    hints but also impose a modest minimum delay and jitter.
+    """
 
     def wrapped(*args, **kwargs):
         delay = initial_delay
@@ -57,9 +126,16 @@ def retry_with_exponential_backoff(
                 last_exc = exc
                 if attempt >= max_retries:
                     break
-                sleep_for = min(max_delay, delay) * (1 + random.uniform(-jitter, jitter))
+
+                retry_after = _retry_after_from_exception(exc)
+                if _looks_like_rate_limit(exc):
+                    base_sleep = max(min_rate_limit_delay, retry_after or delay)
+                else:
+                    base_sleep = retry_after or delay
+
+                sleep_for = min(max_delay, base_sleep) * (1 + random.uniform(-jitter, jitter))
                 time.sleep(max(0.0, sleep_for))
-                delay *= 2
+                delay = min(max_delay, delay * 2)
         raise StructuredGenerationError(f"Structured generation failed after retries: {last_exc}") from last_exc
 
     return wrapped
