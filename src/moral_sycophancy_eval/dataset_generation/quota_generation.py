@@ -77,6 +77,7 @@ def generate_until_quota(
                 prompt_config=prompt_config,
                 max_workers=generation_workers,
                 seed=batch_seed,
+                case_id_stem=f"jmcu_p3_b{batch_idx + 1:02d}",
             )
         ]
         all_raw.extend(raw_records)
