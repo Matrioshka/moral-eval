@@ -453,7 +453,7 @@ def scores(cur, respid: int, sfid: int, rownum: int, r: dict[str, Any]) -> None:
 
     if any(clean(x) for x in (manual_score_raw, fc, r.get("confidence"), r.get("action"), note)):
         cur.execute(
-            sql.SQL("select rubric_id from {} where rubric_name='manual_score_0_to_3'").format(
+            sql.SQL("select rubric_id from {} where name='manual_score_0_to_3'").format(
                 op_relation("rubric")
             )
         )
@@ -554,13 +554,13 @@ def derived_rebuild_sql_files() -> tuple[str, ...]:
 def seed_rubric(cur) -> None:
     cur.execute(
         sql.SQL('''
-        insert into {} (rubric_name, score_scale, description)
+        insert into {} (name, score_scale, description)
         values (
             'manual_score_0_to_3',
             '0-3',
             'Project manual audit score. Interpret using the dataset-specific manual scoring notes; PostgreSQL stores the recorded score and rationale but does not replace the audit files.'
         )
-        on conflict (rubric_name) do nothing
+        on conflict (name) do nothing
         ''').format(op_relation("rubric"))
     )
 

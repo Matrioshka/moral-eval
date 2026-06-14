@@ -539,13 +539,13 @@ WHERE NOT EXISTS (
       AND sc.model_name IS NULL
 );
 
-INSERT INTO public.rubric (rubric_name, score_scale, description)
+INSERT INTO public.rubric (name, score_scale, description)
 VALUES (
     'deterministic_schema_check',
     'mixed numeric/text diagnostic',
     'Programmatic checks over structured model outputs, including tuple extraction, schema validity, bounds checking, and related diagnostics. These are not independent human moral judgements.'
 )
-ON CONFLICT (rubric_name) DO NOTHING;
+ON CONFLICT (name) DO NOTHING;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_score_event_legacy_manual
     ON public.score_event(legacy_manual_score_id)
@@ -672,7 +672,7 @@ WITH deterministic_score_source AS (
       ON sc.scorer_type = 'deterministic'
      AND sc.name = COALESCE(NULLIF(trim(ds.scorer_name), ''), 'deterministic_scorer')
      AND sc.model_name IS NULL
-    JOIN public.rubric rb ON rb.rubric_name = 'deterministic_schema_check'
+    JOIN public.rubric rb ON rb.name = 'deterministic_schema_check'
     ORDER BY ds.deterministic_score_id, ds.source_file_id NULLS LAST, ds.source_row NULLS LAST
 )
 INSERT INTO public.score_event (

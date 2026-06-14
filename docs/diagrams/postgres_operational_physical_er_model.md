@@ -45,6 +45,12 @@ erDiagram
     failure_class ||--o{ score_event : labels
     manual_score ||--o| score_event : legacy_manual_source
     deterministic_score ||--o| score_event : legacy_deterministic_source
+
+    experiment_manifest ||--o{ experiment_pipeline_run : configures
+    experiment_pipeline_run }o--o| run : promotes_to
+    experiment_pipeline_run ||--o{ inspect_log_sample : preserves
+    inspect_log_sample }o--o| eval_case : links_case
+    inspect_log_sample }o--o| response : links_response
 ```
 
 ## Operational core
@@ -145,7 +151,7 @@ Purpose: identifies who or what produced a score, such as imported manual audit,
 
 Primary key: `rubric_id`.
 
-Main columns: `rubric_name`, `description`, `created_at`, `updated_at`.
+Main columns: `name`, `description`, `created_at`, `updated_at`.
 
 Purpose: identifies the scoring rubric or check definition applied by a score event.
 
@@ -166,6 +172,34 @@ Key foreign keys: `response_id -> response.response_id`, `scorer_id -> scorer.sc
 Main columns: `score`, `label`, `rationale`, `notes`, `confidence`, `confidence_label`, `source_row`, `raw_metadata`, `created_at`, `updated_at`.
 
 Purpose: response-level scoring event. It allows more than one scorer per response while preserving source lineage.
+
+### `experiment_manifest`
+
+Primary key: `experiment_manifest_id`.
+
+Main columns: `experiment_slug`, `dataset_version`, `prompt_style`, `task`, `answer_models`, `grader_models`, `scoring`, `exports`, `provenance`, `raw_manifest`, `created_at`, `updated_at`.
+
+Purpose: versioned local experiment configuration captured in PostgreSQL.
+
+### `experiment_pipeline_run`
+
+Primary key: `experiment_pipeline_run_id`.
+
+Key foreign keys: `experiment_manifest_id -> experiment_manifest.experiment_manifest_id`, `operational_run_id -> run.run_id`.
+
+Main columns: `pipeline_run_key`, `experiment_slug`, `status`, `dataset_version`, `prompt_style`, `inspect_command`, `eval_log_path`, `outputs_csv_path`, `run_summary`, `raw_run_metadata`, `started_at`, `completed_at`.
+
+Purpose: orchestration/provenance record for one local pipeline execution. `operational_run_id` is nullable until the exported outputs have been ingested and promoted into `public.run`.
+
+### `inspect_log_sample`
+
+Primary key: `inspect_log_sample_id`.
+
+Key foreign keys: `experiment_pipeline_run_id -> experiment_pipeline_run.experiment_pipeline_run_id`, `eval_case_id -> eval_case.eval_case_id`, `response_id -> response.response_id`.
+
+Main columns: `sample_id`, `dataset_version`, `input_text`, `target_text`, `final_response`, `metadata`, `messages`, `usage`, `scores`, `raw_sample`, `source_log_path`, `source_log_sha256`.
+
+Purpose: raw Inspect sample/transcript preservation. `eval_case_id` and `response_id` are nullable bridges to promoted operational rows, because failed runs or logs that have not been ingested may not yet have operational counterparts.
 
 ## Provenance/import tables shown in the ER graph
 

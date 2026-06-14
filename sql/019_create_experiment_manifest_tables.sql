@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS public.experiment_manifest (
 CREATE TABLE IF NOT EXISTS public.experiment_pipeline_run (
     experiment_pipeline_run_id bigserial PRIMARY KEY,
     experiment_manifest_id bigint REFERENCES public.experiment_manifest(experiment_manifest_id),
+    operational_run_id bigint REFERENCES public.run(run_id),
     pipeline_run_key text NOT NULL UNIQUE,
     experiment_slug text NOT NULL,
     status text NOT NULL,
@@ -71,6 +72,8 @@ CREATE TABLE IF NOT EXISTS public.experiment_pipeline_run (
 CREATE TABLE IF NOT EXISTS public.inspect_log_sample (
     inspect_log_sample_id bigserial PRIMARY KEY,
     experiment_pipeline_run_id bigint NOT NULL REFERENCES public.experiment_pipeline_run(experiment_pipeline_run_id) ON DELETE CASCADE,
+    eval_case_id bigint REFERENCES public.eval_case(eval_case_id),
+    response_id bigint REFERENCES public.response(response_id),
     sample_id text NOT NULL,
     dataset_version text,
     input_text text,
@@ -88,14 +91,30 @@ CREATE TABLE IF NOT EXISTS public.inspect_log_sample (
     UNIQUE (experiment_pipeline_run_id, sample_id)
 );
 
+ALTER TABLE public.experiment_pipeline_run
+    ADD COLUMN IF NOT EXISTS operational_run_id bigint REFERENCES public.run(run_id);
+
+ALTER TABLE public.inspect_log_sample
+    ADD COLUMN IF NOT EXISTS eval_case_id bigint REFERENCES public.eval_case(eval_case_id),
+    ADD COLUMN IF NOT EXISTS response_id bigint REFERENCES public.response(response_id);
+
 CREATE INDEX IF NOT EXISTS ix_experiment_manifest_dataset_version
     ON public.experiment_manifest(dataset_version);
 
 CREATE INDEX IF NOT EXISTS ix_experiment_pipeline_run_slug_status
     ON public.experiment_pipeline_run(experiment_slug, status);
 
+CREATE INDEX IF NOT EXISTS ix_experiment_pipeline_run_operational_run
+    ON public.experiment_pipeline_run(operational_run_id);
+
 CREATE INDEX IF NOT EXISTS ix_inspect_log_sample_run
     ON public.inspect_log_sample(experiment_pipeline_run_id);
+
+CREATE INDEX IF NOT EXISTS ix_inspect_log_sample_eval_case
+    ON public.inspect_log_sample(eval_case_id);
+
+CREATE INDEX IF NOT EXISTS ix_inspect_log_sample_response
+    ON public.inspect_log_sample(response_id);
 
 CREATE INDEX IF NOT EXISTS ix_inspect_log_sample_dataset_sample
     ON public.inspect_log_sample(dataset_version, sample_id);

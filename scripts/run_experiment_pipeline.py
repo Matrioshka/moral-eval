@@ -28,6 +28,7 @@ except ImportError as exc:  # pragma: no cover - local environment guard
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LOG_DIR = Path("logs")
 MANIFEST_SQL = ROOT / "sql" / "019_create_experiment_manifest_tables.sql"
+PIPELINE_LINK_SQL = ROOT / "sql" / "020_link_pipeline_runs_to_operational_tables.sql"
 
 
 def utc_now() -> str:
@@ -297,6 +298,12 @@ def connect_db():
 def ensure_manifest_tables() -> None:
     with connect_db() as db, db.cursor() as cur:
         cur.execute(MANIFEST_SQL.read_text(encoding="utf-8"))
+        db.commit()
+
+
+def link_pipeline_operational_tables() -> None:
+    with connect_db() as db, db.cursor() as cur:
+        cur.execute(PIPELINE_LINK_SQL.read_text(encoding="utf-8"))
         db.commit()
 
 
@@ -748,6 +755,7 @@ def main() -> int:
         ingest_cmd = ingest_command(config)
         if ingest_cmd:
             summary["steps"].append(run_step(ingest_cmd, root, output_dir, "postgres_ingest_rebuild"))
+            link_pipeline_operational_tables()
 
         if export_case_trace_enabled(config):
             case_trace_csv = output_dir / "case_trace.csv"

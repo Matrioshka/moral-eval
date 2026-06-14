@@ -502,9 +502,9 @@ def ensure_reference_rows(conn) -> tuple[int, int]:
 
         cur.execute(
             """
-            INSERT INTO public.rubric (rubric_name, score_scale, description, raw_definition)
+            INSERT INTO public.rubric (name, score_scale, description, raw_definition)
             VALUES (%s, %s, %s, %s)
-            ON CONFLICT (rubric_name) DO UPDATE SET
+            ON CONFLICT (name) DO UPDATE SET
                 score_scale = EXCLUDED.score_scale,
                 description = EXCLUDED.description,
                 raw_definition = EXCLUDED.raw_definition,

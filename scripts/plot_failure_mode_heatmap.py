@@ -99,6 +99,12 @@ def quote_table(table: str) -> str:
     return f'{quote_ident(schema)}.{quote_ident(name)}'
 
 
+def sqlalchemy_dsn(value: str) -> str:
+    if value.startswith("postgresql://"):
+        return "postgresql+psycopg://" + value.removeprefix("postgresql://")
+    return value
+
+
 def get_columns(engine, table: str) -> list[str]:
     schema, name = split_table_name(table)
 
@@ -116,6 +122,33 @@ def get_columns(engine, table: str) -> list[str]:
         rows = conn.execute(query, {"schema": schema, "name": name}).fetchall()
 
     return [row[0] for row in rows]
+
+
+def normalise_where_sql(where_sql: str | None, columns: list[str]) -> str | None:
+    if not where_sql:
+        return None
+
+    normalised = where_sql
+    column_set = {column.lower() for column in columns}
+
+    if "dataset_alias" not in column_set and "dataset_version" in column_set:
+        normalised = re.sub(r"\bdataset_alias\b", 't."dataset_version"', normalised, flags=re.I)
+
+    if "scorer_name" not in column_set and "manual_score" in column_set:
+        normalised = re.sub(
+            r"\bscorer_name\s*=\s*'manual'",
+            't."manual_score" is not null',
+            normalised,
+            flags=re.I,
+        )
+        normalised = re.sub(
+            r"'manual'\s*=\s*\bscorer_name\b",
+            't."manual_score" is not null',
+            normalised,
+            flags=re.I,
+        )
+
+    return normalised
 
 
 def choose_column(columns: list[str], explicit: str | None, candidates: list[str], label: str) -> str:
@@ -210,6 +243,7 @@ def fetch_counts(
     has_case_pk = "case_pk" in columns
     use_scenario_join = has_case_pk and scenario_label_col is None
 
+    where_sql = normalise_where_sql(where_sql, columns)
     where_clause = f"and ({where_sql})" if where_sql else ""
     join_clause = ""
     label_expr = f"cast(t.{scenario_sql} as text)"
@@ -242,10 +276,39 @@ def fetch_counts(
         order by 1, 3
     """
 
-    counts = pd.read_sql_query(query, engine)
+    with engine.connect() as conn:
+        counts = pd.read_sql_query(text(query), conn)
     counts["scenario_label"] = counts["scenario_label"].map(humanise_identifier)
     counts["mode"] = counts["mode"].map(title_case_mode)
     return counts
+
+
+def empty_selection_diagnostics(
+    engine,
+    *,
+    table: str,
+    mode_col: str,
+    columns: list[str],
+) -> pd.DataFrame:
+    table_sql = quote_table(table)
+    mode_sql = quote_ident(mode_col)
+    dataset_expr = 'cast(t."dataset_version" as text)' if "dataset_version" in columns else "'<unknown>'"
+    manual_expr = 't."manual_score" is not null' if "manual_score" in columns else "false"
+
+    query = f"""
+        select
+            {dataset_expr} as dataset_version,
+            count(*)::int as rows,
+            count(t.{mode_sql})::int as mode_values,
+            count(*) filter (where {manual_expr})::int as manual_scores,
+            count(*) filter (where {manual_expr} and t.{mode_sql} is not null)::int as manual_mode_values
+        from {table_sql} t
+        group by 1
+        order by dataset_version nulls last
+    """
+
+    with engine.connect() as conn:
+        return pd.read_sql_query(text(query), conn)
 
 
 def shorten_label(value: str, width: int = 48) -> str:
@@ -279,7 +342,10 @@ def build_matrix(
     normalise: str | None,
 ) -> pd.DataFrame:
     if counts.empty:
-        raise ValueError("No rows found for the selected table/columns/filter.")
+        raise RuntimeError(
+            "No rows found for the selected table/columns/filter. "
+            "Check --where and --mode-col; the selected slice may have no scored failure-class rows."
+        )
 
     counts = add_unique_scenario_display_labels(counts)
 
@@ -392,8 +458,12 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--dsn",
-        default=os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/moral_evals"),
-        help="SQLAlchemy database URL. Defaults to DATABASE_URL or local moral_evals Postgres.",
+        default=(
+            os.getenv("DATABASE_URL")
+            or os.getenv("MORAL_EVALS_DATABASE_URL")
+            or "postgresql+psycopg://postgres:postgres@localhost:5432/moral_evals"
+        ),
+        help="SQLAlchemy database URL. Defaults to DATABASE_URL, MORAL_EVALS_DATABASE_URL, or local moral_evals Postgres.",
     )
     parser.add_argument(
         "--table",
@@ -424,6 +494,7 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Optional SQL filter, without the WHERE keyword. "
             "Example: \"scorer_name = 'manual'\". "
+            "Legacy dataset_alias and scorer_name='manual' filters are mapped onto current reporting columns when possible. "
             "Only use trusted local input."
         ),
     )
@@ -471,7 +542,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    engine = create_engine(args.dsn)
+    engine = create_engine(sqlalchemy_dsn(args.dsn))
     columns = get_columns(engine, args.table)
 
     if not columns:
@@ -496,6 +567,9 @@ def main() -> None:
         + (scenario_label_col or ("public.scenario.name via case_pk" if "case_pk" in columns else scenario_col))
     )
     print(f"Using mode col:     {mode_col}")
+    resolved_where = normalise_where_sql(args.where, columns)
+    if args.where:
+        print(f"Using filter:       {resolved_where}")
 
     counts = fetch_counts(
         engine,
@@ -506,6 +580,22 @@ def main() -> None:
         where_sql=args.where,
         columns=columns,
     )
+
+    if counts.empty:
+        print(
+            "No rows found for the selected table/columns/filter. "
+            "The selected slice may have no scored failure-class rows."
+        )
+        diagnostics = empty_selection_diagnostics(
+            engine,
+            table=args.table,
+            mode_col=mode_col,
+            columns=columns,
+        )
+        if not diagnostics.empty:
+            print("\nAvailable rows by dataset_version:")
+            print(diagnostics.to_string(index=False))
+        raise SystemExit(2)
 
     top_n = None if args.top_n_scenarios == 0 else args.top_n_scenarios
 

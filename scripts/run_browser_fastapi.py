@@ -232,7 +232,6 @@ def reference_columns(rows: list[dict[str, Any]]) -> list[str]:
         "slug",
         "name",
         "description",
-        "rubric_name",
         "score_scale",
         "pressure_family",
         "strength_rank",

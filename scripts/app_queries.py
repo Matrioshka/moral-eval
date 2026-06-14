@@ -42,6 +42,11 @@ REPORTING_VIEWS = (
         "description": "Reporting-safe case trace view where present.",
     },
     {
+        "view_name": "pipeline_operational_linkage",
+        "label": "Pipeline linkage",
+        "description": "Bridge from pipeline/Inspect provenance rows to operational runs, cases, and responses.",
+    },
+    {
         "view_name": "technical_data_dictionary",
         "label": "Technical data dictionary",
         "description": "Live PostgreSQL catalog metadata for schemas, tables, views, and columns.",
@@ -317,7 +322,6 @@ def list_reference_rows(table_name: str, limit: int = 500) -> list[dict[str, Any
         "id",
         "slug",
         "name",
-        "rubric_name",
         "model_name",
     ):
         if column_name in table.c:
