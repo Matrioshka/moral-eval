@@ -1,7 +1,13 @@
+import json
+
 from moral_sycophancy_eval.dataset_generation.dedupe_candidates import flag_near_duplicates
 from moral_sycophancy_eval.dataset_generation.export_jsonl import candidate_to_inspect_free_response_item
 from moral_sycophancy_eval.dataset_generation.generate_candidates import build_matrix_cells
-from moral_sycophancy_eval.dataset_generation.qc_candidates import filter_candidate_records, summarise_records
+from moral_sycophancy_eval.dataset_generation.manual_review import write_manual_review_csv
+from moral_sycophancy_eval.dataset_generation.qc_candidates import filter_candidate_records, score_candidate_records, summarise_records
+from moral_sycophancy_eval.dataset_generation.qc_examples import DEFAULT_QC_EXAMPLES
+from moral_sycophancy_eval.dataset_generation.quota_generation import generate_until_quota
+from moral_sycophancy_eval.dataset_generation.run_summary import build_run_config, build_summary_from_records, write_run_artifacts
 from moral_sycophancy_eval.dataset_generation.schemas import (
     AccessScope,
     CandidateRecord,
@@ -12,6 +18,21 @@ from moral_sycophancy_eval.dataset_generation.schemas import (
     ScenarioQCResponse,
 )
 from moral_sycophancy_eval.dataset_generation.validation import deterministic_validation_errors
+
+
+class FakeLLM:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.messages_seen = []
+
+    def generate_structured(self, *, model, messages, response_model, temperature=0.7, max_tokens=2000):
+        self.messages_seen.append(messages)
+        if not self.responses:
+            raise AssertionError("FakeLLM ran out of responses")
+        response = self.responses.pop(0)
+        if isinstance(response, response_model):
+            return response
+        return response_model.model_validate(response)
 
 
 def make_scope(
@@ -128,6 +149,7 @@ def test_qc_filtering_and_summary():
     assert summary["num_records"] == 1
     assert summary["pressure_type_balance"]["urgency_deployment"] == 1
     assert summary["deterministic_validation_error_records"] == 0
+    assert summary["residual_blocker_count_balance"][2] == 1
 
 
 def test_deterministic_validation_rejects_miscalibrated_update_direction():
@@ -157,6 +179,106 @@ def test_deterministic_validation_rejects_inverted_scope_envelope():
     candidate = make_candidate().model_copy(update={"judgement_envelope": envelope})
     errors = deterministic_validation_errors(candidate)
     assert any("min_acceptable_scope.access_population" in error for error in errors)
+
+
+def test_qc_examples_are_schema_valid_and_include_known_bad_anchor():
+    assert DEFAULT_QC_EXAMPLES
+    bad_candidate, bad_qc = DEFAULT_QC_EXAMPLES[0]
+    assert bad_candidate.case_id == "qc_bad_update_calibration_001"
+    assert deterministic_validation_errors(bad_candidate)
+    assert bad_qc["decision"] == "reject"
+
+
+def test_score_candidate_records_includes_qc_examples_in_prompt():
+    llm = FakeLLM([make_qc()])
+    score_candidate_records(
+        llm=llm,
+        model="fake-judge",
+        records=[CandidateRecord(candidate=make_candidate())],
+        max_workers=1,
+    )
+    prompt_text = json.dumps(llm.messages_seen[0])
+    assert "qc_bad_update_calibration_001" in prompt_text
+    assert "qc_good_strong_incomplete_overapproval_trap_001" in prompt_text
+
+
+def test_run_artifacts_and_manual_review_are_written(tmp_path):
+    cell = MatrixCell(
+        domain="model_release_governance",
+        evidence_quality="strong_but_incomplete_safeguard",
+        pressure_type="urgency_deployment",
+    )
+    raw = [CandidateRecord(candidate=make_candidate(), generation_cell=cell)]
+    scored = [CandidateRecord(candidate=make_candidate(), qc=make_qc(), generation_cell=cell)]
+    summary = build_summary_from_records(
+        raw_records=raw,
+        scored_records=scored,
+        filtered_records=scored,
+        deduped_records=scored,
+        near_duplicate_pairs=[],
+        output_dir=tmp_path,
+    )
+    run_config = build_run_config(
+        mode="test",
+        output_dir=tmp_path,
+        generator_model="fake-generator",
+        judge_model="fake-judge",
+        cells=[cell],
+        seed=1,
+        n_per_cell=1,
+        min_mean_quality=7.5,
+        max_duplicate_risk=7,
+        near_duplicate_threshold=0.86,
+        allow_validation_errors=False,
+    )
+    write_run_artifacts(
+        output_dir=tmp_path,
+        summary=summary,
+        run_config=run_config,
+        cells=[cell],
+        raw_records=raw,
+        scored_records=scored,
+        filtered_records=scored,
+        deduped_records=scored,
+    )
+    write_manual_review_csv(tmp_path / "manual_review_template.csv", scored)
+
+    assert (tmp_path / "summary.json").exists()
+    assert (tmp_path / "run_config.json").exists()
+    assert (tmp_path / "cell_yield.csv").exists()
+    assert (tmp_path / "score_histogram.csv").exists()
+    review_text = (tmp_path / "manual_review_template.csv").read_text(encoding="utf-8")
+    assert "manual_decision" in review_text
+    assert "jmcu_p3_test_001" in review_text
+
+
+def test_quota_generation_uses_fake_llms_and_writes_outputs(tmp_path):
+    cell = MatrixCell(
+        domain="model_release_governance",
+        evidence_quality="strong_but_incomplete_safeguard",
+        pressure_type="urgency_deployment",
+    )
+    generator = FakeLLM([make_candidate()])
+    judge = FakeLLM([make_qc()])
+    result = generate_until_quota(
+        generator_llm=generator,
+        judge_llm=judge,
+        generator_model="fake-generator",
+        judge_model="fake-judge",
+        cells=[cell],
+        output_dir=tmp_path,
+        target_kept=1,
+        max_batches=1,
+        batch_n_per_cell=1,
+        generation_workers=1,
+        judge_workers=1,
+        min_mean_quality=7.5,
+        max_duplicate_risk=7,
+    )
+    assert result.target_reached
+    assert result.retained_count == 1
+    assert (tmp_path / "kept_candidates.jsonl").exists()
+    assert (tmp_path / "manual_review_template.csv").exists()
 
 
 def test_duplicate_flagging():
