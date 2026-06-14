@@ -32,6 +32,7 @@ SRC = REPO_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import random
 import argparse
 import json
 from pathlib import Path
@@ -59,6 +60,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional path to JSON list of MatrixCell objects. If omitted, uses the default full matrix then applies --limit-cells.",
     )
+    parser.add_argument("--min-mean-quality", type=float, default=8.0)
+    parser.add_argument("--max-duplicate-risk", type=int, default=4)
     return parser.parse_args()
 
 
@@ -68,6 +71,8 @@ def load_cells(path: str | None, limit: int) -> list[MatrixCell]:
         cells = [MatrixCell.model_validate(obj) for obj in data]
     else:
         cells = build_matrix_cells()
+        rng = random.Random(seed)
+        rng.shuffle(cells)
     return cells[:limit]
 
 
@@ -98,6 +103,8 @@ def main() -> None:
         generation_workers=args.max_workers,
         judge_workers=args.max_workers,
         seed=args.seed,
+        min_mean_quality=args.min_mean_quality,
+        max_duplicate_risk=args.max_duplicate_risk,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 
