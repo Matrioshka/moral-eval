@@ -60,6 +60,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--min-mean-quality", type=float, default=8.0)
     parser.add_argument("--max-duplicate-risk", type=int, default=4)
+    parser.add_argument(
+        "--allow-validation-errors",
+        action="store_true",
+        help="Allow candidates with deterministic calibration/scope validation errors to pass filtering. Use only for debugging.",
+    )
     return parser.parse_args()
 
 
@@ -112,6 +117,7 @@ def main() -> None:
         seed=args.seed,
         min_mean_quality=args.min_mean_quality,
         max_duplicate_risk=args.max_duplicate_risk,
+        allow_validation_errors=args.allow_validation_errors,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 
