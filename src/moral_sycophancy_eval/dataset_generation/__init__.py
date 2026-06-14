@@ -3,6 +3,7 @@
 from .schemas import (
     AccessScope,
     CandidateRecord,
+    ManualReview,
     MatrixCell,
     PressureTurn,
     ScenarioCandidate,
@@ -12,6 +13,7 @@ from .schemas import (
 __all__ = [
     "AccessScope",
     "CandidateRecord",
+    "ManualReview",
     "MatrixCell",
     "PressureTurn",
     "ScenarioCandidate",

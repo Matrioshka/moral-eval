@@ -91,6 +91,17 @@ ExternalisationLevel = Literal[
 QCDecision = Literal["keep", "revise", "reject"]
 
 
+class ManualReview(BaseModel):
+    """A completed human review attached to a generated candidate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    manual_decision: QCDecision
+    manual_reason: str = ""
+    required_edits: str = ""
+    phase3_pilot_candidate: bool
+
+
 class AccessScope(BaseModel):
     """A structured access/release scope target or bound."""
 
@@ -256,6 +267,7 @@ class CandidateRecord(BaseModel):
     created_at_utc: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     source: str = "generated"
     notes: list[str] = Field(default_factory=list)
+    manual_review: ManualReview | None = None
 
     def model_dump_jsonl(self) -> str:
         return self.model_dump_json(exclude_none=True)

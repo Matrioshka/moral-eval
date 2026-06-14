@@ -1,9 +1,19 @@
+import csv
 import json
 
+import pytest
+
 from moral_sycophancy_eval.dataset_generation.dedupe_candidates import flag_near_duplicates
-from moral_sycophancy_eval.dataset_generation.export_jsonl import candidate_to_inspect_free_response_item
+from moral_sycophancy_eval.dataset_generation.export_jsonl import (
+    candidate_to_behaviour_dataset_item,
+    candidate_to_inspect_free_response_item,
+    merge_pilot_candidate_files,
+    read_jsonl,
+    write_behaviour_dataset_jsonl,
+    write_jsonl,
+)
 from moral_sycophancy_eval.dataset_generation.generate_candidates import build_matrix_cells
-from moral_sycophancy_eval.dataset_generation.manual_review import write_manual_review_csv
+from moral_sycophancy_eval.dataset_generation.manual_review import apply_manual_review, write_manual_review_csv
 from moral_sycophancy_eval.dataset_generation.qc_candidates import filter_candidate_records, score_candidate_records, summarise_records
 from moral_sycophancy_eval.dataset_generation.qc_examples import DEFAULT_QC_EXAMPLES
 from moral_sycophancy_eval.dataset_generation.quota_generation import generate_until_quota
@@ -12,6 +22,7 @@ from moral_sycophancy_eval.dataset_generation.schemas import (
     AccessScope,
     CandidateRecord,
     JudgementEnvelope,
+    ManualReview,
     MatrixCell,
     PressureTurn,
     ScenarioCandidate,
@@ -107,6 +118,33 @@ def make_qc(decision="keep", duplicate_risk=2):
         explanation="Strong scenario with clear pressure and concrete residual blockers.",
         revision_suggestions=[],
         decision=decision,
+    )
+
+
+def write_review_csv(path, rows):
+    fieldnames = [
+        "case_id",
+        "manual_decision",
+        "manual_reason",
+        "required_edits",
+        "phase3_pilot_candidate",
+    ]
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def make_reviewed_record(case_id="jmcu_p3_test_001"):
+    return CandidateRecord(
+        candidate=make_candidate(case_id),
+        qc=make_qc(),
+        manual_review=ManualReview(
+            manual_decision="keep",
+            manual_reason="Suitable for the targeted pilot.",
+            required_edits="",
+            phase3_pilot_candidate=True,
+        ),
     )
 
 
@@ -286,3 +324,166 @@ def test_duplicate_flagging():
     r2 = CandidateRecord(candidate=make_candidate("jmcu_p3_test_002"))
     duplicates = flag_near_duplicates([r1, r2], threshold=0.80)
     assert duplicates
+
+
+def test_apply_manual_review_includes_only_explicit_non_rejected_pilot_rows(tmp_path):
+    input_path = tmp_path / "kept_candidates.jsonl"
+    review_path = tmp_path / "manual_review_completed.csv"
+    output_path = tmp_path / "phase3_pilot_candidates.jsonl"
+    records = [
+        CandidateRecord(candidate=make_candidate("jmcu_p3_keep_001"), qc=make_qc()),
+        CandidateRecord(candidate=make_candidate("jmcu_p3_revise_001"), qc=make_qc()),
+        CandidateRecord(candidate=make_candidate("jmcu_p3_reject_001"), qc=make_qc()),
+    ]
+    write_jsonl(input_path, records)
+    write_review_csv(
+        review_path,
+        [
+            {
+                "case_id": "jmcu_p3_keep_001",
+                "manual_decision": "keep",
+                "manual_reason": "Clear target.",
+                "required_edits": "",
+                "phase3_pilot_candidate": "true",
+            },
+            {
+                "case_id": "jmcu_p3_revise_001",
+                "manual_decision": "revise",
+                "manual_reason": "Needs sharper blockers.",
+                "required_edits": "Clarify the missing test.",
+                "phase3_pilot_candidate": "false",
+            },
+            {
+                "case_id": "jmcu_p3_reject_001",
+                "manual_decision": "reject",
+                "manual_reason": "Confounded pressure.",
+                "required_edits": "",
+                "phase3_pilot_candidate": "true",
+            },
+        ],
+    )
+
+    selected = apply_manual_review(
+        review_input_jsonl=input_path,
+        manual_review_csv=review_path,
+        pilot_output_jsonl=output_path,
+    )
+
+    assert [record.candidate.case_id for record in selected] == ["jmcu_p3_keep_001"]
+    assert selected[0].manual_review.manual_decision == "keep"
+    assert selected[0].manual_review.manual_reason == "Clear target."
+    assert read_jsonl(output_path) == selected
+    assert json.loads(output_path.read_text(encoding="utf-8").strip())["manual_review"][
+        "phase3_pilot_candidate"
+    ] is True
+
+
+def test_apply_manual_review_reports_missing_review_row(tmp_path):
+    input_path = tmp_path / "kept_candidates.jsonl"
+    review_path = tmp_path / "manual_review_completed.csv"
+    write_jsonl(input_path, [CandidateRecord(candidate=make_candidate())])
+    write_review_csv(review_path, [])
+
+    with pytest.raises(ValueError, match="Missing manual-review rows.*jmcu_p3_test_001"):
+        apply_manual_review(
+            review_input_jsonl=input_path,
+            manual_review_csv=review_path,
+            pilot_output_jsonl=tmp_path / "pilot.jsonl",
+        )
+
+
+def test_apply_manual_review_blocks_validation_errors_unless_overridden(tmp_path):
+    invalid_candidate = make_candidate().model_copy(
+        update={
+            "evidence_quality": "weak_safeguard",
+            "judgement_envelope": make_candidate().judgement_envelope.model_copy(
+                update={"target_update_direction": "moderate_update"}
+            ),
+        }
+    )
+    input_path = tmp_path / "kept_candidates.jsonl"
+    review_path = tmp_path / "manual_review_completed.csv"
+    write_jsonl(input_path, [CandidateRecord(candidate=invalid_candidate, qc=make_qc())])
+    write_review_csv(
+        review_path,
+        [
+            {
+                "case_id": invalid_candidate.case_id,
+                "manual_decision": "keep",
+                "manual_reason": "Retain only for audited override test.",
+                "required_edits": "",
+                "phase3_pilot_candidate": "yes",
+            }
+        ],
+    )
+
+    blocked = apply_manual_review(
+        review_input_jsonl=input_path,
+        manual_review_csv=review_path,
+        pilot_output_jsonl=tmp_path / "blocked.jsonl",
+    )
+    allowed = apply_manual_review(
+        review_input_jsonl=input_path,
+        manual_review_csv=review_path,
+        pilot_output_jsonl=tmp_path / "allowed.jsonl",
+        allow_reviewed_validation_errors=True,
+    )
+
+    assert blocked == []
+    assert (tmp_path / "blocked.jsonl").read_text(encoding="utf-8") == ""
+    assert len(allowed) == 1
+
+
+def test_merge_pilot_candidate_files_merges_and_dedupes_identical_records(tmp_path):
+    first = make_reviewed_record("jmcu_p3_merge_001")
+    second = make_reviewed_record("jmcu_p3_merge_002")
+    path_a = tmp_path / "a.jsonl"
+    path_b = tmp_path / "b.jsonl"
+    output = tmp_path / "merged.jsonl"
+    write_jsonl(path_a, [first, second])
+    write_jsonl(path_b, [first])
+
+    merged = merge_pilot_candidate_files([path_a, path_b], output)
+
+    assert [record.candidate.case_id for record in merged] == [
+        "jmcu_p3_merge_001",
+        "jmcu_p3_merge_002",
+    ]
+    assert read_jsonl(output) == merged
+
+
+def test_merge_pilot_candidate_files_rejects_conflicting_duplicate_case_id(tmp_path):
+    original = make_reviewed_record("jmcu_p3_conflict_001")
+    conflicting = original.model_copy(
+        update={"notes": ["Different provenance makes this a conflicting record."]}
+    )
+    path_a = tmp_path / "a.jsonl"
+    path_b = tmp_path / "b.jsonl"
+    write_jsonl(path_a, [original])
+    write_jsonl(path_b, [conflicting])
+
+    with pytest.raises(ValueError, match="Conflicting duplicate case_id 'jmcu_p3_conflict_001'"):
+        merge_pilot_candidate_files([path_a, path_b], tmp_path / "merged.jsonl")
+
+
+def test_reviewed_candidate_export_matches_current_behaviour_dataset_shape(tmp_path):
+    reviewed = make_reviewed_record()
+    item = candidate_to_behaviour_dataset_item(reviewed)
+
+    assert item["id"] == reviewed.candidate.case_id
+    assert item["scenario"].endswith(reviewed.candidate.initial_user_prompt)
+    assert item["pressure_turns"][0]["user_followup"] == reviewed.candidate.pressure_turns[0].followup_prompt
+    assert item["minimum_acceptable_access"] == reviewed.candidate.judgement_envelope.min_acceptable_scope.model_dump()
+    assert item["manual_review"]["phase3_pilot_candidate"] is True
+    for required in ("initial_judgement", "expected_behaviour", "ideal_behaviour"):
+        assert item[required]
+
+    output = tmp_path / "phase3_core_overapproval_pilot_v1.jsonl"
+    write_behaviour_dataset_jsonl(output, [reviewed])
+    exported = json.loads(output.read_text(encoding="utf-8").strip())
+    assert exported == item
+
+
+def test_behaviour_export_rejects_candidate_without_manual_approval():
+    with pytest.raises(ValueError, match="not an approved Phase 3 pilot candidate"):
+        candidate_to_behaviour_dataset_item(CandidateRecord(candidate=make_candidate()))

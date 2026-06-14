@@ -29,6 +29,11 @@ Examples:
         --generator-model <model-id> \
         --judge-model <model-id> \
         --limit-cells 8
+
+    # Apply completed manual review without calling an LLM
+    python scripts/generate_phase3_dataset_candidates.py \
+        --apply-manual-review \
+        --out data/generated/phase3_core_overapproval_v1
 """
 
 from __future__ import annotations
@@ -45,7 +50,13 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from moral_sycophancy_eval.dataset_generation.generate_candidates import build_matrix_cells
+from moral_sycophancy_eval.dataset_generation.export_jsonl import (
+    merge_pilot_candidate_files,
+    read_jsonl,
+    write_behaviour_dataset_jsonl,
+)
 from moral_sycophancy_eval.dataset_generation.llm_clients import OpenAICompatibleJSONClient, OpenAIParseClient
+from moral_sycophancy_eval.dataset_generation.manual_review import apply_manual_review
 from moral_sycophancy_eval.dataset_generation.pipeline import generate_score_filter_export
 from moral_sycophancy_eval.dataset_generation.quota_generation import generate_until_quota
 from moral_sycophancy_eval.dataset_generation.schemas import MatrixCell
@@ -87,6 +98,63 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--quota-mode", action="store_true", help="Generate bounded batches until --target-kept candidates survive filtering.")
     parser.add_argument("--target-kept", type=int, default=12, help="Quota-mode target retained candidate count.")
     parser.add_argument("--max-batches", type=int, default=4, help="Quota-mode hard cap on generate/score/filter batches.")
+    parser.add_argument(
+        "--apply-manual-review",
+        action="store_true",
+        help="Apply a completed manual-review CSV to kept candidates. No LLM calls.",
+    )
+    parser.add_argument(
+        "--manual-review-csv",
+        default=None,
+        help="Completed review CSV. Defaults to <out>/manual_review_completed.csv.",
+    )
+    parser.add_argument(
+        "--review-input-jsonl",
+        default=None,
+        help="Candidate JSONL to review. Defaults to <out>/kept_candidates.jsonl.",
+    )
+    parser.add_argument(
+        "--pilot-output-jsonl",
+        default=None,
+        help="Reviewed or merged pilot output. Defaults to <out>/phase3_pilot_candidates.jsonl.",
+    )
+    parser.add_argument(
+        "--allow-reviewed-validation-errors",
+        action="store_true",
+        help="Allow explicitly selected reviewed candidates with deterministic validation errors.",
+    )
+    parser.add_argument(
+        "--merge-pilot-candidates",
+        action="store_true",
+        help="Merge reviewed pilot JSONL files by case_id. No LLM calls.",
+    )
+    parser.add_argument(
+        "--pilot-inputs",
+        nargs="+",
+        default=None,
+        metavar="PATH",
+        help="Reviewed pilot JSONL files to merge.",
+    )
+    parser.add_argument(
+        "--export-inspect-jsonl",
+        action="store_true",
+        help="Export approved pilot candidates to behaviour.py's multistage JSONL shape. No LLM calls.",
+    )
+    parser.add_argument(
+        "--pilot-input-jsonl",
+        default=None,
+        help="Reviewed pilot input for --export-inspect-jsonl. Defaults to <out>/phase3_pilot_candidates.jsonl.",
+    )
+    parser.add_argument(
+        "--inspect-output-jsonl",
+        default=None,
+        help="Inspect-compatible JSONL output. Defaults to <out>/phase3_pilot.inspect.jsonl.",
+    )
+    parser.add_argument(
+        "--dataset-version",
+        default="phase3_core_overapproval_pilot_v1",
+        help="dataset_version stored in exported Inspect-compatible rows.",
+    )
     return parser.parse_args()
 
 
@@ -126,6 +194,58 @@ def load_cells(path: str | None, limit: int | None, seed: int) -> list[MatrixCel
 
 def main() -> None:
     args = parse_args()
+    local_modes = [
+        args.apply_manual_review,
+        args.merge_pilot_candidates,
+        args.export_inspect_jsonl,
+    ]
+    if sum(local_modes) > 1:
+        raise SystemExit(
+            "Choose only one of --apply-manual-review, --merge-pilot-candidates, "
+            "or --export-inspect-jsonl."
+        )
+    if any(local_modes) and (args.list_cells or args.quota_mode):
+        raise SystemExit(
+            "Local review, merge, and export modes cannot be combined with "
+            "--list-cells or --quota-mode."
+        )
+
+    output_dir = Path(args.out)
+    default_pilot_output = output_dir / "phase3_pilot_candidates.jsonl"
+
+    if args.apply_manual_review:
+        selected = apply_manual_review(
+            review_input_jsonl=args.review_input_jsonl or output_dir / "kept_candidates.jsonl",
+            manual_review_csv=args.manual_review_csv or output_dir / "manual_review_completed.csv",
+            pilot_output_jsonl=args.pilot_output_jsonl or default_pilot_output,
+            allow_reviewed_validation_errors=args.allow_reviewed_validation_errors,
+        )
+        print(json.dumps({"pilot_candidates_written": len(selected)}, indent=2))
+        return
+
+    if args.merge_pilot_candidates:
+        if not args.pilot_inputs:
+            raise SystemExit("--merge-pilot-candidates requires --pilot-inputs PATH [PATH ...]")
+        merged = merge_pilot_candidate_files(
+            args.pilot_inputs,
+            args.pilot_output_jsonl or default_pilot_output,
+        )
+        print(json.dumps({"pilot_candidates_written": len(merged)}, indent=2))
+        return
+
+    if args.export_inspect_jsonl:
+        input_path = args.pilot_input_jsonl or default_pilot_output
+        records = read_jsonl(input_path)
+        output_path = args.inspect_output_jsonl or output_dir / "phase3_pilot.inspect.jsonl"
+        write_behaviour_dataset_jsonl(
+            output_path,
+            records,
+            dataset_version=args.dataset_version,
+            allow_reviewed_validation_errors=args.allow_reviewed_validation_errors,
+        )
+        print(json.dumps({"inspect_candidates_written": len(records)}, indent=2))
+        return
+
     cells = load_cells(args.cells_json, args.limit_cells, args.seed)
 
     if args.list_cells:
