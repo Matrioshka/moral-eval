@@ -250,7 +250,7 @@ class CandidateRecord(BaseModel):
     qc: ScenarioQCResponse | None = None
     generation_model: str | None = None
     judge_model: str | None = None
-    prompt_version: str = "phase3_dataset_generation_v1"
+    prompt_version: str = "phase3_dataset_generation_v2"
     rubric_version: str | None = None
     generation_cell: MatrixCell | None = None
     created_at_utc: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
