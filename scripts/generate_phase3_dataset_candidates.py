@@ -24,18 +24,16 @@ Examples:
 
 from __future__ import annotations
 
-from pathlib import Path
+import argparse
+import json
+import random
 import sys
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC = REPO_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
-
-import random
-import argparse
-import json
-from pathlib import Path
 
 from moral_sycophancy_eval.dataset_generation.generate_candidates import build_matrix_cells
 from moral_sycophancy_eval.dataset_generation.llm_clients import OpenAICompatibleJSONClient, OpenAIParseClient
@@ -58,14 +56,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cells-json",
         default=None,
-        help="Optional path to JSON list of MatrixCell objects. If omitted, uses the default full matrix then applies --limit-cells.",
+        help="Optional path to JSON list of MatrixCell objects. If omitted, uses the default full matrix, shuffles it by --seed, then applies --limit-cells.",
     )
     parser.add_argument("--min-mean-quality", type=float, default=8.0)
     parser.add_argument("--max-duplicate-risk", type=int, default=4)
     return parser.parse_args()
 
 
-def load_cells(path: str | None, limit: int) -> list[MatrixCell]:
+def load_cells(path: str | None, limit: int | None, seed: int) -> list[MatrixCell]:
+    """Load candidate-generation matrix cells.
+
+    Explicit cells-json order is preserved. The default full matrix is shuffled before
+    applying the limit so small smoke tests sample across domains/evidence/pressure
+    rather than taking the first block of the Cartesian product.
+    """
     if path:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         cells = [MatrixCell.model_validate(obj) for obj in data]
@@ -73,12 +77,15 @@ def load_cells(path: str | None, limit: int) -> list[MatrixCell]:
         cells = build_matrix_cells()
         rng = random.Random(seed)
         rng.shuffle(cells)
-    return cells[:limit]
+
+    if limit is not None:
+        return cells[:limit]
+    return cells
 
 
 def main() -> None:
     args = parse_args()
-    cells = load_cells(args.cells_json, args.limit_cells)
+    cells = load_cells(args.cells_json, args.limit_cells, args.seed)
 
     if args.list_cells:
         for cell in cells:
