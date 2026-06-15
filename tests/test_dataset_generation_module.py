@@ -29,6 +29,11 @@ from moral_sycophancy_eval.dataset_generation.qc_candidates import filter_candid
 from moral_sycophancy_eval.dataset_generation.qc_examples import DEFAULT_QC_EXAMPLES
 from moral_sycophancy_eval.dataset_generation.quota_generation import generate_until_quota
 from moral_sycophancy_eval.dataset_generation.run_summary import build_run_config, build_summary_from_records, write_run_artifacts
+from moral_sycophancy_eval.dataset_generation.revision import (
+    REVISION_FIELDS,
+    apply_candidate_revisions,
+    extract_revise_candidates,
+)
 from moral_sycophancy_eval.dataset_generation.schemas import (
     AccessScope,
     CandidateRecord,
@@ -188,6 +193,24 @@ def write_adjudication_csv(path, rows):
         writer = csv.DictWriter(f, fieldnames=ADJUDICATION_FIELDS)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def make_candidate_adjudication(verdict="revise"):
+    return CandidateAdjudication(
+        overall_verdict=verdict,
+        criteria={
+            criterion: AdjudicationCriterionScore(
+                score=3 if verdict == "revise" else 4,
+                label="revise" if verdict == "revise" else "pass",
+                rationale="Criterion-level fixture rationale.",
+                required_edits=["Clarify this criterion."] if verdict == "revise" else [],
+            )
+            for criterion in ADJUDICATION_CRITERIA
+        },
+        required_edits=["Clarify the candidate."] if verdict == "revise" else [],
+        adjudicator_notes="Fixture adjudication notes.",
+        adjudicated_at_utc="2026-06-15T00:00:00+00:00",
+    )
 
 
 def test_matrix_cells_build():
@@ -481,6 +504,65 @@ def test_summarize_adjudications_counts_verdicts():
     assert summary["revise"] == 1
     assert summary["reject"] == 1
     assert summary["ready_for_manual_review"] == 1
+
+
+def test_candidate_revision_extract_apply_round_trip_preserves_provenance(tmp_path):
+    adjudicated_path = tmp_path / "adjudicated_candidates.jsonl"
+    revise_path = tmp_path / "revise_candidates.jsonl"
+    notes_path = tmp_path / "revision_notes.csv"
+    revised_path = tmp_path / "revised_candidates.jsonl"
+    manual_review = ManualReview(
+        manual_decision="revise",
+        manual_reason="Keep this separate human review unchanged.",
+        required_edits="Existing human edits.",
+        phase3_pilot_candidate=False,
+    )
+    revise_record = CandidateRecord(
+        candidate=make_candidate("jmcu_p3_revision_001"),
+        qc=make_qc(),
+        adjudication=make_candidate_adjudication("revise"),
+        manual_review=manual_review,
+    )
+    keep_record = CandidateRecord(
+        candidate=make_candidate("jmcu_p3_revision_keep_001"),
+        qc=make_qc(),
+        adjudication=make_candidate_adjudication("keep"),
+    )
+    write_jsonl(adjudicated_path, [revise_record, keep_record])
+
+    extracted = extract_revise_candidates(adjudicated_path, revise_path, notes_path)
+
+    assert extracted == [revise_record]
+    assert read_jsonl(revise_path) == [revise_record]
+    with notes_path.open("r", encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1
+    assert list(rows[0]) == REVISION_FIELDS
+    assert rows[0]["overall_verdict"] == "revise"
+    assert json.loads(rows[0]["consolidated_required_edits"]) == [
+        "Clarify the candidate."
+    ]
+    assert rows[0]["revised_title"] == ""
+    assert rows[0]["revision_notes"] == ""
+
+    rows[0]["revised_title"] = "Revised release review with concrete safeguards"
+    rows[0]["revision_notes"] = "Specified a clearer title for re-adjudication."
+    with notes_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=REVISION_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    revised = apply_candidate_revisions(revise_path, notes_path, revised_path)
+
+    assert len(revised) == 1
+    revised_record = revised[0]
+    assert revised_record.candidate.title == "Revised release review with concrete safeguards"
+    assert revised_record.adjudication is None
+    assert revised_record.manual_review == manual_review
+    assert revised_record.revision.original_candidate == revise_record.candidate
+    assert revised_record.revision.original_adjudication == revise_record.adjudication
+    assert revised_record.revision.revised_fields == ["title"]
+    assert read_jsonl(revised_path) == revised
 
 
 def test_apply_manual_review_includes_only_explicit_non_rejected_pilot_rows(tmp_path):

@@ -254,6 +254,35 @@ class ScenarioQCResponse(BaseModel):
         return self.decision == "keep" and self.mean_quality_score >= 8.0 and self.duplicate_risk <= 4
 
 
+class CandidateRevision(BaseModel):
+    """Provenance for a locally revised candidate awaiting re-adjudication."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    original_candidate: ScenarioCandidate
+    original_adjudication: CandidateAdjudication
+    revised_fields: list[str] = Field(min_length=1)
+    revision_notes: str = Field(min_length=1)
+    revision_version: str = "phase3_candidate_revision_v1"
+    revised_at_utc: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    @field_validator("revised_fields")
+    @classmethod
+    def clean_revised_fields(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip() for value in values if value and value.strip()]
+        if not cleaned:
+            raise ValueError("revised_fields cannot be empty")
+        return cleaned
+
+    @field_validator("revision_notes", "revision_version", "revised_at_utc")
+    @classmethod
+    def strip_revision_text(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("field cannot be blank")
+        return stripped
+
+
 class CandidateRecord(BaseModel):
     """A candidate plus generation and QC provenance."""
 
@@ -270,6 +299,7 @@ class CandidateRecord(BaseModel):
     source: str = "generated"
     notes: list[str] = Field(default_factory=list)
     adjudication: CandidateAdjudication | None = None
+    revision: CandidateRevision | None = None
     manual_review: ManualReview | None = None
 
     def model_dump_jsonl(self) -> str:

@@ -10,6 +10,7 @@ from .adjudication import (
 from .schemas import (
     AccessScope,
     CandidateRecord,
+    CandidateRevision,
     ManualReview,
     MatrixCell,
     PressureTurn,
@@ -21,6 +22,7 @@ __all__ = [
     "AccessScope",
     "AdjudicationCriterionScore",
     "CandidateRecord",
+    "CandidateRevision",
     "CandidateAdjudication",
     "DebateAdjudicationRecord",
     "DebateTurn",

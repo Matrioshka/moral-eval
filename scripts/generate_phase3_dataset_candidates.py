@@ -63,6 +63,10 @@ from moral_sycophancy_eval.dataset_generation.llm_clients import OpenAICompatibl
 from moral_sycophancy_eval.dataset_generation.manual_review import apply_manual_review
 from moral_sycophancy_eval.dataset_generation.pipeline import generate_score_filter_export
 from moral_sycophancy_eval.dataset_generation.quota_generation import generate_until_quota
+from moral_sycophancy_eval.dataset_generation.revision import (
+    apply_candidate_revisions,
+    extract_revise_candidates,
+)
 from moral_sycophancy_eval.dataset_generation.schemas import MatrixCell
 
 
@@ -131,6 +135,44 @@ def parse_args() -> argparse.Namespace:
         "--adjudicated-output-jsonl",
         default=None,
         help="Adjudicated candidate output. Defaults to <out>/adjudicated_candidates.jsonl.",
+    )
+    parser.add_argument(
+        "--extract-revise-candidates",
+        action="store_true",
+        help="Extract adjudication revise candidates and write a revision worksheet. No LLM calls.",
+    )
+    parser.add_argument(
+        "--apply-candidate-revisions",
+        action="store_true",
+        help="Apply a completed revision worksheet. No LLM calls.",
+    )
+    parser.add_argument(
+        "--revision-input-jsonl",
+        default=None,
+        help=(
+            "Revision source JSONL. Defaults to <out>/adjudicated_candidates.jsonl "
+            "for extraction and <out>/revise_candidates.jsonl for apply."
+        ),
+    )
+    parser.add_argument(
+        "--revision-adjudication-csv",
+        default=None,
+        help="Completed adjudication CSV used to verify extraction. Defaults to <out>/adjudication_completed.csv.",
+    )
+    parser.add_argument(
+        "--revise-output-jsonl",
+        default=None,
+        help="Extracted revise candidates. Defaults to <out>/revise_candidates.jsonl.",
+    )
+    parser.add_argument(
+        "--revision-notes-csv",
+        default=None,
+        help="Revision worksheet. Defaults to <out>/revision_notes.csv.",
+    )
+    parser.add_argument(
+        "--revised-output-jsonl",
+        default=None,
+        help="Revised candidates for re-adjudication. Defaults to <out>/revised_candidates.jsonl.",
     )
     parser.add_argument(
         "--apply-manual-review",
@@ -231,6 +273,8 @@ def main() -> None:
     local_modes = [
         args.export_adjudication_template,
         args.apply_adjudication,
+        args.extract_revise_candidates,
+        args.apply_candidate_revisions,
         args.apply_manual_review,
         args.merge_pilot_candidates,
         args.export_inspect_jsonl,
@@ -238,8 +282,9 @@ def main() -> None:
     if sum(local_modes) > 1:
         raise SystemExit(
             "Choose only one local mode: --export-adjudication-template, "
-            "--apply-adjudication, --apply-manual-review, --merge-pilot-candidates, "
-            "or --export-inspect-jsonl."
+            "--apply-adjudication, --extract-revise-candidates, "
+            "--apply-candidate-revisions, --apply-manual-review, "
+            "--merge-pilot-candidates, or --export-inspect-jsonl."
         )
     if any(local_modes) and (args.list_cells or args.quota_mode):
         raise SystemExit(
@@ -266,6 +311,30 @@ def main() -> None:
         apply_adjudication(input_path, adjudication_path, output_path)
         summary_path = output_path.parent / "adjudication_summary.json"
         print(summary_path.read_text(encoding="utf-8").strip())
+        return
+
+    if args.extract_revise_candidates:
+        input_path = args.revision_input_jsonl or output_dir / "adjudicated_candidates.jsonl"
+        revise_output = args.revise_output_jsonl or output_dir / "revise_candidates.jsonl"
+        notes_output = args.revision_notes_csv or output_dir / "revision_notes.csv"
+        adjudication_csv = (
+            args.revision_adjudication_csv or output_dir / "adjudication_completed.csv"
+        )
+        revise_records = extract_revise_candidates(
+            input_path,
+            revise_output,
+            notes_output,
+            adjudication_csv=adjudication_csv,
+        )
+        print(json.dumps({"revise_candidates_written": len(revise_records)}, indent=2))
+        return
+
+    if args.apply_candidate_revisions:
+        input_path = args.revision_input_jsonl or output_dir / "revise_candidates.jsonl"
+        notes_path = args.revision_notes_csv or output_dir / "revision_notes.csv"
+        output_path = args.revised_output_jsonl or output_dir / "revised_candidates.jsonl"
+        revised_records = apply_candidate_revisions(input_path, notes_path, output_path)
+        print(json.dumps({"revised_candidates_written": len(revised_records)}, indent=2))
         return
 
     if args.apply_manual_review:

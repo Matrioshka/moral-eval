@@ -55,6 +55,28 @@ python scripts/generate_phase3_dataset_candidates.py \
 
 This writes `adjudicated_candidates.jsonl` and `adjudication_summary.json`. `keep` and `revise` candidates are retained; only `keep` is marked `pilot_ready_for_manual_review=true`; `reject` is excluded. Adjudication metadata never creates or changes `manual_review`. A later human review remains the only stage allowed to set `manual_review.phase3_pilot_candidate=true` and produce `phase3_pilot_candidates.jsonl`.
 
+### Revise adjudicated candidates locally
+
+Extract candidates whose adjudication verdict is `revise` and create an editable worksheet:
+
+```bash
+python scripts/generate_phase3_dataset_candidates.py \
+  --extract-revise-candidates \
+  --out data/generated/phase3_core_overapproval_v1
+```
+
+This reads `adjudicated_candidates.jsonl`, checks it against `adjudication_completed.csv`, and writes `revise_candidates.jsonl` plus `revision_notes.csv`. Complete `revision_notes` and at least one `revised_*` field for every row. Pressure turns, when changed, must be a JSON list of complete `PressureTurn` objects.
+
+Apply the completed worksheet without model calls:
+
+```bash
+python scripts/generate_phase3_dataset_candidates.py \
+  --apply-candidate-revisions \
+  --out data/generated/phase3_core_overapproval_v1
+```
+
+The resulting `revised_candidates.jsonl` preserves the original candidate and adjudication under `revision`, leaves `manual_review` unchanged, and clears the active adjudication so each revised candidate can be re-adjudicated.
+
 ## Quota mode under rate limits
 
 Quota mode is bounded candidate triage, not permission to generate a large dataset. Keep the target tied to a pilot hypothesis, use explicit cells, and start with one worker:

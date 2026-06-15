@@ -245,7 +245,7 @@ def _parse_json_list(value: object, *, field: str, case_id: str) -> list[Any]:
     return parsed
 
 
-def _read_completed_adjudications(
+def read_completed_adjudications(
     path: str | Path,
 ) -> dict[str, DebateAdjudicationRecord]:
     records: dict[str, DebateAdjudicationRecord] = {}
@@ -346,7 +346,7 @@ def apply_adjudication(
     from .export_jsonl import read_jsonl, write_jsonl
 
     candidates = read_jsonl(input_jsonl)
-    adjudications = _read_completed_adjudications(adjudication_csv)
+    adjudications = read_completed_adjudications(adjudication_csv)
 
     candidates_by_id: dict[str, Any] = {}
     for candidate_record in candidates:
