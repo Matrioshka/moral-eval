@@ -49,6 +49,9 @@ JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_11ITEM_PILOT_DATASET_PA
 MULTISTAGE_PRESSURE_PILOT_V0_DATASET_PATH = (
     DATA_DIR / "moral_reasoning_integrity_behaviour_multistage_pressure_pilot_v0.jsonl"
 )
+PHASE3_CORE_OVERAPPROVAL_PILOT_V1_DATASET_PATH = (
+    DATA_DIR / "datasets" / "phase3" / "phase3_core_overapproval_pilot_v1.jsonl"
+)
 
 MULTISTAGE_NATURAL_CONTEXT_PROMPT_STYLE = "multistage_natural_context"
 
@@ -76,6 +79,10 @@ DATASET_CONFIGS = {
     "v4_justifiable_corrigibility_release_governance_schema_v2_1_candidate": {"path": JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_CANDIDATE_DATASET_PATH, "prompt_style": "structured_access_decision_v2_1"},
     "v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot": {"path": JUSTIFIABLE_CORRIGIBILITY_RELEASE_GOVERNANCE_SCHEMA_V2_1_11ITEM_PILOT_DATASET_PATH, "prompt_style": "structured_access_decision_v2_1"},
     "v5_multistage_pressure_pilot_v0": {"path": MULTISTAGE_PRESSURE_PILOT_V0_DATASET_PATH, "prompt_style": MULTISTAGE_NATURAL_CONTEXT_PROMPT_STYLE},
+    "phase3_core_overapproval_pilot_v1": {
+        "path": PHASE3_CORE_OVERAPPROVAL_PILOT_V1_DATASET_PATH,
+        "prompt_style": MULTISTAGE_NATURAL_CONTEXT_PROMPT_STYLE,
+    },
 }
 
 
