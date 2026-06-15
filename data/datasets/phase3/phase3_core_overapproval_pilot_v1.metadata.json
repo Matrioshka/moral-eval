@@ -1,0 +1,72 @@
+{
+  "dataset_version": "phase3_core_overapproval_pilot_v1",
+  "dataset_family": "phase3_core_overapproval",
+  "phase": "phase3",
+  "construct": "justifiable_moral_corrigibility_under_pressure",
+  "primary_failure_mode": "miscalibrated_corrigibility_overapproval_after_strong_but_incomplete_safeguards",
+  "description": "A three-item reviewed pilot dataset targeting whether models over-approve high-stakes AI-safety governance decisions after strong-but-incomplete safeguards under pressure. This is a smoke-tested seed, not a broad benchmark.",
+  "risk_track": "catastrophic_risk_ai_safety_governance",
+  "status": "reviewed_smoke_tested_pilot_seed",
+  "case_count": 3,
+  "source_path": "data/datasets/phase3/phase3_core_overapproval_pilot_v1.jsonl",
+  "source_generation_run_path": "data/generated/phase3_core_overapproval_v1",
+  "manual_review_path": "data/generated/phase3_core_overapproval_v1/manual_review_completed.csv",
+  "reviewed_pilot_jsonl_path": "data/generated/phase3_core_overapproval_v1/phase3_pilot_candidates.jsonl",
+  "inspect_export_path": "data/generated/phase3_core_overapproval_v1/phase3_pilot.inspect.jsonl",
+  "behaviour_dataset_version": "phase3_core_overapproval_pilot_v1",
+  "behaviour_prompt_style": "multistage_natural_context",
+  "behaviour_registration_commit": "04f39fb",
+  "dataset_export_commit": "ed35807",
+  "text_cleanup_commit": "5619914",
+  "smoke_eval": {
+    "status": "passed",
+    "date_utc": "2026-06-15",
+    "command": "inspect eval ./src/moral_sycophancy_eval/behaviour.py@moral_reasoning_integrity_behaviour --model openai/gpt-4o-mini -T dataset_version=phase3_core_overapproval_pilot_v1 --limit 1",
+    "model": "openai/gpt-4o-mini",
+    "sample_limit": 1,
+    "log_path": "logs/2026-06-15T05-06-27-00-00_moral-reasoning-integrity-behaviour_VEUPfiYXh9AJgJnGkkezd5.eval",
+    "token_usage": {
+      "total": 1744,
+      "input": 779,
+      "output": 965
+    }
+  },
+  "generation_provenance": {
+    "generator_model": "gpt-4o-2024-08-06",
+    "judge_model": "gpt-4o-2024-08-06",
+    "prompt_version": "phase3_dataset_generation_v2",
+    "rubric_version": "phase3_scenario_qc_rubric_v2",
+    "manual_review_status": "completed",
+    "deterministic_validation_required": true
+  },
+  "distributions": {
+    "evidence_quality": {
+      "strong_but_incomplete_safeguard": 3
+    },
+    "pressure_type": {
+      "authority_seniority": 1,
+      "urgency_deployment": 1,
+      "institutional_consensus": 1
+    },
+    "moral_domain": {
+      "shutdown_control_evaluation": 1,
+      "frontier_ai_deployment": 1,
+      "ai_biosecurity_dual_use": 1
+    },
+    "expected_update": {
+      "minor_update": 3
+    }
+  },
+  "quality_notes": [
+    "The dataset is intentionally small and should be treated as a pilot seed only.",
+    "All three cases target strong-but-incomplete safeguards and residual over-approval risk.",
+    "The dataset should be expanded only after debate/adjudication quality gates are added or manually applied to the next candidate batch.",
+    "The dataset has not yet been promoted into the PostgreSQL dataset catalogue as a first-class metadata record. Current DB tables can store related dataset, case, run, response, and score provenance after ingest."
+  ],
+  "recommended_next_steps": [
+    "Ingest the smoke eval log into PostgreSQL and verify linkage through reporting views.",
+    "Add a formal dataset catalogue/manifest table or import path for generated reviewed datasets.",
+    "Add debate/adjudication as a quality gate before expanding to 8-12 reviewed Phase 3 cases.",
+    "Generate and review one additional targeted batch only after the quality gate is specified."
+  ]
+}
