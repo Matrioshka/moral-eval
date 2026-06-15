@@ -260,7 +260,9 @@ def main() -> None:
     if args.apply_adjudication:
         input_path = args.adjudication_input_jsonl or output_dir / "kept_candidates.jsonl"
         adjudication_path = args.adjudication_csv or output_dir / "adjudication_template.csv"
-        output_path = args.adjudicated_output_jsonl or output_dir / "adjudicated_candidates.jsonl"
+        output_path = Path(
+            args.adjudicated_output_jsonl or output_dir / "adjudicated_candidates.jsonl"
+        )
         apply_adjudication(input_path, adjudication_path, output_path)
         summary_path = output_path.parent / "adjudication_summary.json"
         print(summary_path.read_text(encoding="utf-8").strip())
