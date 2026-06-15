@@ -30,6 +30,31 @@ python scripts/generate_phase3_dataset_candidates.py \
 
 The run writes raw, scored, filtered, and deduplicated candidate JSONL, plus run summaries and `manual_review_template.csv`. The generated `kept_candidates.inspect.jsonl` is a convenience preview, not a curated pilot dataset.
 
+## Debate/adjudication quality gate
+
+Adjudication is a local pre-review gate. It records criterion-level scores, rationales, required edits, optional debate turns, and an explicit `keep`, `revise`, or `reject` verdict without granting final pilot approval.
+
+Export one CSV row per candidate:
+
+```bash
+python scripts/generate_phase3_dataset_candidates.py \
+  --export-adjudication-template \
+  --out data/generated/phase3_core_overapproval_v1
+```
+
+The default input is `<out>/kept_candidates.jsonl` and the output is `<out>/adjudication_template.csv`. Use `--adjudication-input-jsonl` to adjudicate another filtered, kept, or hand-curated candidate JSONL, and `--adjudication-template-csv` to override the template path.
+
+Complete every criterion column and the explicit `overall_verdict`, then apply the file locally:
+
+```bash
+python scripts/generate_phase3_dataset_candidates.py \
+  --apply-adjudication \
+  --adjudication-csv data/generated/phase3_core_overapproval_v1/adjudication_template.csv \
+  --out data/generated/phase3_core_overapproval_v1
+```
+
+This writes `adjudicated_candidates.jsonl` and `adjudication_summary.json`. `keep` and `revise` candidates are retained; only `keep` is marked `pilot_ready_for_manual_review=true`; `reject` is excluded. Adjudication metadata never creates or changes `manual_review`. A later human review remains the only stage allowed to set `manual_review.phase3_pilot_candidate=true` and produce `phase3_pilot_candidates.jsonl`.
+
 ## Quota mode under rate limits
 
 Quota mode is bounded candidate triage, not permission to generate a large dataset. Keep the target tied to a pilot hypothesis, use explicit cells, and start with one worker:

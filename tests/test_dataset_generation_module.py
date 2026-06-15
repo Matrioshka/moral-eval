@@ -3,6 +3,17 @@ import json
 
 import pytest
 
+from moral_sycophancy_eval.dataset_generation.adjudication import (
+    ADJUDICATION_CRITERIA,
+    ADJUDICATION_FIELDS,
+    AdjudicationCriterionScore,
+    CandidateAdjudication,
+    DebateAdjudicationRecord,
+    apply_adjudication,
+    make_blank_adjudication_template,
+    summarize_adjudications,
+    write_adjudication_template,
+)
 from moral_sycophancy_eval.dataset_generation.dedupe_candidates import flag_near_duplicates
 from moral_sycophancy_eval.dataset_generation.export_jsonl import (
     candidate_to_behaviour_dataset_item,
@@ -146,6 +157,37 @@ def make_reviewed_record(case_id="jmcu_p3_test_001"):
             phase3_pilot_candidate=True,
         ),
     )
+
+
+def make_adjudication_row(record, verdict="keep", reject_criterion=None):
+    row = make_blank_adjudication_template(record)
+    for criterion in ADJUDICATION_CRITERIA:
+        row[f"{criterion}_score"] = "4"
+        row[f"{criterion}_label"] = (
+            "reject" if criterion == reject_criterion else "pass"
+        )
+        row[f"{criterion}_rationale"] = f"{criterion} is adequately specified."
+        row[f"{criterion}_required_edits"] = "[]"
+    if verdict == "revise":
+        row["wording_quality_label"] = "revise"
+        row["wording_quality_required_edits"] = json.dumps(
+            ["Clarify the deployment boundary."]
+        )
+        row["required_edits"] = json.dumps(["Clarify the deployment boundary."])
+    row["overall_verdict"] = verdict
+    row["adjudicator_notes"] = "Local adjudication fixture."
+    row["debate_turns"] = json.dumps(
+        [{"turn_index": 1, "role": "reviewer", "content": "Check calibration."}]
+    )
+    row["adjudicated_at_utc"] = "2026-06-15T00:00:00+00:00"
+    return row
+
+
+def write_adjudication_csv(path, rows):
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=ADJUDICATION_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def test_matrix_cells_build():
@@ -324,6 +366,121 @@ def test_duplicate_flagging():
     r2 = CandidateRecord(candidate=make_candidate("jmcu_p3_test_002"))
     duplicates = flag_near_duplicates([r1, r2], threshold=0.80)
     assert duplicates
+
+
+def test_adjudication_template_export_includes_one_row_per_candidate(tmp_path):
+    input_path = tmp_path / "candidates.jsonl"
+    output_path = tmp_path / "adjudication_template.csv"
+    records = [
+        CandidateRecord(candidate=make_candidate("jmcu_p3_adj_001"), qc=make_qc()),
+        CandidateRecord(candidate=make_candidate("jmcu_p3_adj_002"), qc=make_qc()),
+    ]
+    write_jsonl(input_path, records)
+
+    write_adjudication_template(input_path, output_path)
+
+    with output_path.open("r", encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert [row["case_id"] for row in rows] == ["jmcu_p3_adj_001", "jmcu_p3_adj_002"]
+    assert rows[0]["construct_targeting_score"] == ""
+    assert rows[0]["overall_verdict"] == ""
+
+
+def test_apply_adjudication_handles_keep_revise_reject_and_writes_summary(tmp_path):
+    input_path = tmp_path / "candidates.jsonl"
+    csv_path = tmp_path / "adjudication.csv"
+    output_path = tmp_path / "adjudicated_candidates.jsonl"
+    records = [
+        CandidateRecord(candidate=make_candidate("jmcu_p3_keep_001"), qc=make_qc()),
+        CandidateRecord(candidate=make_candidate("jmcu_p3_revise_001"), qc=make_qc()),
+        CandidateRecord(candidate=make_candidate("jmcu_p3_reject_001"), qc=make_qc()),
+    ]
+    write_jsonl(input_path, records)
+    write_adjudication_csv(
+        csv_path,
+        [
+            make_adjudication_row(records[0], "keep"),
+            make_adjudication_row(records[1], "revise"),
+            make_adjudication_row(records[2], "reject", "construct_targeting"),
+        ],
+    )
+
+    retained = apply_adjudication(input_path, csv_path, output_path)
+
+    assert [record.candidate.case_id for record in retained] == [
+        "jmcu_p3_keep_001",
+        "jmcu_p3_revise_001",
+    ]
+    assert retained[0].adjudication.pilot_ready_for_manual_review is True
+    assert retained[1].adjudication.pilot_ready_for_manual_review is False
+    assert retained[1].adjudication.required_edits == ["Clarify the deployment boundary."]
+    assert retained[0].adjudication.debate_turns[0].role == "reviewer"
+    assert all(record.manual_review is None for record in retained)
+    assert read_jsonl(output_path) == retained
+    summary = json.loads((tmp_path / "adjudication_summary.json").read_text(encoding="utf-8"))
+    assert summary == {
+        "total": 3,
+        "keep": 1,
+        "revise": 1,
+        "reject": 1,
+        "retained": 2,
+        "excluded": 1,
+        "ready_for_manual_review": 1,
+        "not_ready_for_manual_review": 2,
+    }
+
+
+def test_apply_adjudication_reports_missing_row(tmp_path):
+    input_path = tmp_path / "candidates.jsonl"
+    csv_path = tmp_path / "adjudication.csv"
+    record = CandidateRecord(candidate=make_candidate("jmcu_p3_missing_adj_001"), qc=make_qc())
+    write_jsonl(input_path, [record])
+    write_adjudication_csv(csv_path, [])
+
+    with pytest.raises(ValueError, match="Missing adjudication rows.*jmcu_p3_missing_adj_001"):
+        apply_adjudication(input_path, csv_path, tmp_path / "adjudicated_candidates.jsonl")
+
+
+def test_adjudication_reject_criterion_cannot_have_keep_verdict(tmp_path):
+    input_path = tmp_path / "candidates.jsonl"
+    csv_path = tmp_path / "adjudication.csv"
+    record = CandidateRecord(candidate=make_candidate("jmcu_p3_inconsistent_001"), qc=make_qc())
+    write_jsonl(input_path, [record])
+    write_adjudication_csv(
+        csv_path,
+        [make_adjudication_row(record, "keep", "pressure_isolation")],
+    )
+
+    with pytest.raises(ValueError, match="inconsistent with rejected criteria"):
+        apply_adjudication(input_path, csv_path, tmp_path / "adjudicated_candidates.jsonl")
+
+
+def test_summarize_adjudications_counts_verdicts():
+    def make_adjudication(verdict):
+        return CandidateAdjudication(
+            overall_verdict=verdict,
+            criteria={
+                criterion: AdjudicationCriterionScore(
+                    score=4,
+                    label="pass",
+                    rationale="Criterion is adequate.",
+                )
+                for criterion in ADJUDICATION_CRITERIA
+            },
+        )
+
+    summary = summarize_adjudications(
+        [
+            DebateAdjudicationRecord(case_id="keep", adjudication=make_adjudication("keep")),
+            DebateAdjudicationRecord(case_id="revise", adjudication=make_adjudication("revise")),
+            DebateAdjudicationRecord(case_id="reject", adjudication=make_adjudication("reject")),
+        ]
+    )
+
+    assert summary["keep"] == 1
+    assert summary["revise"] == 1
+    assert summary["reject"] == 1
+    assert summary["ready_for_manual_review"] == 1
 
 
 def test_apply_manual_review_includes_only_explicit_non_rejected_pilot_rows(tmp_path):

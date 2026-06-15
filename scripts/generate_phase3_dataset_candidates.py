@@ -50,6 +50,10 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from moral_sycophancy_eval.dataset_generation.generate_candidates import build_matrix_cells
+from moral_sycophancy_eval.dataset_generation.adjudication import (
+    apply_adjudication,
+    write_adjudication_template,
+)
 from moral_sycophancy_eval.dataset_generation.export_jsonl import (
     merge_pilot_candidate_files,
     read_jsonl,
@@ -98,6 +102,36 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--quota-mode", action="store_true", help="Generate bounded batches until --target-kept candidates survive filtering.")
     parser.add_argument("--target-kept", type=int, default=12, help="Quota-mode target retained candidate count.")
     parser.add_argument("--max-batches", type=int, default=4, help="Quota-mode hard cap on generate/score/filter batches.")
+    parser.add_argument(
+        "--export-adjudication-template",
+        action="store_true",
+        help="Export a local adjudication CSV template. No LLM calls.",
+    )
+    parser.add_argument(
+        "--apply-adjudication",
+        action="store_true",
+        help="Apply a completed adjudication CSV. No LLM calls.",
+    )
+    parser.add_argument(
+        "--adjudication-input-jsonl",
+        default=None,
+        help="Candidate JSONL for adjudication. Defaults to <out>/kept_candidates.jsonl.",
+    )
+    parser.add_argument(
+        "--adjudication-template-csv",
+        default=None,
+        help="Adjudication template output. Defaults to <out>/adjudication_template.csv.",
+    )
+    parser.add_argument(
+        "--adjudication-csv",
+        default=None,
+        help="Completed adjudication CSV. Defaults to <out>/adjudication_template.csv.",
+    )
+    parser.add_argument(
+        "--adjudicated-output-jsonl",
+        default=None,
+        help="Adjudicated candidate output. Defaults to <out>/adjudicated_candidates.jsonl.",
+    )
     parser.add_argument(
         "--apply-manual-review",
         action="store_true",
@@ -195,13 +229,16 @@ def load_cells(path: str | None, limit: int | None, seed: int) -> list[MatrixCel
 def main() -> None:
     args = parse_args()
     local_modes = [
+        args.export_adjudication_template,
+        args.apply_adjudication,
         args.apply_manual_review,
         args.merge_pilot_candidates,
         args.export_inspect_jsonl,
     ]
     if sum(local_modes) > 1:
         raise SystemExit(
-            "Choose only one of --apply-manual-review, --merge-pilot-candidates, "
+            "Choose only one local mode: --export-adjudication-template, "
+            "--apply-adjudication, --apply-manual-review, --merge-pilot-candidates, "
             "or --export-inspect-jsonl."
         )
     if any(local_modes) and (args.list_cells or args.quota_mode):
@@ -212,6 +249,22 @@ def main() -> None:
 
     output_dir = Path(args.out)
     default_pilot_output = output_dir / "phase3_pilot_candidates.jsonl"
+
+    if args.export_adjudication_template:
+        input_path = args.adjudication_input_jsonl or output_dir / "kept_candidates.jsonl"
+        output_path = args.adjudication_template_csv or output_dir / "adjudication_template.csv"
+        write_adjudication_template(input_path, output_path)
+        print(json.dumps({"adjudication_template": str(output_path)}, indent=2))
+        return
+
+    if args.apply_adjudication:
+        input_path = args.adjudication_input_jsonl or output_dir / "kept_candidates.jsonl"
+        adjudication_path = args.adjudication_csv or output_dir / "adjudication_template.csv"
+        output_path = args.adjudicated_output_jsonl or output_dir / "adjudicated_candidates.jsonl"
+        apply_adjudication(input_path, adjudication_path, output_path)
+        summary_path = output_path.parent / "adjudication_summary.json"
+        print(summary_path.read_text(encoding="utf-8").strip())
+        return
 
     if args.apply_manual_review:
         selected = apply_manual_review(

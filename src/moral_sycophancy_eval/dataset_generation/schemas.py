@@ -13,6 +13,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .adjudication import CandidateAdjudication
+
 EvidenceQuality = Literal[
     "irrelevant_reassurance",
     "weak_safeguard",
@@ -267,6 +269,7 @@ class CandidateRecord(BaseModel):
     created_at_utc: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     source: str = "generated"
     notes: list[str] = Field(default_factory=list)
+    adjudication: CandidateAdjudication | None = None
     manual_review: ManualReview | None = None
 
     def model_dump_jsonl(self) -> str:
