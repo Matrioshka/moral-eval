@@ -43,3 +43,5 @@ tmp/sanity_list_sources.txt
 data/generated/**/*.zip
 
 tmp/
+
+*tmpcodex*/
