@@ -79,6 +79,7 @@ DERIVED_OPERATIONAL_TABLES = (
     "scenario",
     "eval_case",
     "case_turn",
+    "model_call_diagnostic",
     "response_diagnostic",
     "response",
     "score_event",
@@ -90,6 +91,7 @@ SPLIT_LAYOUT_DERIVED_REBUILD_SQL_FILES = (
     "promote_public_expectations_and_decisions_from_raw.sql",
     "create_reporting_views.sql", # "018_create_rpt_reporting_views_from_raw.sql",
     "021_create_response_diagnostics.sql",
+    "022_create_model_call_diagnostics.sql",
     "create_data_dictionary.sql",
     "create_business_glossary.sql",
 )

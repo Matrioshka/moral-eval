@@ -31,6 +31,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from moral_sycophancy_eval.diagnostics import (  # noqa: E402
+    extract_model_call_diagnostics_from_raw_sample,
     normalise_diagnostics_config,
     response_diagnostic_records_from_inspect_sample,
 )
@@ -39,6 +40,7 @@ DEFAULT_LOG_DIR = Path("logs")
 MANIFEST_SQL = ROOT / "sql" / "019_create_experiment_manifest_tables.sql"
 PIPELINE_LINK_SQL = ROOT / "sql" / "020_link_pipeline_runs_to_operational_tables.sql"
 DIAGNOSTICS_SQL = ROOT / "sql" / "021_create_response_diagnostics.sql"
+MODEL_CALL_DIAGNOSTICS_SQL = ROOT / "sql" / "022_create_model_call_diagnostics.sql"
 
 RESPONSE_DIAGNOSTIC_UPSERT_SQL = """
 INSERT INTO public.response_diagnostic AS rd (
@@ -96,6 +98,86 @@ ON CONFLICT (response_id, diagnostic_mode, diagnostic_version) DO UPDATE SET
     raw_usage_json = excluded.raw_usage_json,
     raw_reasoning_summary_json = excluded.raw_reasoning_summary_json,
     raw_provider_metadata_json = excluded.raw_provider_metadata_json
+"""
+
+MODEL_CALL_DIAGNOSTIC_UPSERT_SQL = """
+INSERT INTO public.model_call_diagnostic AS mcd (
+    experiment_pipeline_run_id,
+    inspect_log_sample_id,
+    response_id,
+    eval_case_id,
+    case_turn_id,
+    diagnostic_version,
+    diagnostic_mode,
+    source_scope,
+    source_event_index,
+    model_call_index,
+    turn_index,
+    turn_label,
+    link_confidence,
+    link_method,
+    input_tokens,
+    output_tokens,
+    total_tokens,
+    reasoning_tokens,
+    thinking_tokens,
+    cached_input_tokens,
+    raw_usage_json,
+    raw_event_json,
+    raw_provider_metadata_json,
+    headline_eligible
+) VALUES (
+    %(experiment_pipeline_run_id)s,
+    %(inspect_log_sample_id)s,
+    %(response_id)s,
+    %(eval_case_id)s,
+    %(case_turn_id)s,
+    %(diagnostic_version)s,
+    %(diagnostic_mode)s,
+    %(source_scope)s,
+    %(source_event_index)s,
+    %(model_call_index)s,
+    %(turn_index)s,
+    %(turn_label)s,
+    %(link_confidence)s,
+    %(link_method)s,
+    %(input_tokens)s,
+    %(output_tokens)s,
+    %(total_tokens)s,
+    %(reasoning_tokens)s,
+    %(thinking_tokens)s,
+    %(cached_input_tokens)s,
+    %(raw_usage_json)s::jsonb,
+    %(raw_event_json)s::jsonb,
+    %(raw_provider_metadata_json)s::jsonb,
+    %(headline_eligible)s
+)
+ON CONFLICT (
+    experiment_pipeline_run_id,
+    inspect_log_sample_id,
+    diagnostic_version,
+    diagnostic_mode,
+    source_scope,
+    source_event_index,
+    model_call_index
+) DO UPDATE SET
+    response_id = excluded.response_id,
+    eval_case_id = excluded.eval_case_id,
+    case_turn_id = excluded.case_turn_id,
+    turn_index = excluded.turn_index,
+    turn_label = excluded.turn_label,
+    link_confidence = excluded.link_confidence,
+    link_method = excluded.link_method,
+    input_tokens = excluded.input_tokens,
+    output_tokens = excluded.output_tokens,
+    total_tokens = excluded.total_tokens,
+    reasoning_tokens = excluded.reasoning_tokens,
+    thinking_tokens = excluded.thinking_tokens,
+    cached_input_tokens = excluded.cached_input_tokens,
+    raw_usage_json = excluded.raw_usage_json,
+    raw_event_json = excluded.raw_event_json,
+    raw_provider_metadata_json = excluded.raw_provider_metadata_json,
+    headline_eligible = excluded.headline_eligible
 """
 
 
@@ -373,6 +455,7 @@ def ensure_manifest_tables() -> None:
     with connect_db() as db, db.cursor() as cur:
         cur.execute(MANIFEST_SQL.read_text(encoding="utf-8"))
         cur.execute(DIAGNOSTICS_SQL.read_text(encoding="utf-8"))
+        cur.execute(MODEL_CALL_DIAGNOSTICS_SQL.read_text(encoding="utf-8"))
         db.commit()
 
 
@@ -409,9 +492,53 @@ def upsert_response_diagnostics(run_id: int, diagnostics_config: dict[str, Any])
     return count
 
 
+def upsert_model_call_diagnostics(run_id: int, diagnostics_config: dict[str, Any]) -> int:
+    if not (diagnostics_config.get("usage_metadata") or {}).get("enabled", True):
+        return 0
+
+    count = 0
+    with connect_db() as db, db.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                ils.experiment_pipeline_run_id,
+                ils.inspect_log_sample_id,
+                ils.response_id,
+                ils.eval_case_id AS inspect_eval_case_id,
+                ils.raw_sample,
+                resp.response_text,
+                resp.case_turn_id,
+                ct.eval_case_id
+            FROM public.inspect_log_sample ils
+            LEFT JOIN public.response resp
+              ON resp.response_id = ils.response_id
+            LEFT JOIN public.case_turn ct
+              ON ct.case_turn_id = resp.case_turn_id
+            WHERE ils.experiment_pipeline_run_id = %s
+            ORDER BY ils.inspect_log_sample_id
+            """,
+            (run_id,),
+        )
+        rows = cur.fetchall()
+        for row in rows:
+            records = extract_model_call_diagnostics_from_raw_sample(row, diagnostics_config)
+            for record in records:
+                cur.execute(MODEL_CALL_DIAGNOSTIC_UPSERT_SQL, model_call_diagnostic_sql_params(record))
+                count += 1
+        db.commit()
+    return count
+
+
 def diagnostic_sql_params(record: dict[str, Any]) -> dict[str, Any]:
     result = dict(record)
     for key in ("raw_usage_json", "raw_reasoning_summary_json", "raw_provider_metadata_json"):
+        result[key] = json_text_or_none(result.get(key))
+    return result
+
+
+def model_call_diagnostic_sql_params(record: dict[str, Any]) -> dict[str, Any]:
+    result = dict(record)
+    for key in ("raw_usage_json", "raw_event_json", "raw_provider_metadata_json"):
         result[key] = json_text_or_none(result.get(key))
     return result
 
@@ -869,6 +996,7 @@ def main() -> int:
             summary["steps"].append(run_step(ingest_cmd, root, output_dir, "postgres_ingest_rebuild"))
             link_pipeline_operational_tables()
             summary["response_diagnostics_upserted"] = upsert_response_diagnostics(run_id, config["diagnostics"])
+            summary["model_call_diagnostics_upserted"] = upsert_model_call_diagnostics(run_id, config["diagnostics"])
 
         if export_case_trace_enabled(config):
             case_trace_csv = output_dir / "case_trace.csv"

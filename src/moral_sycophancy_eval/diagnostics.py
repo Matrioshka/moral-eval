@@ -185,6 +185,162 @@ def response_diagnostic_records_from_inspect_sample(
     return records
 
 
+def discover_usage_locations(raw_sample: Any) -> list[dict[str, Any]]:
+    """Find candidate usage locations without deciding all are call-level."""
+
+    sample = to_jsonable(raw_sample)
+    locations: list[dict[str, Any]] = []
+
+    for path in (
+        ("output", "usage"),
+        ("usage",),
+        ("model_usage",),
+        ("role_usage",),
+        ("raw_response", "usage"),
+        ("provider_metadata", "usage"),
+        ("output", "provider_metadata", "usage"),
+    ):
+        usage = _get_nested(sample, path)
+        if _looks_like_usage_payload(usage) or _looks_like_usage_collection(usage):
+            locations.append(_usage_location(path, usage, source_scope="sample", confirmed_call_level=False))
+
+    for container_path, scope in (
+        (("events",), "event"),
+        (("events_data",), "event"),
+        (("transcript", "events"), "transcript_event"),
+        (("timelines",), "timeline"),
+        (("spans",), "span"),
+    ):
+        container = _get_nested(sample, container_path)
+        locations.extend(_discover_sequence_usage(container, container_path, scope))
+
+    messages = _get_nested(sample, ("messages",))
+    if isinstance(messages, list):
+        for index, message in enumerate(messages):
+            if not isinstance(message, dict):
+                continue
+            usage = message.get("usage")
+            if _looks_like_usage_payload(usage):
+                locations.append(
+                    _usage_location(
+                        ("messages", str(index), "usage"),
+                        usage,
+                        source_scope="message",
+                        source_event_index=index,
+                        event_path=("messages", str(index)),
+                        confirmed_call_level=_is_confirmed_model_message(message),
+                    )
+                )
+
+    return locations
+
+
+def extract_model_call_diagnostics_from_raw_sample(
+    sample_row: dict[str, Any],
+    diagnostics_config: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Extract confirmed per-model-call usage diagnostics from a sample row.
+
+    Aggregate sample-level usage intentionally returns no rows.
+    """
+
+    config = normalise_diagnostics_config(diagnostics_config)
+    usage_config = config["usage_metadata"]
+    if not usage_config["enabled"]:
+        return []
+
+    raw_sample = to_jsonable(sample_row.get("raw_sample"))
+    locations = [
+        location
+        for location in discover_usage_locations(raw_sample)
+        if location.get("confirmed_call_level")
+    ]
+
+    exact_link = _exact_response_link(raw_sample, sample_row)
+    records: list[dict[str, Any]] = []
+    for model_call_index, location in enumerate(locations):
+        usage = location["usage"]
+        event = _get_nested(raw_sample, tuple(location["event_path"])) if location.get("event_path") else None
+        event_text = _assistant_output_text(event)
+        link = (
+            exact_link
+            if exact_link
+            and event_text
+            and _normalise_text(event_text) == _normalise_text(sample_row.get("response_text"))
+            and model_call_index == exact_link["model_call_index"]
+            else None
+        )
+        turn_index = model_call_index
+        records.append(
+            {
+                "experiment_pipeline_run_id": int(sample_row["experiment_pipeline_run_id"]),
+                "inspect_log_sample_id": int(sample_row["inspect_log_sample_id"]),
+                "response_id": link.get("response_id") if link else None,
+                "eval_case_id": link.get("eval_case_id") if link else None,
+                "case_turn_id": link.get("case_turn_id") if link else None,
+                "diagnostic_version": DIAGNOSTIC_VERSION,
+                "diagnostic_mode": USAGE_ONLY_MODE,
+                "source_scope": location["source_scope"],
+                "source_event_index": int(location.get("source_event_index", -1)),
+                "model_call_index": model_call_index,
+                "turn_index": turn_index,
+                "turn_label": _turn_label(turn_index),
+                "link_confidence": "exact" if link else "unverified",
+                "link_method": "assistant_text_and_turn_order" if link else "raw_event_only",
+                "input_tokens": _token_if_enabled(
+                    usage_config,
+                    "store_input_tokens",
+                    usage,
+                    (("input_tokens",), ("prompt_tokens",), ("input_token_count",)),
+                ),
+                "output_tokens": _token_if_enabled(
+                    usage_config,
+                    "store_output_tokens",
+                    usage,
+                    (("output_tokens",), ("completion_tokens",), ("output_token_count",)),
+                ),
+                "total_tokens": _token_if_enabled(
+                    usage_config,
+                    "store_total_tokens",
+                    usage,
+                    (("total_tokens",),),
+                ),
+                "reasoning_tokens": _token_if_enabled(
+                    usage_config,
+                    "store_reasoning_tokens_if_available",
+                    usage,
+                    (
+                        ("reasoning_tokens",),
+                        ("completion_tokens_details", "reasoning_tokens"),
+                        ("output_tokens_details", "reasoning_tokens"),
+                    ),
+                ),
+                "thinking_tokens": _token_if_enabled(
+                    usage_config,
+                    "store_thinking_tokens_if_available",
+                    usage,
+                    (("thinking_tokens",), ("output_tokens_details", "thinking_tokens")),
+                ),
+                "cached_input_tokens": _coerce_int(
+                    _get_nested_any(
+                        usage,
+                        (
+                            ("cached_input_tokens",),
+                            ("input_tokens_cache_read",),
+                            ("prompt_tokens_details", "cached_tokens"),
+                            ("input_tokens_details", "cached_tokens"),
+                        ),
+                    )
+                ),
+                "raw_usage_json": deepcopy(usage) if usage_config["store_raw_provider_usage"] else None,
+                "raw_event_json": event,
+                "raw_provider_metadata_json": _extract_provider_metadata(event),
+                "headline_eligible": False,
+            }
+        )
+    return records
+
+
 def to_jsonable(value: Any, depth: int = 0) -> Any:
     if depth > 8:
         return str(value)
@@ -341,6 +497,194 @@ def _extract_provider_metadata(raw_sample: Any) -> Any | None:
         ),
     )
     return metadata if metadata not in ({}, [], "") else None
+
+
+def _usage_location(
+    path: tuple[str, ...],
+    usage: Any,
+    *,
+    source_scope: str,
+    source_event_index: int | None = None,
+    event_path: tuple[str, ...] | None = None,
+    confirmed_call_level: bool,
+) -> dict[str, Any]:
+    return {
+        "path": ".".join(path),
+        "path_parts": list(path),
+        "source_scope": source_scope,
+        "source_event_index": source_event_index,
+        "event_path": list(event_path or ()),
+        "confirmed_call_level": confirmed_call_level,
+        "usage": to_jsonable(usage),
+        "usage_keys": sorted(to_jsonable(usage).keys()) if isinstance(to_jsonable(usage), dict) else [],
+    }
+
+
+def _discover_sequence_usage(container: Any, container_path: tuple[str, ...], scope: str) -> list[dict[str, Any]]:
+    if isinstance(container, dict):
+        items = []
+        for key, value in container.items():
+            if isinstance(value, list):
+                items.extend((str(key), index, item) for index, item in enumerate(value))
+        return [
+            location
+            for key, index, item in items
+            for location in _usage_locations_for_event(item, container_path + (key, str(index)), scope, index)
+        ]
+    if not isinstance(container, list):
+        return []
+    return [
+        location
+        for index, item in enumerate(container)
+        for location in _usage_locations_for_event(item, container_path + (str(index),), scope, index)
+    ]
+
+
+def _usage_locations_for_event(
+    event: Any,
+    event_path: tuple[str, ...],
+    scope: str,
+    index: int,
+) -> list[dict[str, Any]]:
+    if not isinstance(event, dict):
+        return []
+    locations: list[dict[str, Any]] = []
+    for relative_path in (
+        ("output", "usage"),
+        ("usage",),
+        ("call", "usage"),
+        ("metadata", "usage"),
+        ("provider_metadata", "usage"),
+        ("output", "provider_metadata", "usage"),
+        ("output", "metadata", "usage"),
+    ):
+        usage = _get_nested(event, relative_path)
+        if _looks_like_usage_payload(usage):
+            confirmed = _is_confirmed_model_event(event) or relative_path in {
+                ("call", "usage"),
+                ("output", "usage"),
+            }
+            locations.append(
+                _usage_location(
+                    event_path + relative_path,
+                    usage,
+                    source_scope=scope,
+                    source_event_index=index,
+                    event_path=event_path,
+                    confirmed_call_level=confirmed,
+                )
+            )
+    return locations
+
+
+def _looks_like_usage_payload(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    token_keys = {
+        "input_tokens",
+        "prompt_tokens",
+        "input_token_count",
+        "output_tokens",
+        "completion_tokens",
+        "output_token_count",
+        "total_tokens",
+        "reasoning_tokens",
+        "thinking_tokens",
+        "cached_input_tokens",
+        "input_tokens_cache_read",
+        "completion_tokens_details",
+        "output_tokens_details",
+        "prompt_tokens_details",
+        "input_tokens_details",
+    }
+    return bool(token_keys.intersection(value.keys()))
+
+
+def _looks_like_usage_collection(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return any(_looks_like_usage_payload(item) for item in value.values())
+
+
+def _is_confirmed_model_event(event: dict[str, Any]) -> bool:
+    event_name = str(event.get("event") or event.get("type") or event.get("name") or "").lower()
+    if "model" in event_name or "call" in event_name:
+        return True
+    return "model" in event and "output" in event
+
+
+def _is_confirmed_model_message(message: dict[str, Any]) -> bool:
+    role = str(message.get("role") or "").lower()
+    marker = str(message.get("event") or message.get("type") or message.get("source") or "").lower()
+    return role == "assistant" and ("model" in marker or "call" in marker or bool(message.get("model_call_id")))
+
+
+def _assistant_output_text(event: Any) -> str | None:
+    if not isinstance(event, dict):
+        return None
+    output = event.get("output")
+    if isinstance(output, dict):
+        for path in (("completion",), ("message", "content"), ("choices", "0", "message", "content")):
+            value = _get_nested(output, path)
+            if isinstance(value, str) and value:
+                return value
+    for key in ("content", "text", "completion"):
+        value = event.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _exact_response_link(raw_sample: Any, sample_row: dict[str, Any]) -> dict[str, Any] | None:
+    response_text = sample_row.get("response_text")
+    response_id = sample_row.get("response_id")
+    if response_id is None or not response_text:
+        return None
+    events = [
+        location
+        for location in discover_usage_locations(raw_sample)
+        if location.get("confirmed_call_level")
+    ]
+    matching_indexes = []
+    for index, location in enumerate(events):
+        event = _get_nested(raw_sample, tuple(location["event_path"])) if location.get("event_path") else None
+        if _normalise_text(_assistant_output_text(event)) == _normalise_text(response_text):
+            matching_indexes.append(index)
+    if len(matching_indexes) != 1:
+        return None
+    return {
+        "model_call_index": matching_indexes[0],
+        "response_id": int(response_id),
+        "eval_case_id": _coerce_int(sample_row.get("eval_case_id")),
+        "case_turn_id": _coerce_int(sample_row.get("case_turn_id")),
+    }
+
+
+def _turn_label(turn_index: int) -> str:
+    if turn_index <= 0:
+        return "baseline"
+    return f"pressure_{turn_index}"
+
+
+def _normalise_text(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _get_nested(value: Any, path: tuple[str, ...]) -> Any:
+    current = value
+    for key in path:
+        if isinstance(current, dict):
+            current = current.get(key)
+        elif isinstance(current, list):
+            try:
+                current = current[int(key)]
+            except (ValueError, IndexError):
+                return None
+        else:
+            return None
+        if current is None:
+            return None
+    return current
 
 
 def _bool_config(config: dict[str, Any], key: str, default: bool) -> bool:

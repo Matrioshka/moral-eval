@@ -13,11 +13,14 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from moral_sycophancy_eval.diagnostics import (  # noqa: E402
     PROVIDER_SUMMARY_MODE,
     USAGE_ONLY_MODE,
+    discover_usage_locations,
+    extract_model_call_diagnostics_from_raw_sample,
     extract_response_diagnostics,
     normalise_diagnostics_config,
     response_diagnostic_records_from_inspect_sample,
 )
 from run_experiment_pipeline import (  # noqa: E402
+    MODEL_CALL_DIAGNOSTIC_UPSERT_SQL,
     RESPONSE_DIAGNOSTIC_UPSERT_SQL,
     build_inspect_command,
 )
@@ -166,3 +169,185 @@ def test_diagnostics_do_not_change_inspect_command() -> None:
     with_diagnostics["diagnostics"] = normalise_diagnostics_config(None)
 
     assert build_inspect_command(with_diagnostics) == build_inspect_command(base)
+
+
+def test_discovery_detects_aggregate_sample_level_usage_only() -> None:
+    locations = discover_usage_locations(
+        {
+            "output": {"usage": {"input_tokens": 10, "output_tokens": 3, "total_tokens": 13}},
+            "model_usage": {"openai/test": {"input_tokens": 10, "output_tokens": 3}},
+        }
+    )
+
+    assert {location["path"] for location in locations} >= {"output.usage", "model_usage"}
+    assert all(not location["confirmed_call_level"] for location in locations)
+
+
+def test_discovery_detects_per_event_model_call_usage() -> None:
+    locations = discover_usage_locations(
+        {
+            "events": [
+                {"event": "sample_init"},
+                {
+                    "event": "model",
+                    "output": {
+                        "completion": "Release should remain paused.",
+                        "usage": {"input_tokens": 20, "output_tokens": 7},
+                    },
+                },
+            ]
+        }
+    )
+
+    event_locations = [location for location in locations if location["source_scope"] == "event"]
+    assert len(event_locations) == 1
+    assert event_locations[0]["path"] == "events.1.output.usage"
+    assert event_locations[0]["confirmed_call_level"] is True
+
+
+def test_model_call_extractor_returns_no_rows_for_aggregate_only_usage() -> None:
+    records = extract_model_call_diagnostics_from_raw_sample(
+        {
+            "experiment_pipeline_run_id": 1,
+            "inspect_log_sample_id": 2,
+            "raw_sample": {"output": {"usage": {"input_tokens": 5, "output_tokens": 2}}},
+        }
+    )
+
+    assert records == []
+
+
+def test_model_call_extractor_returns_rows_for_confirmed_event_usage() -> None:
+    records = extract_model_call_diagnostics_from_raw_sample(
+        {
+            "experiment_pipeline_run_id": 1,
+            "inspect_log_sample_id": 2,
+            "raw_sample": {
+                "events": [
+                    {
+                        "event": "model",
+                        "output": {
+                            "completion": "Keep the concern calibrated.",
+                            "usage": {
+                                "input_tokens": 30,
+                                "output_tokens": 8,
+                                "completion_tokens_details": {"reasoning_tokens": 1},
+                            },
+                        },
+                    }
+                ]
+            },
+        }
+    )
+
+    assert len(records) == 1
+    record = records[0]
+    assert record["experiment_pipeline_run_id"] == 1
+    assert record["inspect_log_sample_id"] == 2
+    assert record["source_scope"] == "event"
+    assert record["source_event_index"] == 0
+    assert record["model_call_index"] == 0
+    assert record["input_tokens"] == 30
+    assert record["output_tokens"] == 8
+    assert record["reasoning_tokens"] == 1
+    assert record["thinking_tokens"] is None
+    assert record["headline_eligible"] is False
+    assert record["link_confidence"] == "unverified"
+    assert record["link_method"] == "raw_event_only"
+
+
+def test_ambiguous_message_usage_is_discovered_but_not_inserted() -> None:
+    raw_sample = {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "A response",
+                "usage": {"input_tokens": 10, "output_tokens": 2},
+            }
+        ]
+    }
+
+    locations = discover_usage_locations(raw_sample)
+    records = extract_model_call_diagnostics_from_raw_sample(
+        {"experiment_pipeline_run_id": 1, "inspect_log_sample_id": 2, "raw_sample": raw_sample}
+    )
+
+    assert len(locations) == 1
+    assert locations[0]["path"] == "messages.0.usage"
+    assert locations[0]["confirmed_call_level"] is False
+    assert records == []
+
+
+def test_confirmed_model_call_message_usage_can_be_inserted() -> None:
+    raw_sample = {
+        "messages": [
+            {
+                "role": "assistant",
+                "source": "model_call",
+                "content": "A response",
+                "usage": {"input_tokens": 10, "output_tokens": 2},
+            }
+        ]
+    }
+
+    records = extract_model_call_diagnostics_from_raw_sample(
+        {"experiment_pipeline_run_id": 1, "inspect_log_sample_id": 2, "raw_sample": raw_sample}
+    )
+
+    assert len(records) == 1
+    assert records[0]["source_scope"] == "message"
+    assert records[0]["input_tokens"] == 10
+    assert records[0]["headline_eligible"] is False
+
+
+def test_exact_assistant_text_linkage_when_unambiguous() -> None:
+    records = extract_model_call_diagnostics_from_raw_sample(
+        {
+            "experiment_pipeline_run_id": 1,
+            "inspect_log_sample_id": 2,
+            "response_id": 99,
+            "eval_case_id": 88,
+            "case_turn_id": 77,
+            "response_text": "Release should remain paused.",
+            "raw_sample": {
+                "events": [
+                    {
+                        "event": "model",
+                        "output": {
+                            "completion": "Release should remain paused.",
+                            "usage": {"input_tokens": 20, "output_tokens": 5},
+                        },
+                    }
+                ]
+            },
+        }
+    )
+
+    assert len(records) == 1
+    assert records[0]["response_id"] == 99
+    assert records[0]["eval_case_id"] == 88
+    assert records[0]["case_turn_id"] == 77
+    assert records[0]["link_confidence"] == "exact"
+    assert records[0]["link_method"] == "assistant_text_and_turn_order"
+
+
+def test_model_call_upsert_uses_non_nullable_source_key() -> None:
+    expected = """ON CONFLICT (
+    experiment_pipeline_run_id,
+    inspect_log_sample_id,
+    diagnostic_version,
+    diagnostic_mode,
+    source_scope,
+    source_event_index,
+    model_call_index
+)"""
+    assert expected in MODEL_CALL_DIAGNOSTIC_UPSERT_SQL
+
+
+def test_model_call_diagnostic_migration_uses_sentinel_defaults() -> None:
+    migration = (ROOT / "sql" / "022_create_model_call_diagnostics.sql").read_text(encoding="utf-8")
+
+    assert "source_event_index integer NOT NULL DEFAULT -1" in migration
+    assert "model_call_index integer NOT NULL DEFAULT -1" in migration
+    assert "experiment_pipeline_run_id bigint NOT NULL" in migration
+    assert "inspect_log_sample_id bigint NOT NULL" in migration
