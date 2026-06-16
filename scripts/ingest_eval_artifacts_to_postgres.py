@@ -73,13 +73,23 @@ RAW_IMPORT_TABLES = (
     "structured_decision_tuple",
     "response_failure_class",
 )
-DERIVED_OPERATIONAL_TABLES = ("dataset", "run", "scenario", "eval_case", "case_turn", "response", "score_event")
+DERIVED_OPERATIONAL_TABLES = (
+    "dataset",
+    "run",
+    "scenario",
+    "eval_case",
+    "case_turn",
+    "response_diagnostic",
+    "response",
+    "score_event",
+)
 INGEST_OWNED_LOOKUP_TABLES = ("rubric", "failure_class")
 SPLIT_LAYOUT_DERIVED_REBUILD_SQL_FILES = (
     "promote_public_dimensions_from_raw.sql", # "019_promote_dataset_and_run.sql",
     "backfill_public_operational_from_raw.sql", # "016_backfill_public_operational_from_raw.sql",
     "promote_public_expectations_and_decisions_from_raw.sql",
     "create_reporting_views.sql", # "018_create_rpt_reporting_views_from_raw.sql",
+    "021_create_response_diagnostics.sql",
     "create_data_dictionary.sql",
 )
 

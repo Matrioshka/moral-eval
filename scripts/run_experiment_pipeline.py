@@ -26,9 +26,77 @@ except ImportError as exc:  # pragma: no cover - local environment guard
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from moral_sycophancy_eval.diagnostics import (  # noqa: E402
+    normalise_diagnostics_config,
+    response_diagnostic_records_from_inspect_sample,
+)
+
 DEFAULT_LOG_DIR = Path("logs")
 MANIFEST_SQL = ROOT / "sql" / "019_create_experiment_manifest_tables.sql"
 PIPELINE_LINK_SQL = ROOT / "sql" / "020_link_pipeline_runs_to_operational_tables.sql"
+DIAGNOSTICS_SQL = ROOT / "sql" / "021_create_response_diagnostics.sql"
+
+RESPONSE_DIAGNOSTIC_UPSERT_SQL = """
+INSERT INTO public.response_diagnostic AS rd (
+    response_id,
+    diagnostic_version,
+    diagnostic_mode,
+    headline_eligible,
+    visible_to_model_next_turn,
+    reasoning_requested,
+    reasoning_summary_requested,
+    reasoning_effort,
+    input_tokens,
+    output_tokens,
+    total_tokens,
+    reasoning_tokens,
+    thinking_tokens,
+    cached_input_tokens,
+    reasoning_summary_text,
+    raw_usage_json,
+    raw_reasoning_summary_json,
+    raw_provider_metadata_json
+) VALUES (
+    %(response_id)s,
+    %(diagnostic_version)s,
+    %(diagnostic_mode)s,
+    %(headline_eligible)s,
+    %(visible_to_model_next_turn)s,
+    %(reasoning_requested)s,
+    %(reasoning_summary_requested)s,
+    %(reasoning_effort)s,
+    %(input_tokens)s,
+    %(output_tokens)s,
+    %(total_tokens)s,
+    %(reasoning_tokens)s,
+    %(thinking_tokens)s,
+    %(cached_input_tokens)s,
+    %(reasoning_summary_text)s,
+    %(raw_usage_json)s::jsonb,
+    %(raw_reasoning_summary_json)s::jsonb,
+    %(raw_provider_metadata_json)s::jsonb
+)
+ON CONFLICT (response_id, diagnostic_mode, diagnostic_version) DO UPDATE SET
+    headline_eligible = excluded.headline_eligible,
+    visible_to_model_next_turn = excluded.visible_to_model_next_turn,
+    reasoning_requested = excluded.reasoning_requested,
+    reasoning_summary_requested = excluded.reasoning_summary_requested,
+    reasoning_effort = excluded.reasoning_effort,
+    input_tokens = excluded.input_tokens,
+    output_tokens = excluded.output_tokens,
+    total_tokens = excluded.total_tokens,
+    reasoning_tokens = excluded.reasoning_tokens,
+    thinking_tokens = excluded.thinking_tokens,
+    cached_input_tokens = excluded.cached_input_tokens,
+    reasoning_summary_text = excluded.reasoning_summary_text,
+    raw_usage_json = excluded.raw_usage_json,
+    raw_reasoning_summary_json = excluded.raw_reasoning_summary_json,
+    raw_provider_metadata_json = excluded.raw_provider_metadata_json
+"""
 
 
 def utc_now() -> str:
@@ -262,6 +330,12 @@ def json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
+def json_text_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    return json_text(value)
+
+
 def connect_db():
     try:
         import psycopg
@@ -298,6 +372,7 @@ def connect_db():
 def ensure_manifest_tables() -> None:
     with connect_db() as db, db.cursor() as cur:
         cur.execute(MANIFEST_SQL.read_text(encoding="utf-8"))
+        cur.execute(DIAGNOSTICS_SQL.read_text(encoding="utf-8"))
         db.commit()
 
 
@@ -305,6 +380,40 @@ def link_pipeline_operational_tables() -> None:
     with connect_db() as db, db.cursor() as cur:
         cur.execute(PIPELINE_LINK_SQL.read_text(encoding="utf-8"))
         db.commit()
+
+
+def upsert_response_diagnostics(run_id: int, diagnostics_config: dict[str, Any]) -> int:
+    count = 0
+    with connect_db() as db, db.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                inspect_log_sample_id,
+                response_id,
+                usage,
+                raw_sample
+            FROM public.inspect_log_sample
+            WHERE experiment_pipeline_run_id = %s
+              AND response_id IS NOT NULL
+            ORDER BY inspect_log_sample_id
+            """,
+            (run_id,),
+        )
+        rows = cur.fetchall()
+        for row in rows:
+            records = response_diagnostic_records_from_inspect_sample(row, diagnostics_config)
+            for record in records:
+                cur.execute(RESPONSE_DIAGNOSTIC_UPSERT_SQL, diagnostic_sql_params(record))
+                count += 1
+        db.commit()
+    return count
+
+
+def diagnostic_sql_params(record: dict[str, Any]) -> dict[str, Any]:
+    result = dict(record)
+    for key in ("raw_usage_json", "raw_reasoning_summary_json", "raw_provider_metadata_json"):
+        result[key] = json_text_or_none(result.get(key))
+    return result
 
 
 def upsert_manifest(config: dict[str, Any], manifest_path: Path, manifest_sha: str | None, dataset_sha: str | None) -> int:
@@ -408,7 +517,7 @@ def create_pipeline_run(config: dict[str, Any], manifest_id: int, pipeline_run_k
                 config.get("limit"),
                 config.get("output_dir"),
                 shlex.join(inspect_cmd),
-                json_text({"started_at": utc_now()}),
+                json_text({"started_at": utc_now(), "diagnostics": config.get("diagnostics")}),
             ),
         )
         run_id = int(cur.fetchone()["experiment_pipeline_run_id"])
@@ -679,6 +788,8 @@ def main() -> int:
     root = ROOT
     load_env_file(root / ".env")
     config = load_experiment(args.experiment)
+    config = dict(config)
+    config["diagnostics"] = normalise_diagnostics_config(config.get("diagnostics"))
     slug = experiment_slug(config)
     if not slug:
         raise SystemExit("Experiment config must define experiment_slug or name.")
@@ -713,6 +824,7 @@ def main() -> int:
         "scoring": scoring_config(config),
         "exports": exports_config(config),
         "provenance": provenance_config(config),
+        "diagnostics": config["diagnostics"],
         "limit": config.get("limit"),
         "output_dir": str(output_dir),
         "steps": [],
@@ -756,6 +868,7 @@ def main() -> int:
         if ingest_cmd:
             summary["steps"].append(run_step(ingest_cmd, root, output_dir, "postgres_ingest_rebuild"))
             link_pipeline_operational_tables()
+            summary["response_diagnostics_upserted"] = upsert_response_diagnostics(run_id, config["diagnostics"])
 
         if export_case_trace_enabled(config):
             case_trace_csv = output_dir / "case_trace.csv"
@@ -785,7 +898,7 @@ def main() -> int:
             case_trace_csv_row_count=(summary.get("case_trace_csv") or {}).get("row_count"),
             run_summary_path=str(summary_path),
             run_summary=summary,
-            raw_run_metadata={"completed_at": utc_now()},
+            raw_run_metadata={"completed_at": utc_now(), "diagnostics": config["diagnostics"]},
             completed_at=utc_now(),
         )
         print(summary_path)
@@ -800,7 +913,10 @@ def main() -> int:
             error=str(exc),
             run_summary_path=str(summary_path),
             run_summary=summary,
-            raw_run_metadata={"failed_at": utc_now()},
+            raw_run_metadata={
+                "failed_at": utc_now(),
+                "diagnostics": config.get("diagnostics"),
+            },
             completed_at=utc_now(),
         )
         print(summary_path, file=sys.stderr)
