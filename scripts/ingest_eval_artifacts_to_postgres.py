@@ -576,15 +576,32 @@ def seed_rubric(cur) -> None:
 
 
 def truncate_relations(cur, relations: list[sql.Composed]) -> None:
+    existing_relations = [relation for relation in relations if relation_exists(cur, relation)]
+    if not existing_relations:
+        LOG.info("no existing relations to truncate")
+        return
+
     cur.execute(
         sql.SQL('''
         truncate table
             {}
         restart identity cascade
         ''').format(
-            sql.SQL(",\n            ").join(relations)
+            sql.SQL(",\n            ").join(existing_relations)
         )
     )
+
+
+def relation_exists(cur, relation: sql.Composed) -> bool:
+    cur.execute("select to_regclass(%s)", (relation.as_string(cur),))
+    row = cur.fetchone()
+    if row is None:
+        return False
+    if isinstance(row, dict):
+        return next(iter(row.values())) is not None
+    if isinstance(row, (tuple, list)):
+        return bool(row) and row[0] is not None
+    return row is not None
 
 
 def reset_raw(cur) -> None:
