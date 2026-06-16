@@ -11,6 +11,9 @@ CREATE SCHEMA IF NOT EXISTS rpt;
 
 DROP VIEW IF EXISTS rpt.data_dictionary_governance_gap;
 DROP VIEW IF EXISTS rpt.data_dictionary_missing_comment;
+DROP VIEW IF EXISTS rpt.business_glossary_unmapped_terms;
+DROP VIEW IF EXISTS rpt.data_dictionary_with_glossary;
+DROP VIEW IF EXISTS rpt.business_glossary_object_map;
 DROP VIEW IF EXISTS rpt.data_dictionary;
 DROP VIEW IF EXISTS rpt.technical_data_dictionary;
 DROP VIEW IF EXISTS rpt.postgres_object_comments;

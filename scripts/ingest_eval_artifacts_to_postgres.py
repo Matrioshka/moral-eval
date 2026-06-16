@@ -91,6 +91,7 @@ SPLIT_LAYOUT_DERIVED_REBUILD_SQL_FILES = (
     "create_reporting_views.sql", # "018_create_rpt_reporting_views_from_raw.sql",
     "021_create_response_diagnostics.sql",
     "create_data_dictionary.sql",
+    "create_business_glossary.sql",
 )
 
 
