@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -10,18 +11,28 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+for path in (REPO_ROOT, REPO_ROOT / "src"):
+    path_str = str(path)
+    if path_str not in sys.path:
+        sys.path.insert(0, path_str)
+
 from scripts.app_queries import (
     get_experiment_manifest,
     get_pipeline_run,
     get_run_detail,
     get_run_sample,
     get_run_summary,
+    list_model_call_diagnostics_for_sample,
+    list_model_call_diagnostics_summary_for_pipeline_run,
     list_experiment_manifests,
     list_pipeline_runs,
     list_reference_rows,
     list_reference_tables,
     list_reporting_view_rows,
     list_reporting_views,
+    list_response_diagnostics_for_pipeline_run,
+    list_response_diagnostics_for_sample,
     list_runs as list_model_runs,
     list_runs_for_experiment,
     list_run_samples,
@@ -128,6 +139,21 @@ def task_label(value: Any, limit: int = 52) -> str:
 
 def human_label(value: Any) -> str:
     return str(value or "").replace("_", " ").strip().capitalize()
+
+
+def bool_label(value: Any) -> str:
+    if value is None:
+        return ""
+    return "true" if bool(value) else "false"
+
+
+def link_confidence_label(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text == "exact":
+        return "exact"
+    if text == "unverified":
+        return "unverified/raw event only"
+    return text or "unknown"
 
 
 def is_scalar(value: Any) -> bool:
@@ -330,6 +356,8 @@ templates.env.filters["status_label"] = status_label
 templates.env.filters["task_label"] = task_label
 templates.env.filters["human_label"] = human_label
 templates.env.filters["kv_rows"] = kv_rows
+templates.env.filters["bool_label"] = bool_label
+templates.env.filters["link_confidence_label"] = link_confidence_label
 
 
 @app.get("/")
@@ -501,6 +529,25 @@ def pipeline_run_detail(request: Request, pipeline_run_id: int):
     )
 
 
+@app.get("/pipeline-runs/{pipeline_run_id}/diagnostics")
+def pipeline_run_diagnostics(request: Request, pipeline_run_id: int):
+    run = get_pipeline_run(pipeline_run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Pipeline run not found.")
+    model_call_summary = list_model_call_diagnostics_summary_for_pipeline_run(pipeline_run_id)
+    response_diagnostics = list_response_diagnostics_for_pipeline_run(pipeline_run_id)
+    return templates.TemplateResponse(
+        request=request,
+        name="pipeline_run_diagnostics.html",
+        context=with_active_nav(
+            "pipeline_runs",
+            run=run,
+            model_call_summary=model_call_summary,
+            response_diagnostics=response_diagnostics,
+        ),
+    )
+
+
 @app.get("/pipeline-runs/{pipeline_run_id}/eval-log")
 def pipeline_run_eval_log(request: Request, pipeline_run_id: int):
     run = get_pipeline_run(pipeline_run_id)
@@ -553,6 +600,8 @@ def sample_detail(request: Request, pipeline_run_id: int, sample_id: str):
     sample = get_run_sample(pipeline_run_id, sample_id)
     if not sample:
         raise HTTPException(status_code=404, detail="Run sample not found.")
+    model_call_diagnostics = list_model_call_diagnostics_for_sample(sample["inspect_log_sample_id"])
+    response_diagnostics = list_response_diagnostics_for_sample(sample["inspect_log_sample_id"])
     return templates.TemplateResponse(
         request=request,
         name="sample_detail.html",
@@ -562,5 +611,18 @@ def sample_detail(request: Request, pipeline_run_id: int, sample_id: str):
             sample=sample,
             metadata_badges=sample_metadata_badges(sample),
             transcript=transcript_cards(sample),
+            model_call_diagnostics=model_call_diagnostics,
+            response_diagnostics=response_diagnostics,
         ),
     )
+
+
+def main() -> None:
+    import uvicorn
+
+    print("Starting browser at http://127.0.0.1:8000")
+    uvicorn.run("scripts.run_browser_fastapi:app", host="127.0.0.1", port=8000, reload=False)
+
+
+if __name__ == "__main__":
+    main()

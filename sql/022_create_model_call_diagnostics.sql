@@ -72,6 +72,7 @@ CREATE INDEX IF NOT EXISTS ix_model_call_diagnostic_link_confidence
 CREATE INDEX IF NOT EXISTS ix_model_call_diagnostic_headline_eligible
     ON public.model_call_diagnostic(headline_eligible);
 
+DROP VIEW IF EXISTS rpt.model_call_diagnostics_by_sample;
 DROP VIEW IF EXISTS rpt.model_call_diagnostics;
 
 CREATE VIEW rpt.model_call_diagnostics AS
@@ -101,8 +102,46 @@ SELECT
     created_at
 FROM public.model_call_diagnostic;
 
+CREATE VIEW rpt.model_call_diagnostics_by_sample AS
+SELECT
+    mcd.experiment_pipeline_run_id,
+    mcd.inspect_log_sample_id,
+    ils.sample_id,
+    COALESCE(ils.dataset_version, epr.dataset_version) AS dataset_version,
+    COALESCE(epr.answer_model->>'model', epr.answer_model->>'name', epr.answer_model->>'id') AS model_name,
+    epr.task,
+    count(*)::integer AS model_call_count,
+    count(*) FILTER (WHERE mcd.link_confidence = 'exact')::integer AS exact_linked_count,
+    count(*) FILTER (WHERE mcd.link_confidence = 'unverified')::integer AS unverified_count,
+    COALESCE(sum(mcd.input_tokens), 0)::integer AS total_input_tokens_provider_reported,
+    COALESCE(sum(mcd.output_tokens), 0)::integer AS total_output_tokens_provider_reported,
+    COALESCE(sum(mcd.reasoning_tokens), 0)::integer AS total_reasoning_tokens_provider_reported,
+    COALESCE(sum(mcd.thinking_tokens), 0)::integer AS total_thinking_tokens_provider_reported,
+    COALESCE(sum(mcd.total_tokens), 0)::integer AS total_provider_reported_total_tokens,
+    bool_and(mcd.headline_eligible) AS all_headline_eligible,
+    bool_or(mcd.link_confidence = 'unverified') AS has_unverified_linkage,
+    min(mcd.model_call_index) AS min_model_call_index,
+    max(mcd.model_call_index) AS max_model_call_index,
+    min(mcd.source_event_index) AS min_source_event_index,
+    max(mcd.source_event_index) AS max_source_event_index
+FROM public.model_call_diagnostic mcd
+JOIN public.inspect_log_sample ils
+  ON ils.inspect_log_sample_id = mcd.inspect_log_sample_id
+JOIN public.experiment_pipeline_run epr
+  ON epr.experiment_pipeline_run_id = mcd.experiment_pipeline_run_id
+GROUP BY
+    mcd.experiment_pipeline_run_id,
+    mcd.inspect_log_sample_id,
+    ils.sample_id,
+    COALESCE(ils.dataset_version, epr.dataset_version),
+    COALESCE(epr.answer_model->>'model', epr.answer_model->>'name', epr.answer_model->>'id'),
+    epr.task;
+
 COMMENT ON TABLE public.model_call_diagnostic IS
     'Passive per-model-call diagnostics extracted only from confirmed distinct raw Inspect/provider call usage payloads.';
 
 COMMENT ON VIEW rpt.model_call_diagnostics IS
     'Reporting view over passive per-model-call diagnostics. Raw payload JSON is intentionally omitted.';
+
+COMMENT ON VIEW rpt.model_call_diagnostics_by_sample IS
+    'One row per Inspect sample summarising passive per-model-call diagnostics with provider-reported token metadata and linkage status counts.';

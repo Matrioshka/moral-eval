@@ -47,6 +47,16 @@ REPORTING_VIEWS = (
         "description": "Bridge from pipeline/Inspect provenance rows to operational runs, cases, and responses.",
     },
     {
+        "view_name": "model_call_diagnostics",
+        "label": "Model-call diagnostics",
+        "description": "Passive per-model-call/provider usage diagnostics. Diagnostic-only and not headline behavioural results.",
+    },
+    {
+        "view_name": "model_call_diagnostics_by_sample",
+        "label": "Model-call diagnostics by sample",
+        "description": "One row per Inspect sample summarising passive model-call diagnostics and linkage status.",
+    },
+    {
         "view_name": "technical_data_dictionary",
         "label": "Technical data dictionary",
         "description": "Live PostgreSQL catalog metadata for schemas, tables, views, and columns.",
@@ -163,6 +173,21 @@ def _experiment_pipeline_run() -> Table:
 @lru_cache
 def _inspect_log_sample() -> Table:
     return Table("inspect_log_sample", MetaData(), schema="public", autoload_with=_engine())
+
+
+@lru_cache
+def _response_diagnostic() -> Table:
+    return Table("response_diagnostic", MetaData(), schema="public", autoload_with=_engine())
+
+
+@lru_cache
+def _model_call_diagnostic() -> Table:
+    return Table("model_call_diagnostic", MetaData(), schema="public", autoload_with=_engine())
+
+
+@lru_cache
+def _model_call_diagnostics_by_sample() -> Table:
+    return Table("model_call_diagnostics_by_sample", MetaData(), schema="rpt", autoload_with=_engine())
 
 
 @lru_cache
@@ -383,6 +408,78 @@ def get_run_sample(run_id: int, sample_id: str) -> dict[str, Any] | None:
     with _engine().connect() as conn:
         row = conn.execute(stmt).mappings().first()
     return dict(row) if row else None
+
+
+def list_model_call_diagnostics_for_pipeline_run(run_id: int) -> list[dict[str, Any]]:
+    model_call_diagnostic = _model_call_diagnostic()
+    stmt = (
+        select(model_call_diagnostic)
+        .where(model_call_diagnostic.c.experiment_pipeline_run_id == run_id)
+        .order_by(
+            model_call_diagnostic.c.inspect_log_sample_id.asc(),
+            model_call_diagnostic.c.model_call_index.asc(),
+            model_call_diagnostic.c.source_event_index.asc(),
+            model_call_diagnostic.c.model_call_diagnostic_id.asc(),
+        )
+    )
+    with _engine().connect() as conn:
+        return [dict(row) for row in conn.execute(stmt).mappings()]
+
+
+def list_model_call_diagnostics_for_sample(inspect_log_sample_id: int) -> list[dict[str, Any]]:
+    model_call_diagnostic = _model_call_diagnostic()
+    stmt = (
+        select(model_call_diagnostic)
+        .where(model_call_diagnostic.c.inspect_log_sample_id == inspect_log_sample_id)
+        .order_by(
+            model_call_diagnostic.c.model_call_index.asc(),
+            model_call_diagnostic.c.source_event_index.asc(),
+            model_call_diagnostic.c.model_call_diagnostic_id.asc(),
+        )
+    )
+    with _engine().connect() as conn:
+        return [dict(row) for row in conn.execute(stmt).mappings()]
+
+
+def list_model_call_diagnostics_summary_for_pipeline_run(run_id: int) -> list[dict[str, Any]]:
+    summary = _model_call_diagnostics_by_sample()
+    stmt = (
+        select(summary)
+        .where(summary.c.experiment_pipeline_run_id == run_id)
+        .order_by(summary.c.inspect_log_sample_id.asc())
+    )
+    with _engine().connect() as conn:
+        return [dict(row) for row in conn.execute(stmt).mappings()]
+
+
+def list_response_diagnostics_for_pipeline_run(run_id: int) -> list[dict[str, Any]]:
+    response_diagnostic = _response_diagnostic()
+    inspect_log_sample = _inspect_log_sample()
+    stmt = (
+        select(
+            response_diagnostic,
+            inspect_log_sample.c.inspect_log_sample_id,
+            inspect_log_sample.c.sample_id,
+        )
+        .join(inspect_log_sample, inspect_log_sample.c.response_id == response_diagnostic.c.response_id)
+        .where(inspect_log_sample.c.experiment_pipeline_run_id == run_id)
+        .order_by(inspect_log_sample.c.inspect_log_sample_id.asc(), response_diagnostic.c.response_diagnostic_id.asc())
+    )
+    with _engine().connect() as conn:
+        return [dict(row) for row in conn.execute(stmt).mappings()]
+
+
+def list_response_diagnostics_for_sample(inspect_log_sample_id: int) -> list[dict[str, Any]]:
+    response_diagnostic = _response_diagnostic()
+    inspect_log_sample = _inspect_log_sample()
+    stmt = (
+        select(response_diagnostic)
+        .join(inspect_log_sample, inspect_log_sample.c.response_id == response_diagnostic.c.response_id)
+        .where(inspect_log_sample.c.inspect_log_sample_id == inspect_log_sample_id)
+        .order_by(response_diagnostic.c.response_diagnostic_id.asc())
+    )
+    with _engine().connect() as conn:
+        return [dict(row) for row in conn.execute(stmt).mappings()]
 
 
 def search_browser(query: str, limit: int = 50) -> dict[str, list[dict[str, Any]]]:

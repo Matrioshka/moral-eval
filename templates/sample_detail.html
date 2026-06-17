@@ -88,6 +88,89 @@
   </article>
 </section>
 
+{% if model_call_diagnostics or response_diagnostics %}
+<section class="panel">
+  <h2>Diagnostics</h2>
+  <p><strong>response_diagnostic</strong> rows are aggregate diagnostic metadata linked to promoted operational responses. Treat provider token fields as provider-reported metadata, not full-dialogue cost.</p>
+  <p><strong>model_call_diagnostic</strong> rows are diagnostic-only per-model-call/event usage from Inspect log events. Unverified rows are not guaranteed to be operationally linked to case turns. These diagnostics are not used as headline behavioural results.</p>
+</section>
+{% endif %}
+
+{% if model_call_diagnostics %}
+<section class="panel">
+  <h2>Model-Call Diagnostics</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Call index</th>
+        <th>Turn label</th>
+        <th>Source event index</th>
+        <th>Link confidence</th>
+        <th>Link method</th>
+        <th>Provider-reported input tokens</th>
+        <th>Provider-reported output tokens</th>
+        <th>Provider-reported total tokens</th>
+        <th>Provider-reported reasoning tokens</th>
+        <th>Provider-reported thinking tokens</th>
+        <th>Headline eligible</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in model_call_diagnostics %}
+      <tr>
+        <td>{{ row.model_call_index }}</td>
+        <td>{{ row.turn_label or "" }}</td>
+        <td>{{ row.source_event_index }}</td>
+        <td><span class="status-badge {% if row.link_confidence == 'exact' %}status-ok{% else %}status-warning{% endif %}">{{ row.link_confidence | link_confidence_label }}</span></td>
+        <td>{{ row.link_method or "" }}</td>
+        <td>{{ "" if row.input_tokens is none else row.input_tokens }}</td>
+        <td>{{ "" if row.output_tokens is none else row.output_tokens }}</td>
+        <td>{{ "" if row.total_tokens is none else row.total_tokens }}</td>
+        <td>{{ "" if row.reasoning_tokens is none else row.reasoning_tokens }}</td>
+        <td>{{ "" if row.thinking_tokens is none else row.thinking_tokens }}</td>
+        <td><span class="badge">headline_eligible={{ row.headline_eligible | bool_label }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if response_diagnostics %}
+<section class="panel">
+  <h2>Response Diagnostics</h2>
+  <p class="eyebrow">Aggregate/linked-response diagnostic metadata. Provider token fields are shown as reported by the provider.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Response</th>
+        <th>Mode</th>
+        <th>Provider-reported input tokens</th>
+        <th>Provider-reported output tokens</th>
+        <th>Provider-reported total tokens</th>
+        <th>Provider-reported reasoning tokens</th>
+        <th>Provider-reported thinking tokens</th>
+        <th>Headline eligible</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in response_diagnostics %}
+      <tr>
+        <td>{{ row.response_id }}</td>
+        <td>{{ row.diagnostic_mode }}</td>
+        <td>{{ "" if row.input_tokens is none else row.input_tokens }}</td>
+        <td>{{ "" if row.output_tokens is none else row.output_tokens }}</td>
+        <td>{{ "" if row.total_tokens is none else row.total_tokens }}</td>
+        <td>{{ "" if row.reasoning_tokens is none else row.reasoning_tokens }}</td>
+        <td>{{ "" if row.thinking_tokens is none else row.thinking_tokens }}</td>
+        <td><span class="badge">headline_eligible={{ row.headline_eligible | bool_label }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
 <section class="details-stack">
   {% for key in ["metadata", "usage", "scores", "messages", "raw_sample"] %}
     {% if sample.get(key) %}

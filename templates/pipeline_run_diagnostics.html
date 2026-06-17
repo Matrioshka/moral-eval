@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Diagnostics for Pipeline Run {{ run.experiment_pipeline_run_id }}{% endblock %}
+
+{% block content %}
+<nav class="crumb"><a href="{{ url_for('pipeline_run_detail', pipeline_run_id=run.experiment_pipeline_run_id) }}">Pipeline Run {{ run.experiment_pipeline_run_id }}</a> / Diagnostics</nav>
+
+<header class="page-header">
+  <p class="eyebrow">{{ run.experiment_slug }}</p>
+  <h1>Diagnostics for Pipeline Run {{ run.experiment_pipeline_run_id }}</h1>
+</header>
+
+<section class="panel">
+  <h2>Interpretation</h2>
+  <p><strong>response_diagnostic</strong> rows are aggregate diagnostic metadata linked to promoted operational responses. Treat provider token fields as provider-reported metadata, not full-dialogue cost.</p>
+  <p><strong>model_call_diagnostic</strong> rows are diagnostic-only per-model-call/event usage from Inspect log events. Unverified rows are not guaranteed to be operationally linked to case turns. These diagnostics are not used as headline behavioural results.</p>
+</section>
+
+<section class="panel">
+  <h2>Model-Call Diagnostics By Sample</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Sample</th>
+        <th>Calls</th>
+        <th>Exact linked</th>
+        <th>Unverified</th>
+        <th>Provider-reported input tokens</th>
+        <th>Provider-reported output tokens</th>
+        <th>Provider-reported total tokens</th>
+        <th>Provider-reported reasoning tokens</th>
+        <th>Provider-reported thinking tokens</th>
+        <th>All headline eligible</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in model_call_summary %}
+      <tr>
+        <td><a href="{{ url_for('sample_detail', pipeline_run_id=run.experiment_pipeline_run_id, sample_id=row.sample_id) }}">{{ row.sample_id }}</a></td>
+        <td>{{ row.model_call_count }}</td>
+        <td>{{ row.exact_linked_count }}</td>
+        <td>{% if row.has_unverified_linkage %}<span class="status-badge status-warning">unverified/raw event only</span>{% else %}{{ row.unverified_count }}{% endif %}</td>
+        <td>{{ row.total_input_tokens_provider_reported }}</td>
+        <td>{{ row.total_output_tokens_provider_reported }}</td>
+        <td>{{ row.total_provider_reported_total_tokens }}</td>
+        <td>{{ row.total_reasoning_tokens_provider_reported }}</td>
+        <td>{{ row.total_thinking_tokens_provider_reported }}</td>
+        <td><span class="badge">headline_eligible={{ row.all_headline_eligible | bool_label }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="10">No model-call diagnostics for this pipeline run.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Response Diagnostics</h2>
+  <p class="eyebrow">Aggregate/linked-response diagnostic metadata. Provider token fields are shown as reported by the provider.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Sample</th>
+        <th>Response</th>
+        <th>Mode</th>
+        <th>Provider-reported input tokens</th>
+        <th>Provider-reported output tokens</th>
+        <th>Provider-reported total tokens</th>
+        <th>Provider-reported reasoning tokens</th>
+        <th>Provider-reported thinking tokens</th>
+        <th>Headline eligible</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in response_diagnostics %}
+      <tr>
+        <td><a href="{{ url_for('sample_detail', pipeline_run_id=run.experiment_pipeline_run_id, sample_id=row.sample_id) }}">{{ row.sample_id }}</a></td>
+        <td>{{ row.response_id }}</td>
+        <td>{{ row.diagnostic_mode }}</td>
+        <td>{{ "" if row.input_tokens is none else row.input_tokens }}</td>
+        <td>{{ "" if row.output_tokens is none else row.output_tokens }}</td>
+        <td>{{ "" if row.total_tokens is none else row.total_tokens }}</td>
+        <td>{{ "" if row.reasoning_tokens is none else row.reasoning_tokens }}</td>
+        <td>{{ "" if row.thinking_tokens is none else row.thinking_tokens }}</td>
+        <td><span class="badge">headline_eligible={{ row.headline_eligible | bool_label }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9">No linked response diagnostics for this pipeline run.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
