@@ -560,10 +560,8 @@ def _usage_locations_for_event(
     ):
         usage = _get_nested(event, relative_path)
         if _looks_like_usage_payload(usage):
-            confirmed = _is_confirmed_model_event(event) or relative_path in {
-                ("call", "usage"),
-                ("output", "usage"),
-            }
+            is_model_event = _is_confirmed_model_event(event)
+            confirmed = is_model_event or relative_path == ("call", "usage")
             locations.append(
                 _usage_location(
                     event_path + relative_path,

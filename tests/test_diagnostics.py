@@ -256,6 +256,49 @@ def test_model_call_extractor_returns_rows_for_confirmed_event_usage() -> None:
     assert record["link_method"] == "raw_event_only"
 
 
+def test_unclassified_event_usage_is_discovered_but_not_inserted() -> None:
+    raw_sample = {
+        "events": [
+            {
+                "event": "sample_init",
+                "output": {"usage": {"input_tokens": 1}},
+            }
+        ]
+    }
+
+    locations = discover_usage_locations(raw_sample)
+    records = extract_model_call_diagnostics_from_raw_sample(
+        {"experiment_pipeline_run_id": 1, "inspect_log_sample_id": 2, "raw_sample": raw_sample}
+    )
+
+    assert len(locations) == 1
+    assert locations[0]["path"] == "events.0.output.usage"
+    assert locations[0]["confirmed_call_level"] is False
+    assert records == []
+
+
+def test_explicit_call_usage_is_confirmed_even_with_generic_event_name() -> None:
+    raw_sample = {
+        "events": [
+            {
+                "event": "whatever",
+                "call": {"usage": {"input_tokens": 1}},
+            }
+        ]
+    }
+
+    locations = discover_usage_locations(raw_sample)
+    records = extract_model_call_diagnostics_from_raw_sample(
+        {"experiment_pipeline_run_id": 1, "inspect_log_sample_id": 2, "raw_sample": raw_sample}
+    )
+
+    assert len(locations) == 1
+    assert locations[0]["path"] == "events.0.call.usage"
+    assert locations[0]["confirmed_call_level"] is True
+    assert len(records) == 1
+    assert records[0]["input_tokens"] == 1
+
+
 def test_ambiguous_message_usage_is_discovered_but_not_inserted() -> None:
     raw_sample = {
         "messages": [

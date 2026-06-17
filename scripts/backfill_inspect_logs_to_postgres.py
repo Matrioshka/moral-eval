@@ -22,9 +22,19 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
+from moral_sycophancy_eval.diagnostics import normalise_diagnostics_config  # noqa: E402
+from run_experiment_pipeline import (  # noqa: E402
+    upsert_model_call_diagnostics,
+    upsert_response_diagnostics,
+)
 
 MANIFEST_SQL = ROOT / "sql" / "019_create_experiment_manifest_tables.sql"
 PIPELINE_LINK_SQL = ROOT / "sql" / "020_link_pipeline_runs_to_operational_tables.sql"
+RESPONSE_DIAGNOSTICS_SQL = ROOT / "sql" / "021_create_response_diagnostics.sql"
+MODEL_CALL_DIAGNOSTICS_SQL = ROOT / "sql" / "022_create_model_call_diagnostics.sql"
 DERIVED_REBUILD_SQL = (
     ROOT / "sql" / "promote_public_dimensions_from_raw.sql",
     ROOT / "sql" / "backfill_public_operational_from_raw.sql",
@@ -385,6 +395,11 @@ def ensure_tables_and_linker(cur) -> None:
     cur.execute(PIPELINE_LINK_SQL.read_text(encoding="utf-8"))
 
 
+def ensure_diagnostics_tables(cur) -> None:
+    cur.execute(RESPONSE_DIAGNOSTICS_SQL.read_text(encoding="utf-8"))
+    cur.execute(MODEL_CALL_DIAGNOSTICS_SQL.read_text(encoding="utf-8"))
+
+
 def execute_derived_rebuild(cur) -> None:
     for path in DERIVED_REBUILD_SQL:
         cur.execute(path.read_text(encoding="utf-8"))
@@ -483,20 +498,17 @@ def upsert_backfill_manifest(cur, summary: dict[str, Any]) -> int:
     return int(cur.fetchone()["experiment_manifest_id"])
 
 
-def upsert_pipeline_run(cur, summary: dict[str, Any], manifest_id: int) -> int:
+def upsert_pipeline_run(
+    cur,
+    summary: dict[str, Any],
+    manifest_id: int,
+    diagnostics_config: dict[str, Any] | None = None,
+) -> int:
     path = summary["path"]
     sha = summary["sha256"]
     dataset_version = summary["dataset_version"]
     pipeline_run_key = f"inspect-log-backfill-{sha[:20]}"
-    raw_run_metadata = {
-        "backfill_source": "inspect_eval_log",
-        "source_log_path": repo_display_path(path),
-        "source_log_sha256": sha,
-        "model_name": summary["model_name"],
-        "task": summary["task"],
-        "sample_count": summary["sample_count"],
-        "backfilled_at": datetime.now(timezone.utc).isoformat(),
-    }
+    raw_run_metadata = backfill_run_metadata(summary, diagnostics_config)
     answer_model = {"model": summary["model_name"]} if summary["model_name"] else {}
 
     cur.execute(
@@ -601,6 +613,28 @@ def upsert_pipeline_run(cur, summary: dict[str, Any], manifest_id: int) -> int:
     return int(cur.fetchone()["experiment_pipeline_run_id"])
 
 
+def backfill_run_metadata(
+    summary: dict[str, Any],
+    diagnostics_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    path = summary["path"]
+    sha = summary["sha256"]
+    raw_run_metadata = {
+        "backfill_source": "inspect_eval_log",
+        "source_log_path": repo_display_path(path),
+        "source_log_sha256": sha,
+        "eval_log_path": repo_display_path(path),
+        "model_name": summary["model_name"],
+        "task": summary["task"],
+        "sample_count": summary["sample_count"],
+        "backfilled_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if diagnostics_config is not None:
+        raw_run_metadata["diagnostics"] = diagnostics_config
+        raw_run_metadata["diagnostics_backfill_source"] = "existing_eval_log"
+    return raw_run_metadata
+
+
 def insert_samples(cur, pipeline_run_id: int, summary: dict[str, Any]) -> int:
     count = 0
     path = summary["path"]
@@ -666,6 +700,65 @@ def insert_samples(cur, pipeline_run_id: int, summary: dict[str, Any]) -> int:
         )
         count += 1
     return count
+
+
+def diagnostics_write_enabled(args: argparse.Namespace) -> bool:
+    return bool(args.diagnostics and (args.write or args.promote_operational))
+
+
+def diagnostics_dry_run(args: argparse.Namespace) -> bool:
+    return bool(args.diagnostics and not (args.write or args.promote_operational))
+
+
+def empty_diagnostics_summary(requested: bool, dry_run: bool) -> dict[str, Any]:
+    return {
+        "diagnostics_requested": requested,
+        "diagnostics_dry_run": dry_run,
+        "inspect_samples_inserted_or_updated": 0,
+        "response_diagnostics_upserted": 0,
+        "model_call_diagnostics_upserted": 0,
+        "model_call_diagnostics_exact_linked": 0,
+        "model_call_diagnostics_unverified": 0,
+    }
+
+
+def diagnostics_linkage_counts(run_ids: list[int]) -> dict[str, int]:
+    if not run_ids:
+        return {
+            "model_call_diagnostics_exact_linked": 0,
+            "model_call_diagnostics_unverified": 0,
+        }
+
+    with connect_db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                count(*) FILTER (WHERE link_confidence = 'exact') AS exact_linked,
+                count(*) FILTER (WHERE link_confidence = 'unverified') AS unverified
+            FROM public.model_call_diagnostic
+            WHERE experiment_pipeline_run_id = ANY(%s)
+            """,
+            (run_ids,),
+        )
+        row = cur.fetchone() or {}
+    return {
+        "model_call_diagnostics_exact_linked": int(row.get("exact_linked") or 0),
+        "model_call_diagnostics_unverified": int(row.get("unverified") or 0),
+    }
+
+
+def run_diagnostics_backfill(run_ids: list[int], diagnostics_config: dict[str, Any]) -> dict[str, int]:
+    response_count = 0
+    model_call_count = 0
+    for run_id in run_ids:
+        response_count += upsert_response_diagnostics(run_id, diagnostics_config)
+        model_call_count += upsert_model_call_diagnostics(run_id, diagnostics_config)
+    counts = diagnostics_linkage_counts(run_ids)
+    return {
+        "response_diagnostics_upserted": response_count,
+        "model_call_diagnostics_upserted": model_call_count,
+        **counts,
+    }
 
 
 def source_file(cur, summary: dict[str, Any]) -> int:
@@ -1370,6 +1463,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--write", action="store_true", help="Write public provenance rows to Postgres.")
     parser.add_argument("--promote-operational", action="store_true", help="Populate raw operational tables from promotable Inspect log samples and rebuild public operational tables.")
     parser.add_argument("--dedupe", action="store_true", help="Deduplicate public pipeline/sample rows that point at the same eval_log_sha256.")
+    parser.add_argument("--diagnostics", action="store_true", help="Backfill passive response/model-call diagnostics for written Inspect log samples.")
     parser.add_argument("--dry-run", action="store_true", help="Report planned changes without writing to Postgres.")
     parser.add_argument("--fail-fast", action="store_true", help="Stop on the first unreadable log.")
     return parser.parse_args()
@@ -1418,12 +1512,24 @@ def main() -> int:
 
     dry_run = args.dry_run or not (args.write or args.promote_operational or args.dedupe)
     promotion_plan = [promotion_dry_run(summary) for summary in summaries]
+    diagnostics_config = normalise_diagnostics_config(None)
+    diagnostics_summary = empty_diagnostics_summary(
+        requested=bool(args.diagnostics),
+        dry_run=bool(args.diagnostics and (diagnostics_dry_run(args) or dry_run)),
+    )
 
     if dry_run and not args.dedupe:
         print(
             json.dumps(
                 {
                     "dry_run": True,
+                    **diagnostics_summary,
+                    "diagnostics_note": (
+                        "Diagnostics were requested but will only be populated when --write or "
+                        "--promote-operational is supplied."
+                        if args.diagnostics
+                        else None
+                    ),
                     "promotion_plan": promotion_plan,
                     "errors": errors,
                 },
@@ -1442,11 +1548,20 @@ def main() -> int:
         promoted_runs = 0
         promoted_samples = 0
         skipped_promotion_samples = 0
+        diagnostic_run_ids: list[int] = []
         if args.write or args.promote_operational:
+            if diagnostics_write_enabled(args) and not dry_run:
+                ensure_diagnostics_tables(cur)
             for summary in summaries:
                 if args.write or args.promote_operational:
                     manifest_id = upsert_backfill_manifest(cur, summary)
-                    pipeline_run_id = upsert_pipeline_run(cur, summary, manifest_id)
+                    pipeline_run_id = upsert_pipeline_run(
+                        cur,
+                        summary,
+                        manifest_id,
+                        diagnostics_config if args.diagnostics else None,
+                    )
+                    diagnostic_run_ids.append(pipeline_run_id)
                     written_logs += 1
                     written_samples += insert_samples(cur, pipeline_run_id, summary)
                 if args.promote_operational:
@@ -1467,10 +1582,15 @@ def main() -> int:
         else:
             conn.commit()
 
+    diagnostics_summary["inspect_samples_inserted_or_updated"] = written_samples
+    if diagnostics_write_enabled(args) and not dry_run:
+        diagnostics_summary.update(run_diagnostics_backfill(diagnostic_run_ids, diagnostics_config))
+
     print(
         json.dumps(
             {
                 "dry_run": dry_run,
+                **diagnostics_summary,
                 "written_logs": written_logs,
                 "written_samples": written_samples,
                 "promoted_runs": promoted_runs,
