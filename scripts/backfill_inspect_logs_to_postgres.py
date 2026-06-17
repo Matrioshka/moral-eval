@@ -1458,6 +1458,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Directory or .eval file to scan. Defaults to logs/.",
     )
+    parser.add_argument(
+        "--eval-log",
+        action="append",
+        type=Path,
+        default=None,
+        help="Single .eval file to backfill. Alias for --log-dir when pointing at a file.",
+    )
     parser.add_argument("--include-tmp", action="store_true", help="Also scan tmp/ for .eval files.")
     parser.add_argument("--limit", type=int, help="Optional maximum number of logs to process.")
     parser.add_argument("--write", action="store_true", help="Write public provenance rows to Postgres.")
@@ -1469,11 +1476,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> int:
-    args = parse_args()
-    paths = args.log_dir or [Path("logs")]
+def requested_log_paths(args: argparse.Namespace) -> list[Path]:
+    paths = [*(args.log_dir or []), *(args.eval_log or [])]
+    if not paths:
+        paths = [Path("logs")]
     if args.include_tmp:
         paths = [*paths, Path("tmp")]
+    return paths
+
+
+def main() -> int:
+    args = parse_args()
+    paths = requested_log_paths(args)
     logs = discover_eval_logs(paths)
     if args.limit is not None:
         logs = logs[: args.limit]

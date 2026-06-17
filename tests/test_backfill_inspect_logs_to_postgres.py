@@ -19,6 +19,8 @@ from backfill_inspect_logs_to_postgres import (  # noqa: E402
     extract_completion,
     is_promotable_sample,
     provider_from_model,
+    requested_log_paths,
+    parse_args,
     repo_stem_label,
     sample_identifier,
 )
@@ -137,6 +139,38 @@ class BackfillInspectLogsTest(unittest.TestCase):
         self.assertEqual(metadata["source_log_sha256"], "abc123")
         self.assertEqual(metadata["diagnostics"], diagnostics_config)
         self.assertEqual(metadata["diagnostics_backfill_source"], "existing_eval_log")
+
+    def test_parse_args_accepts_eval_log_alias(self) -> None:
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "backfill_inspect_logs_to_postgres.py",
+                "--eval-log",
+                "path.eval",
+            ]
+
+            args = parse_args()
+        finally:
+            sys.argv = original_argv
+
+        self.assertEqual(args.eval_log, [Path("path.eval")])
+
+    def test_requested_log_paths_defaults_to_logs(self) -> None:
+        args = SimpleNamespace(log_dir=None, eval_log=None, include_tmp=False)
+
+        self.assertEqual(requested_log_paths(args), [Path("logs")])
+
+    def test_requested_log_paths_combines_log_dir_eval_log_and_tmp(self) -> None:
+        args = SimpleNamespace(
+            log_dir=[Path("logs-a")],
+            eval_log=[Path("one.eval"), Path("two.eval")],
+            include_tmp=True,
+        )
+
+        self.assertEqual(
+            requested_log_paths(args),
+            [Path("logs-a"), Path("one.eval"), Path("two.eval"), Path("tmp")],
+        )
 
 
 if __name__ == "__main__":
