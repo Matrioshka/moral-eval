@@ -377,6 +377,11 @@ def runs(request: Request):
 @app.get("/pipeline-runs")
 def pipeline_runs(request: Request):
     runs = list_pipeline_runs(limit=50)
+    experiment_exists_by_slug: dict[str, bool] = {}
+    for run in runs:
+        slug = str(run.get("experiment_slug") or "")
+        if slug and slug not in experiment_exists_by_slug:
+            experiment_exists_by_slug[slug] = get_experiment_manifest(slug) is not None
     return templates.TemplateResponse(
         request=request,
         name="pipeline_runs.html",
@@ -386,6 +391,7 @@ def pipeline_runs(request: Request):
                 {
                     **run,
                     "sample_count": len(list_run_samples(run["experiment_pipeline_run_id"])),
+                    "experiment_exists": experiment_exists_by_slug.get(str(run.get("experiment_slug") or ""), False),
                 }
                 for run in runs
             ],

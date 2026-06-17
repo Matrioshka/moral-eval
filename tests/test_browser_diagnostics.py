@@ -17,6 +17,18 @@ import run_browser_fastapi  # noqa: E402
 
 
 def fake_url_for(name: str, **params: object) -> str:
+    if name == "static":
+        return f"/static/{params.get('path', '')}"
+    if name == "experiment_detail":
+        return f"/experiments/{params['experiment_slug']}"
+    if name == "pipeline_run_detail":
+        return f"/pipeline-runs/{params['pipeline_run_id']}"
+    if name == "pipeline_run_diagnostics":
+        return f"/pipeline-runs/{params['pipeline_run_id']}/diagnostics"
+    if name == "sample_detail":
+        return f"/pipeline-runs/{params['pipeline_run_id']}/samples/{params['sample_id']}"
+    if name == "search":
+        return "/search"
     suffix = "/".join(str(value) for value in params.values())
     return f"/{name}/{suffix}".rstrip("/")
 
@@ -114,6 +126,52 @@ def test_pipeline_run_diagnostics_template_renders_rows() -> None:
     assert "unverified/raw event only" in html
     assert "headline_eligible=false" in html
     assert "Provider-reported total tokens" in html
+
+
+def test_pipeline_runs_template_does_not_link_missing_experiment_slug() -> None:
+    html = render_template(
+        "pipeline_runs.html",
+        runs=[
+            {
+                "experiment_pipeline_run_id": 1,
+                "experiment_slug": "inspect-log-backfill-v5-multistage-pressure-pilot-v0",
+                "experiment_exists": False,
+                "status": "imported",
+                "dataset_version": "v5",
+                "answer_model": {"model": "openrouter/openai/gpt-4.1"},
+                "sample_count": 1,
+                "started_at": None,
+                "completed_at": None,
+            }
+        ],
+    )
+
+    assert "inspect-log-backfill-v5-multistage-pressure-pilot-v0" in html
+    assert "/experiments/inspect-log-backfill-v5-multistage-pressure-pilot-v0" not in html
+    assert "/pipeline-runs/1/diagnostics" in html
+    assert "Diagnostics" in html
+
+
+def test_pipeline_runs_template_links_existing_experiment_slug() -> None:
+    html = render_template(
+        "pipeline_runs.html",
+        runs=[
+            {
+                "experiment_pipeline_run_id": 2,
+                "experiment_slug": "real-experiment",
+                "experiment_exists": True,
+                "status": "completed",
+                "dataset_version": "v5",
+                "answer_model": {"model": "openrouter/openai/gpt-4.1"},
+                "sample_count": 1,
+                "started_at": None,
+                "completed_at": None,
+            }
+        ],
+    )
+
+    assert 'href="/experiments/real-experiment"' in html
+    assert "/pipeline-runs/2/diagnostics" in html
 
 
 def test_sample_detail_template_renders_diagnostics_when_present() -> None:

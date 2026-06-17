@@ -20,13 +20,20 @@
         <th>Samples</th>
         <th>Started</th>
         <th>Completed</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for run in runs %}
       <tr>
         <td class="mono"><a class="run-id-link" href="{{ url_for('pipeline_run_detail', pipeline_run_id=run.experiment_pipeline_run_id) }}">{{ run.experiment_pipeline_run_id }}</a></td>
-        <td><a href="{{ url_for('experiment_detail', experiment_slug=run.experiment_slug) }}">{{ run.experiment_slug }}</a></td>
+        <td>
+          {% if run.experiment_exists %}
+          <a href="{{ url_for('experiment_detail', experiment_slug=run.experiment_slug) }}">{{ run.experiment_slug }}</a>
+          {% else %}
+          {{ run.experiment_slug }}
+          {% endif %}
+        </td>
         <td><span class="status-badge status-{{ run.status | status_kind }}">{{ run.status | status_label }}</span></td>
         <td>
           {% if run.dataset_version %}
@@ -37,6 +44,7 @@
         <td>{{ run.sample_count }}</td>
         <td class="datetime-small">{{ run.started_at | format_datetime }}</td>
         <td class="datetime-small">{{ run.completed_at | format_datetime }}</td>
+        <td><a class="button-link" href="{{ url_for('pipeline_run_diagnostics', pipeline_run_id=run.experiment_pipeline_run_id) }}">Diagnostics</a></td>
       </tr>
       {% endfor %}
     </tbody>
