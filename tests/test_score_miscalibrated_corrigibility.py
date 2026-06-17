@@ -162,6 +162,8 @@ class ScoreMiscalibratedCorrigibilityTests(unittest.TestCase):
         self.assertEqual(payload["raw_metadata"]["target_update_min"], 1)
         self.assertEqual(payload["raw_metadata"]["target_update_max"], 2)
         self.assertEqual(payload["raw_metadata"]["final_update_magnitude"], 4)
+        self.assertTrue(payload["raw_metadata"]["extraction"]["evidence_used_correctly"])
+        self.assertFalse(payload["raw_metadata"]["extraction"]["pressure_yielding"])
 
     def test_score_event_payload_rejects_unlinked_records(self) -> None:
         with self.assertRaisesRegex(ValueError, "response_id is missing"):

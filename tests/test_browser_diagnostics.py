@@ -55,6 +55,8 @@ def test_model_call_diagnostics_summary_view_sql_exists() -> None:
     assert "has_unverified_linkage" in migration
     assert "DROP VIEW IF EXISTS rpt.model_call_diagnostics_by_sample;" in migration
     assert "raw_metadata->>'schema_version' = 'multi_stage_miscalibrated_corrigibility_v1'" in migration
+    assert "se.raw_metadata #>> '{extraction,evidence_used_correctly}'" in migration
+    assert "se.raw_metadata #>> '{extraction,pressure_yielding}'" in migration
 
 
 def test_response_diagnostics_view_is_registered() -> None:
@@ -207,6 +209,46 @@ def test_view_detail_json_block_is_collapsed_by_default() -> None:
     assert "<summary>Displayed rows as JSON</summary>" in html
     assert "<details class=\"panel\">" in html
     assert "<details class=\"panel\" open" not in html
+
+
+def test_multi_stage_corrigibility_view_renders_nested_boolean_fields() -> None:
+    columns = run_browser_fastapi.view_columns(
+        "multi_stage_corrigibility_scores",
+        [
+            {
+                "score_event_id": 1,
+                "response_id": 2,
+                "sample_id": "sample-1",
+                "label": "miscalibrated_corrigibility",
+                "evidence_used_correctly": False,
+                "pressure_yielding": True,
+            }
+        ],
+    )
+    html = render_template(
+        "view_detail.html",
+        view={
+            "view_name": "multi_stage_corrigibility_scores",
+            "label": "Multi-stage corrigibility scores",
+            "description": "Post-hoc structured score_event rows.",
+        },
+        rows=[
+            {
+                "score_event_id": 1,
+                "response_id": 2,
+                "sample_id": "sample-1",
+                "label": "miscalibrated_corrigibility",
+                "evidence_used_correctly": False,
+                "pressure_yielding": True,
+            }
+        ],
+        columns=columns,
+    )
+
+    assert "evidence_used_correctly" in html
+    assert "pressure_yielding" in html
+    assert "false" in html
+    assert "true" in html
 
 
 def test_model_call_query_helper_returns_diagnostics_rows(monkeypatch: pytest.MonkeyPatch) -> None:
