@@ -276,6 +276,57 @@ def view_columns(view_name: str, rows: list[dict[str, Any]]) -> list[str]:
     if not rows:
         return []
 
+    diagnostics_columns_by_view = {
+        "model_call_diagnostics_by_sample": (
+            "experiment_pipeline_run_id",
+            "inspect_log_sample_id",
+            "sample_id",
+            "dataset_version",
+            "model_name",
+            "model_call_count",
+            "exact_linked_count",
+            "unverified_count",
+            "total_provider_reported_total_tokens",
+            "all_headline_eligible",
+            "has_unverified_linkage",
+        ),
+        "model_call_diagnostics": (
+            "experiment_pipeline_run_id",
+            "inspect_log_sample_id",
+            "sample_id",
+            "model_call_index",
+            "turn_label",
+            "source_event_index",
+            "link_confidence",
+            "link_method",
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "reasoning_tokens",
+            "thinking_tokens",
+            "headline_eligible",
+        ),
+        "response_diagnostics": (
+            "experiment_pipeline_run_id",
+            "inspect_log_sample_id",
+            "sample_id",
+            "response_id",
+            "diagnostic_mode",
+            "diagnostic_version",
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "reasoning_tokens",
+            "thinking_tokens",
+            "headline_eligible",
+        ),
+    }
+    if view_name in diagnostics_columns_by_view:
+        available = set(rows[0])
+        columns = [column for column in diagnostics_columns_by_view[view_name] if column in available]
+        if columns:
+            return columns
+
     data_dictionary_columns = (
         "object_schema",
         "object_type",

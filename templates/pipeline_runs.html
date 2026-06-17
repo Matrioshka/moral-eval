@@ -44,7 +44,7 @@
         <td>{{ run.sample_count }}</td>
         <td class="datetime-small">{{ run.started_at | format_datetime }}</td>
         <td class="datetime-small">{{ run.completed_at | format_datetime }}</td>
-        <td><a class="button-link" href="{{ url_for('pipeline_run_diagnostics', pipeline_run_id=run.experiment_pipeline_run_id) }}">Diagnostics</a></td>
+        <td><a href="{{ url_for('pipeline_run_diagnostics', pipeline_run_id=run.experiment_pipeline_run_id) }}">Diagnostics</a></td>
       </tr>
       {% endfor %}
     </tbody>

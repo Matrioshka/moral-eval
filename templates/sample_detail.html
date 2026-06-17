@@ -35,7 +35,7 @@
   </dl>
 </section>
 
-{% if sample.source_log_path %}
+{% if sample.source_log_path and (sample.source_log_path | basename) != sample.source_log_path %}
 <details class="panel path-details">
   <summary>Full source log path</summary>
   <p class="mono">{{ sample.source_log_path }}</p>

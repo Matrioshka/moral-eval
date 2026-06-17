@@ -57,6 +57,11 @@ REPORTING_VIEWS = (
         "description": "One row per Inspect sample summarising passive model-call diagnostics and linkage status.",
     },
     {
+        "view_name": "response_diagnostics",
+        "label": "Response diagnostics",
+        "description": "Passive aggregate diagnostics linked to promoted operational responses.",
+    },
+    {
         "view_name": "technical_data_dictionary",
         "label": "Technical data dictionary",
         "description": "Live PostgreSQL catalog metadata for schemas, tables, views, and columns.",

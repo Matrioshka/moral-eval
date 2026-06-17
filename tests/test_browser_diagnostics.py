@@ -53,6 +53,115 @@ def test_model_call_diagnostics_summary_view_sql_exists() -> None:
     assert "DROP VIEW IF EXISTS rpt.model_call_diagnostics_by_sample;" in migration
 
 
+def test_response_diagnostics_view_is_registered() -> None:
+    assert "response_diagnostics" in app_queries.REPORTING_VIEW_NAMES
+    assert "model_call_diagnostics" in app_queries.REPORTING_VIEW_NAMES
+    assert "model_call_diagnostics_by_sample" in app_queries.REPORTING_VIEW_NAMES
+
+
+def test_diagnostics_views_use_meaningful_display_columns() -> None:
+    summary_columns = run_browser_fastapi.view_columns(
+        "model_call_diagnostics_by_sample",
+        [
+            {
+                "experiment_pipeline_run_id": 1,
+                "inspect_log_sample_id": 2,
+                "sample_id": "sample-1",
+                "dataset_version": "v5",
+                "model_name": "model",
+                "model_call_count": 4,
+                "exact_linked_count": 1,
+                "unverified_count": 3,
+                "total_provider_reported_total_tokens": 100,
+                "all_headline_eligible": False,
+                "has_unverified_linkage": True,
+                "other": "ignored",
+            }
+        ],
+    )
+    row_columns = run_browser_fastapi.view_columns(
+        "model_call_diagnostics",
+        [
+            {
+                "experiment_pipeline_run_id": 1,
+                "inspect_log_sample_id": 2,
+                "sample_id": "sample-1",
+                "model_call_index": 0,
+                "turn_label": "baseline",
+                "source_event_index": 5,
+                "link_confidence": "unverified",
+                "link_method": "raw_event_only",
+                "input_tokens": 1,
+                "output_tokens": 2,
+                "total_tokens": 3,
+                "reasoning_tokens": None,
+                "thinking_tokens": 0,
+                "headline_eligible": False,
+            }
+        ],
+    )
+    response_columns = run_browser_fastapi.view_columns(
+        "response_diagnostics",
+        [
+            {
+                "experiment_pipeline_run_id": 1,
+                "inspect_log_sample_id": 2,
+                "sample_id": "sample-1",
+                "response_id": 9,
+                "diagnostic_mode": "usage_only",
+                "diagnostic_version": "v1",
+                "input_tokens": 1,
+                "output_tokens": 2,
+                "total_tokens": 3,
+                "reasoning_tokens": None,
+                "thinking_tokens": 0,
+                "headline_eligible": True,
+            }
+        ],
+    )
+
+    assert summary_columns == [
+        "experiment_pipeline_run_id",
+        "inspect_log_sample_id",
+        "sample_id",
+        "dataset_version",
+        "model_name",
+        "model_call_count",
+        "exact_linked_count",
+        "unverified_count",
+        "total_provider_reported_total_tokens",
+        "all_headline_eligible",
+        "has_unverified_linkage",
+    ]
+    assert "link_confidence" in row_columns
+    assert "headline_eligible" in row_columns
+    assert response_columns[:6] == [
+        "experiment_pipeline_run_id",
+        "inspect_log_sample_id",
+        "sample_id",
+        "response_id",
+        "diagnostic_mode",
+        "diagnostic_version",
+    ]
+
+
+def test_view_detail_json_block_is_collapsed_by_default() -> None:
+    html = render_template(
+        "view_detail.html",
+        view={
+            "view_name": "model_call_diagnostics",
+            "label": "Model-call diagnostics",
+            "description": "Passive diagnostics.",
+        },
+        rows=[{"sample_id": "sample-1", "headline_eligible": False}],
+        columns=["sample_id", "headline_eligible"],
+    )
+
+    assert "<summary>Displayed rows as JSON</summary>" in html
+    assert "<details class=\"panel\">" in html
+    assert "<details class=\"panel\" open" not in html
+
+
 def test_model_call_query_helper_returns_diagnostics_rows(monkeypatch: pytest.MonkeyPatch) -> None:
     engine = create_engine("sqlite://")
     metadata = MetaData()
@@ -150,6 +259,7 @@ def test_pipeline_runs_template_does_not_link_missing_experiment_slug() -> None:
     assert "/experiments/inspect-log-backfill-v5-multistage-pressure-pilot-v0" not in html
     assert "/pipeline-runs/1/diagnostics" in html
     assert "Diagnostics" in html
+    assert 'class="button-link" href="/pipeline-runs/1/diagnostics"' not in html
 
 
 def test_pipeline_runs_template_links_existing_experiment_slug() -> None:
@@ -239,3 +349,28 @@ def test_sample_detail_template_renders_without_diagnostics() -> None:
 
     assert "Inspect Log Sample sample-1" in html
     assert "Model-Call Diagnostics" not in html
+
+
+def test_sample_detail_template_hides_duplicate_full_source_log_path() -> None:
+    html = render_template(
+        "sample_detail.html",
+        pipeline_run_id=10,
+        sample={
+            "sample_id": "sample-1",
+            "inspect_log_sample_id": 20,
+            "experiment_pipeline_run_id": 10,
+            "dataset_version": "v5",
+            "source_log_path": "example.eval",
+            "input_text": "input",
+            "target_text": "target",
+            "final_response": "answer",
+            "metadata": {},
+        },
+        metadata_badges=[],
+        transcript=[],
+        model_call_diagnostics=[],
+        response_diagnostics=[],
+    )
+
+    assert "Source log" in html
+    assert "Full source log path" not in html
