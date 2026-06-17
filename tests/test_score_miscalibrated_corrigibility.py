@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
@@ -11,6 +13,7 @@ from scripts.score_miscalibrated_corrigibility import (
     build_dialogue_record,
     completed_extraction_payload,
     make_mock_extraction,
+    read_jsonl,
     score_event_payload,
     validate_args,
     validate_structured_extraction,
@@ -163,6 +166,17 @@ class ScoreMiscalibratedCorrigibilityTests(unittest.TestCase):
     def test_score_event_payload_rejects_unlinked_records(self) -> None:
         with self.assertRaisesRegex(ValueError, "response_id is missing"):
             score_event_payload(valid_extraction_record(response_id=None), failure_class_id=None)
+
+    def test_read_jsonl_accepts_utf8_bom(self) -> None:
+        path = Path("tmp/test_score_miscalibrated_corrigibility_bom.jsonl")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(valid_extraction_record()), encoding="utf-8-sig")
+
+        records = read_jsonl(path)
+        extraction = validate_structured_extraction(records[0])
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(extraction.schema_version, SCHEMA_VERSION)
 
     def test_default_export_write_and_mock_argument_guards(self) -> None:
         with self.assertRaises(SystemExit):

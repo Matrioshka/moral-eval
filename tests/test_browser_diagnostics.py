@@ -27,6 +27,8 @@ def fake_url_for(name: str, **params: object) -> str:
         return f"/pipeline-runs/{params['pipeline_run_id']}/diagnostics"
     if name == "sample_detail":
         return f"/pipeline-runs/{params['pipeline_run_id']}/samples/{params['sample_id']}"
+    if name == "view_detail":
+        return f"/views/{params['view_name']}"
     if name == "search":
         return "/search"
     suffix = "/".join(str(value) for value in params.values())
@@ -47,16 +49,19 @@ def test_model_call_diagnostics_summary_view_sql_exists() -> None:
     migration = (ROOT / "sql" / "022_create_model_call_diagnostics.sql").read_text(encoding="utf-8")
 
     assert "CREATE VIEW rpt.model_call_diagnostics_by_sample AS" in migration
+    assert "CREATE VIEW rpt.multi_stage_corrigibility_scores AS" in migration
     assert "total_input_tokens_provider_reported" in migration
     assert "total_provider_reported_total_tokens" in migration
     assert "has_unverified_linkage" in migration
     assert "DROP VIEW IF EXISTS rpt.model_call_diagnostics_by_sample;" in migration
+    assert "raw_metadata->>'schema_version' = 'multi_stage_miscalibrated_corrigibility_v1'" in migration
 
 
 def test_response_diagnostics_view_is_registered() -> None:
     assert "response_diagnostics" in app_queries.REPORTING_VIEW_NAMES
     assert "model_call_diagnostics" in app_queries.REPORTING_VIEW_NAMES
     assert "model_call_diagnostics_by_sample" in app_queries.REPORTING_VIEW_NAMES
+    assert "multi_stage_corrigibility_scores" in app_queries.REPORTING_VIEW_NAMES
 
 
 def test_diagnostics_views_use_meaningful_display_columns() -> None:
@@ -119,6 +124,36 @@ def test_diagnostics_views_use_meaningful_display_columns() -> None:
             }
         ],
     )
+    score_columns = run_browser_fastapi.view_columns(
+        "multi_stage_corrigibility_scores",
+        [
+            {
+                "score_event_id": 1,
+                "response_id": 2,
+                "eval_case_id": 3,
+                "inspect_log_sample_id": 4,
+                "sample_id": "sample-1",
+                "case_id": "case-1",
+                "score": 2,
+                "label": "miscalibrated_corrigibility",
+                "confidence": 0.8,
+                "rationale": "Short rationale.",
+                "scorer_mode": "human",
+                "schema_version": "multi_stage_miscalibrated_corrigibility_v1",
+                "extractor_name": "multi_stage_corrigibility_extractor",
+                "target_update_min": 1,
+                "target_update_max": 2,
+                "final_judgement_score": 3,
+                "final_update_magnitude": 3,
+                "calibration_error": 1,
+                "calibration_error_severity": 1,
+                "evidence_used_correctly": True,
+                "pressure_yielding": False,
+                "scored_at": "now",
+                "raw_metadata": {},
+            }
+        ],
+    )
 
     assert summary_columns == [
         "experiment_pipeline_run_id",
@@ -143,6 +178,18 @@ def test_diagnostics_views_use_meaningful_display_columns() -> None:
         "diagnostic_mode",
         "diagnostic_version",
     ]
+    assert score_columns[:8] == [
+        "score_event_id",
+        "response_id",
+        "eval_case_id",
+        "inspect_log_sample_id",
+        "sample_id",
+        "case_id",
+        "score",
+        "label",
+    ]
+    assert "final_update_magnitude" in score_columns
+    assert "pressure_yielding" in score_columns
 
 
 def test_view_detail_json_block_is_collapsed_by_default() -> None:
@@ -317,6 +364,7 @@ def test_sample_detail_template_renders_diagnostics_when_present() -> None:
             }
         ],
         response_diagnostics=[],
+        multi_stage_corrigibility_scores=[],
     )
 
     assert "Model-Call Diagnostics" in html
@@ -345,10 +393,47 @@ def test_sample_detail_template_renders_without_diagnostics() -> None:
         transcript=[],
         model_call_diagnostics=[],
         response_diagnostics=[],
+        multi_stage_corrigibility_scores=[],
     )
 
     assert "Inspect Log Sample sample-1" in html
     assert "Model-Call Diagnostics" not in html
+
+
+def test_sample_detail_template_renders_multi_stage_corrigibility_score_card() -> None:
+    html = render_template(
+        "sample_detail.html",
+        pipeline_run_id=10,
+        sample={
+            "sample_id": "sample-1",
+            "inspect_log_sample_id": 20,
+            "experiment_pipeline_run_id": 10,
+            "dataset_version": "v5",
+            "source_log_path": "logs/example.eval",
+            "input_text": "input",
+            "target_text": "target",
+            "final_response": "answer",
+            "metadata": {},
+        },
+        metadata_badges=[],
+        transcript=[],
+        model_call_diagnostics=[],
+        response_diagnostics=[],
+        multi_stage_corrigibility_scores=[
+            {
+                "label": "miscalibrated_corrigibility",
+                "score": 2,
+                "confidence": 0.82,
+                "scorer_mode": "human",
+                "rationale": "Updated too far after incomplete safeguards.",
+            }
+        ],
+    )
+
+    assert "Post-Hoc Multi-Stage Corrigibility Score" in html
+    assert "miscalibrated_corrigibility" in html
+    assert "Updated too far after incomplete safeguards." in html
+    assert "/views/multi_stage_corrigibility_scores" in html
 
 
 def test_sample_detail_template_hides_duplicate_full_source_log_path() -> None:
@@ -370,6 +455,7 @@ def test_sample_detail_template_hides_duplicate_full_source_log_path() -> None:
         transcript=[],
         model_call_diagnostics=[],
         response_diagnostics=[],
+        multi_stage_corrigibility_scores=[],
     )
 
     assert "Source log" in html

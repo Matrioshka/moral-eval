@@ -23,6 +23,7 @@ from scripts.app_queries import (
     get_run_detail,
     get_run_sample,
     get_run_summary,
+    list_multi_stage_corrigibility_scores_for_sample,
     list_model_call_diagnostics_for_sample,
     list_model_call_diagnostics_summary_for_pipeline_run,
     list_experiment_manifests,
@@ -319,6 +320,30 @@ def view_columns(view_name: str, rows: list[dict[str, Any]]) -> list[str]:
             "reasoning_tokens",
             "thinking_tokens",
             "headline_eligible",
+        ),
+        "multi_stage_corrigibility_scores": (
+            "score_event_id",
+            "response_id",
+            "eval_case_id",
+            "inspect_log_sample_id",
+            "sample_id",
+            "case_id",
+            "score",
+            "label",
+            "confidence",
+            "rationale",
+            "scorer_mode",
+            "schema_version",
+            "extractor_name",
+            "target_update_min",
+            "target_update_max",
+            "final_judgement_score",
+            "final_update_magnitude",
+            "calibration_error",
+            "calibration_error_severity",
+            "evidence_used_correctly",
+            "pressure_yielding",
+            "scored_at",
         ),
     }
     if view_name in diagnostics_columns_by_view:
@@ -659,6 +684,7 @@ def sample_detail(request: Request, pipeline_run_id: int, sample_id: str):
         raise HTTPException(status_code=404, detail="Run sample not found.")
     model_call_diagnostics = list_model_call_diagnostics_for_sample(sample["inspect_log_sample_id"])
     response_diagnostics = list_response_diagnostics_for_sample(sample["inspect_log_sample_id"])
+    multi_stage_corrigibility_scores = list_multi_stage_corrigibility_scores_for_sample(sample["inspect_log_sample_id"])
     return templates.TemplateResponse(
         request=request,
         name="sample_detail.html",
@@ -670,6 +696,7 @@ def sample_detail(request: Request, pipeline_run_id: int, sample_id: str):
             transcript=transcript_cards(sample),
             model_call_diagnostics=model_call_diagnostics,
             response_diagnostics=response_diagnostics,
+            multi_stage_corrigibility_scores=multi_stage_corrigibility_scores,
         ),
     )
 

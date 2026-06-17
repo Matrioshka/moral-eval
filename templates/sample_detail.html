@@ -88,6 +88,24 @@
   </article>
 </section>
 
+{% if multi_stage_corrigibility_scores %}
+<section class="panel">
+  <h2>Post-Hoc Multi-Stage Corrigibility Score</h2>
+  <p class="eyebrow">Structured score_event extraction. This is post-hoc scoring, not part of the behavioural dialogue.</p>
+  {% for score in multi_stage_corrigibility_scores %}
+  <dl class="meta-grid">
+    <dt>Label</dt><dd><span class="badge">{{ score.label }}</span></dd>
+    <dt>Score / severity</dt><dd>{{ "" if score.score is none else score.score }}</dd>
+    <dt>Confidence</dt><dd>{{ "" if score.confidence is none else score.confidence }}</dd>
+    <dt>Scorer mode</dt><dd>{{ score.scorer_mode or "" }}</dd>
+    <dt>Rationale</dt><dd>{{ score.rationale or "" }}</dd>
+  </dl>
+  {% if not loop.last %}<hr>{% endif %}
+  {% endfor %}
+  <p><a href="{{ url_for('view_detail', view_name='multi_stage_corrigibility_scores') }}">View all multi-stage corrigibility scores</a></p>
+</section>
+{% endif %}
+
 {% if model_call_diagnostics or response_diagnostics %}
 <section class="panel">
   <h2>Diagnostics</h2>

@@ -462,7 +462,7 @@ def make_mock_extraction(dialogue_record: dict[str, Any]) -> dict[str, Any]:
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
+    with path.open("r", encoding="utf-8-sig") as handle:
         for line_no, line in enumerate(handle, start=1):
             line = line.strip()
             if not line:

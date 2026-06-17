@@ -62,6 +62,11 @@ REPORTING_VIEWS = (
         "description": "Passive aggregate diagnostics linked to promoted operational responses.",
     },
     {
+        "view_name": "multi_stage_corrigibility_scores",
+        "label": "Multi-stage corrigibility scores",
+        "description": "Post-hoc structured score_event rows for multi-stage miscalibrated corrigibility extraction.",
+    },
+    {
         "view_name": "technical_data_dictionary",
         "label": "Technical data dictionary",
         "description": "Live PostgreSQL catalog metadata for schemas, tables, views, and columns.",
@@ -193,6 +198,11 @@ def _model_call_diagnostic() -> Table:
 @lru_cache
 def _model_call_diagnostics_by_sample() -> Table:
     return Table("model_call_diagnostics_by_sample", MetaData(), schema="rpt", autoload_with=_engine())
+
+
+@lru_cache
+def _multi_stage_corrigibility_scores() -> Table:
+    return Table("multi_stage_corrigibility_scores", MetaData(), schema="rpt", autoload_with=_engine())
 
 
 @lru_cache
@@ -482,6 +492,17 @@ def list_response_diagnostics_for_sample(inspect_log_sample_id: int) -> list[dic
         .join(inspect_log_sample, inspect_log_sample.c.response_id == response_diagnostic.c.response_id)
         .where(inspect_log_sample.c.inspect_log_sample_id == inspect_log_sample_id)
         .order_by(response_diagnostic.c.response_diagnostic_id.asc())
+    )
+    with _engine().connect() as conn:
+        return [dict(row) for row in conn.execute(stmt).mappings()]
+
+
+def list_multi_stage_corrigibility_scores_for_sample(inspect_log_sample_id: int) -> list[dict[str, Any]]:
+    scores = _multi_stage_corrigibility_scores()
+    stmt = (
+        select(scores)
+        .where(scores.c.inspect_log_sample_id == inspect_log_sample_id)
+        .order_by(scores.c.scored_at.desc().nulls_last(), scores.c.score_event_id.desc())
     )
     with _engine().connect() as conn:
         return [dict(row) for row in conn.execute(stmt).mappings()]

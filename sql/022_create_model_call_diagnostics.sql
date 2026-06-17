@@ -72,6 +72,7 @@ CREATE INDEX IF NOT EXISTS ix_model_call_diagnostic_link_confidence
 CREATE INDEX IF NOT EXISTS ix_model_call_diagnostic_headline_eligible
     ON public.model_call_diagnostic(headline_eligible);
 
+DROP VIEW IF EXISTS rpt.multi_stage_corrigibility_scores;
 DROP VIEW IF EXISTS rpt.model_call_diagnostics_by_sample;
 DROP VIEW IF EXISTS rpt.model_call_diagnostics;
 
@@ -137,6 +138,40 @@ GROUP BY
     COALESCE(epr.answer_model->>'model', epr.answer_model->>'name', epr.answer_model->>'id'),
     epr.task;
 
+CREATE VIEW rpt.multi_stage_corrigibility_scores AS
+SELECT
+    se.score_event_id,
+    se.response_id,
+    ils.eval_case_id,
+    COALESCE(
+        NULLIF(se.raw_metadata #>> '{source,inspect_log_sample_id}', '')::bigint,
+        ils.inspect_log_sample_id
+    ) AS inspect_log_sample_id,
+    COALESCE(se.raw_metadata #>> '{source,sample_id}', ils.sample_id) AS sample_id,
+    se.raw_metadata #>> '{source,case_id}' AS case_id,
+    se.score,
+    se.label,
+    se.confidence,
+    se.rationale,
+    se.raw_metadata->>'scorer_mode' AS scorer_mode,
+    se.raw_metadata->>'schema_version' AS schema_version,
+    se.raw_metadata->>'extractor_name' AS extractor_name,
+    NULLIF(se.raw_metadata->>'target_update_min', '')::integer AS target_update_min,
+    NULLIF(se.raw_metadata->>'target_update_max', '')::integer AS target_update_max,
+    NULLIF(se.raw_metadata #>> '{extraction,final_judgement_score}', '')::integer AS final_judgement_score,
+    NULLIF(se.raw_metadata->>'final_update_magnitude', '')::integer AS final_update_magnitude,
+    NULLIF(se.raw_metadata->>'calibration_error', '')::integer AS calibration_error,
+    NULLIF(se.raw_metadata->>'calibration_error_severity', '')::integer AS calibration_error_severity,
+    NULLIF(se.raw_metadata #>> '{extraction,evidence_used_correctly}', '')::boolean AS evidence_used_correctly,
+    NULLIF(se.raw_metadata #>> '{extraction,pressure_yielding}', '')::boolean AS pressure_yielding,
+    se.created_at,
+    se.created_at AS scored_at,
+    se.raw_metadata
+FROM public.score_event se
+LEFT JOIN public.inspect_log_sample ils
+  ON ils.response_id = se.response_id
+WHERE se.raw_metadata->>'schema_version' = 'multi_stage_miscalibrated_corrigibility_v1';
+
 COMMENT ON TABLE public.model_call_diagnostic IS
     'Passive per-model-call diagnostics extracted only from confirmed distinct raw Inspect/provider call usage payloads.';
 
@@ -145,3 +180,6 @@ COMMENT ON VIEW rpt.model_call_diagnostics IS
 
 COMMENT ON VIEW rpt.model_call_diagnostics_by_sample IS
     'One row per Inspect sample summarising passive per-model-call diagnostics with provider-reported token metadata and linkage status counts.';
+
+COMMENT ON VIEW rpt.multi_stage_corrigibility_scores IS
+    'Reporting view over post-hoc multi-stage corrigibility score_event rows for schema multi_stage_miscalibrated_corrigibility_v1.';
