@@ -20,6 +20,7 @@ from scripts.score_miscalibrated_corrigibility import (
     validate_structured_extraction,
 )
 from scripts.prefill_multistage_scores import (
+    existing_prefill_records,
     make_prefill_wrapper,
     merge_prefill_records,
     mock_proposed_extraction,
@@ -312,6 +313,19 @@ class ScoreMiscalibratedCorrigibilityTests(unittest.TestCase):
         self.assertEqual(skipped_rows[0]["model"], "old")
         self.assertEqual(overwritten_skipped, 0)
         self.assertEqual(overwritten_rows[0]["model"], "new")
+
+    def test_replace_output_ignores_existing_prefill_records(self) -> None:
+        path = Path("tmp/test_existing_ai_prefills.jsonl")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"response_id": 101, "model": "stale-mock"}\n', encoding="utf-8")
+        try:
+            self.assertEqual(
+                existing_prefill_records(path, replace_output=False),
+                [{"response_id": 101, "model": "stale-mock"}],
+            )
+            self.assertEqual(existing_prefill_records(path, replace_output=True), [])
+        finally:
+            path.unlink(missing_ok=True)
 
     def test_prefill_comparison_reports_disagreement(self) -> None:
         prefill = [

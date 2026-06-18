@@ -319,6 +319,12 @@ def merge_prefill_records(
     return merged, skipped_existing
 
 
+def existing_prefill_records(output_path: Path, *, replace_output: bool) -> list[dict[str, Any]]:
+    if replace_output or not output_path.exists():
+        return []
+    return read_jsonl(output_path)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate review-only AI prefills for multi-stage scores.")
     parser.add_argument("--input-jsonl", type=Path, required=True)
@@ -334,6 +340,11 @@ def parse_args() -> argparse.Namespace:
     mode.add_argument("--call-api", action="store_true")
     mode.add_argument("--mock", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--replace-output",
+        action="store_true",
+        help="Start from an empty output set before writing selected prefills.",
+    )
     return parser.parse_args()
 
 
@@ -362,7 +373,10 @@ def main() -> int:
         limit=args.limit,
     )
     judge_prompt = args.judge_prompt.read_text(encoding="utf-8")
-    existing = read_jsonl(args.output_jsonl) if args.output_jsonl.exists() else []
+    existing = existing_prefill_records(
+        args.output_jsonl,
+        replace_output=args.replace_output,
+    )
     existing_response_ids = {
         record.get("response_id")
         for record in existing
@@ -395,6 +409,7 @@ def main() -> int:
                     "provider": args.provider,
                     "model": args.model,
                     "judge_prompt": str(args.judge_prompt),
+                    "replace_output": args.replace_output,
                 },
                 indent=2,
             )
@@ -466,6 +481,7 @@ def main() -> int:
                 "invalid": len(generated) - valid,
                 "skipped_existing": skipped_existing + merge_skipped,
                 "skipped_unlinked": skipped_unlinked,
+                "replace_output": args.replace_output,
                 "output_jsonl": str(args.output_jsonl),
             },
             indent=2,
