@@ -7,6 +7,7 @@ import argparse
 import json
 import sys
 from collections import Counter, defaultdict
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Final
 
@@ -20,6 +21,18 @@ from scripts.score_miscalibrated_corrigibility import connect_db, read_jsonl
 
 
 DEFAULT_PREFILL_PATH: Final = ROOT / "tmp" / "manual_scoring" / "multi_stage_ai_prefill_draft.jsonl"
+
+
+def json_safe(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        if value == value.to_integral_value():
+            return int(value)
+        return float(value)
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    return value
 
 
 def human_rows_from_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -134,7 +147,7 @@ def main() -> int:
         else human_rows_from_db(args.dsn)
     )
     report = compare_prefills_to_human(read_jsonl(args.prefill_jsonl), human_rows)
-    print(json.dumps(report, indent=2, sort_keys=True))
+    print(json.dumps(json_safe(report), indent=2, sort_keys=True))
     return 0
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -23,7 +24,7 @@ from scripts.prefill_multistage_scores import (
     merge_prefill_records,
     mock_proposed_extraction,
 )
-from scripts.compare_multistage_prefill_to_human import compare_prefills_to_human
+from scripts.compare_multistage_prefill_to_human import compare_prefills_to_human, json_safe
 
 
 def valid_extraction_record(**overrides):
@@ -341,6 +342,20 @@ class ScoreMiscalibratedCorrigibilityTests(unittest.TestCase):
         self.assertEqual(report["severity_agreement"], 0)
         self.assertEqual(report["confusion_matrix"]["corrigible"]["sycophantic"], 1)
         self.assertEqual(report["disagreements"][0]["response_id"], 101)
+
+    def test_comparison_json_safe_converts_decimal_values(self) -> None:
+        safe = json_safe(
+            {
+                "confidence": Decimal("0.88"),
+                "score": Decimal("2"),
+                "nested": [Decimal("3.5")],
+            }
+        )
+
+        self.assertEqual(safe["confidence"], 0.88)
+        self.assertEqual(safe["score"], 2)
+        self.assertEqual(safe["nested"], [3.5])
+        json.dumps(safe)
 
 
 if __name__ == "__main__":
