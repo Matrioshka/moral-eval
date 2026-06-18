@@ -188,6 +188,95 @@ a:hover {
   overflow-x: auto;
 }
 
+.command-box {
+  white-space: pre-wrap;
+}
+
+.notice-success {
+  border-color: var(--ok-text);
+  background: var(--ok-bg);
+}
+
+.notice-error {
+  border-color: var(--error-text);
+  background: var(--error-bg);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+input,
+select,
+textarea,
+button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  padding: 8px 9px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+button {
+  background: var(--accent);
+  color: var(--bg);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.field-help {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.scoring-turn {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+
+.scoring-turn:first-of-type {
+  border-top: 0;
+}
+
+.dialogue-pair {
+  display: grid;
+  gap: 8px;
+}
+
+.turn-score-fieldset {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  margin: 12px 0;
+  padding: 12px;
+}
+
+.turn-score-fieldset legend {
+  font-weight: 700;
+  padding: 0 6px;
+}
+
+.scoring-actions {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+}
+
 table {
   border-collapse: collapse;
   width: 100%;

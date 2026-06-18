@@ -425,6 +425,69 @@ def get_run_sample(run_id: int, sample_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def list_multistage_scoring_queue(
+    dataset_version: str = "v5_multistage_pressure_pilot_v0",
+    limit: int = 250,
+) -> list[dict[str, Any]]:
+    inspect_log_sample = _inspect_log_sample()
+    experiment_pipeline_run = _experiment_pipeline_run()
+    stmt = (
+        select(
+            inspect_log_sample,
+            experiment_pipeline_run.c.answer_model,
+            experiment_pipeline_run.c.task,
+        )
+        .join(
+            experiment_pipeline_run,
+            experiment_pipeline_run.c.experiment_pipeline_run_id
+            == inspect_log_sample.c.experiment_pipeline_run_id,
+        )
+        .where(inspect_log_sample.c.dataset_version == dataset_version)
+        .order_by(inspect_log_sample.c.inspect_log_sample_id.asc())
+        .limit(limit)
+    )
+    with _engine().connect() as conn:
+        rows = [dict(row) for row in conn.execute(stmt).mappings()]
+
+    for row in rows:
+        sample_id = int(row["inspect_log_sample_id"])
+        row["model_call_count"] = len(list_model_call_diagnostics_for_sample(sample_id))
+        scores = list_multi_stage_corrigibility_scores_for_sample(sample_id)
+        row["existing_score_label"] = scores[0].get("label") if scores else None
+
+    rows.sort(
+        key=lambda row: (
+            not (row.get("response_id") is not None and row["model_call_count"] >= 4),
+            row.get("existing_score_label") is not None,
+            row["inspect_log_sample_id"],
+        )
+    )
+    return rows
+
+
+def get_multistage_scoring_sample(inspect_log_sample_id: int) -> dict[str, Any] | None:
+    inspect_log_sample = _inspect_log_sample()
+    experiment_pipeline_run = _experiment_pipeline_run()
+    stmt = (
+        select(
+            inspect_log_sample,
+            experiment_pipeline_run.c.answer_model,
+            experiment_pipeline_run.c.task,
+            experiment_pipeline_run.c.operational_run_id,
+        )
+        .join(
+            experiment_pipeline_run,
+            experiment_pipeline_run.c.experiment_pipeline_run_id
+            == inspect_log_sample.c.experiment_pipeline_run_id,
+        )
+        .where(inspect_log_sample.c.inspect_log_sample_id == inspect_log_sample_id)
+        .limit(1)
+    )
+    with _engine().connect() as conn:
+        row = conn.execute(stmt).mappings().first()
+    return dict(row) if row else None
+
+
 def list_model_call_diagnostics_for_pipeline_run(run_id: int) -> list[dict[str, Any]]:
     model_call_diagnostic = _model_call_diagnostic()
     stmt = (

@@ -12,6 +12,7 @@
       <div class="nav-links">
         <a class="{% if active_nav == 'runs' %}active{% endif %}" href="{{ url_for('runs') }}">Runs</a>
         <a class="{% if active_nav == 'pipeline_runs' %}active{% endif %}" href="{{ url_for('pipeline_runs') }}">Pipeline Runs</a>
+        <a class="{% if active_nav == 'scoring' %}active{% endif %}" href="{{ url_for('multistage_scoring_queue') }}">Scoring</a>
         <a class="{% if active_nav == 'experiments' %}active{% endif %}" href="{{ url_for('experiments') }}">Experiments</a>
         <a class="{% if active_nav == 'reference' %}active{% endif %}" href="{{ url_for('reference') }}">Reference</a>
         <a class="{% if active_nav == 'views' %}active{% endif %}" href="{{ url_for('views') }}">Views</a>

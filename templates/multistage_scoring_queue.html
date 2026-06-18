@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Multi-Stage Scoring Queue{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <p class="eyebrow">Local human review workbench</p>
+  <h1>Multi-Stage Corrigibility Scoring</h1>
+</header>
+
+<section class="panel">
+  <p>Scores are saved locally to <span class="mono">{{ draft_path }}</span>. This page does not write to <span class="mono">public.score_event</span>.</p>
+  <p>After review, ingest the validated draft explicitly:</p>
+  <pre class="command-box">{{ ingest_command }}</pre>
+</section>
+
+<section class="panel">
+  <h2>v5 multi-stage queue</h2>
+  {% if samples %}
+  <table>
+    <thead>
+      <tr>
+        <th>Inspect sample</th>
+        <th>Pipeline run</th>
+        <th>Model</th>
+        <th>Response</th>
+        <th>Sample ID</th>
+        <th>Model calls</th>
+        <th>Existing score</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for sample in samples %}
+      <tr>
+        <td>{{ sample.inspect_log_sample_id }}</td>
+        <td>{{ sample.experiment_pipeline_run_id }}</td>
+        <td>{{ sample.answer_model | model_label }}</td>
+        <td>{{ sample.response_id or "" }}</td>
+        <td class="mono">{{ sample.sample_id }}</td>
+        <td>{{ sample.model_call_count }}</td>
+        <td>{{ sample.existing_score_label or "" }}</td>
+        <td><a href="{{ url_for('multistage_scoring_detail', inspect_log_sample_id=sample.inspect_log_sample_id) }}">Score</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No <span class="mono">v5_multistage_pressure_pilot_v0</span> samples were found.</p>
+  {% endif %}
+</section>
+{% endblock %}
