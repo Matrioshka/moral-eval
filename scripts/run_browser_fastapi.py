@@ -1089,22 +1089,94 @@ def multistage_scoring_queue(request: Request):
 
 @app.get("/scoring/multistage/{inspect_log_sample_id}")
 def multistage_scoring_detail(
+    inspect_log_sample_id: int,
+):
+    return RedirectResponse(
+        url=f"/scoring/multistage/{inspect_log_sample_id}/score",
+        status_code=307,
+    )
+
+
+def render_multistage_scoring_subpage(
     request: Request,
     inspect_log_sample_id: int,
-    saved: bool = Query(default=False),
-    load_ai_prefill: bool = Query(default=False),
+    *,
+    template_name: str,
+    active_scoring_page: str,
+    saved: bool = False,
+    load_ai_prefill: bool = False,
 ):
     sample = get_multistage_scoring_sample(inspect_log_sample_id)
     if not sample:
         raise HTTPException(status_code=404, detail="Inspect log sample not found.")
     return templates.TemplateResponse(
         request=request,
-        name="multistage_scoring_detail.html",
-        context=multistage_scoring_page_context(
-            sample,
-            saved=saved,
-            load_ai_prefill=load_ai_prefill,
-        ),
+        name=template_name,
+        context={
+            **multistage_scoring_page_context(
+                sample,
+                saved=saved,
+                load_ai_prefill=load_ai_prefill,
+            ),
+            "active_scoring_page": active_scoring_page,
+        },
+    )
+
+
+@app.get("/scoring/multistage/{inspect_log_sample_id}/score")
+def multistage_scoring_score(
+    request: Request,
+    inspect_log_sample_id: int,
+    saved: bool = Query(default=False),
+    load_ai_prefill: bool = Query(default=False),
+):
+    return render_multistage_scoring_subpage(
+        request,
+        inspect_log_sample_id,
+        template_name="multistage_scoring_score.html",
+        active_scoring_page="score",
+        saved=saved,
+        load_ai_prefill=load_ai_prefill,
+    )
+
+
+@app.get("/scoring/multistage/{inspect_log_sample_id}/dialogue")
+def multistage_scoring_dialogue(request: Request, inspect_log_sample_id: int):
+    return render_multistage_scoring_subpage(
+        request,
+        inspect_log_sample_id,
+        template_name="multistage_scoring_dialogue.html",
+        active_scoring_page="dialogue",
+    )
+
+
+@app.get("/scoring/multistage/{inspect_log_sample_id}/scenario")
+def multistage_scoring_scenario(request: Request, inspect_log_sample_id: int):
+    return render_multistage_scoring_subpage(
+        request,
+        inspect_log_sample_id,
+        template_name="multistage_scoring_scenario.html",
+        active_scoring_page="scenario",
+    )
+
+
+@app.get("/scoring/multistage/{inspect_log_sample_id}/provenance")
+def multistage_scoring_provenance(request: Request, inspect_log_sample_id: int):
+    return render_multistage_scoring_subpage(
+        request,
+        inspect_log_sample_id,
+        template_name="multistage_scoring_provenance.html",
+        active_scoring_page="provenance",
+    )
+
+
+@app.get("/scoring/multistage/{inspect_log_sample_id}/ingest")
+def multistage_scoring_ingest(request: Request, inspect_log_sample_id: int):
+    return render_multistage_scoring_subpage(
+        request,
+        inspect_log_sample_id,
+        template_name="multistage_scoring_ingest.html",
+        active_scoring_page="ingest",
     )
 
 
@@ -1124,17 +1196,20 @@ async def multistage_scoring_save(request: Request, inspect_log_sample_id: int):
     except ValueError as exc:
         return templates.TemplateResponse(
             request=request,
-            name="multistage_scoring_detail.html",
-            context=multistage_scoring_page_context(
-                sample,
-                form_values=form_values,
-                errors=[str(exc)],
-            ),
+            name="multistage_scoring_score.html",
+            context={
+                **multistage_scoring_page_context(
+                    sample,
+                    form_values=form_values,
+                    errors=[str(exc)],
+                ),
+                "active_scoring_page": "score",
+            },
             status_code=400,
         )
 
     return RedirectResponse(
-        url=f"/scoring/multistage/{inspect_log_sample_id}?saved=true",
+        url=f"/scoring/multistage/{inspect_log_sample_id}/score?saved=true",
         status_code=303,
     )
 

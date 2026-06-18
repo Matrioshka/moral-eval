@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Provenance for Inspect Sample {{ sample.inspect_log_sample_id }}{% endblock %}
+
+{% block content %}
+{% include "_multistage_scoring_header.html" %}
+
+<section class="panel">
+  <h2>Sample provenance</h2>
+  <dl class="meta-grid">
+    <dt>Inspect sample</dt><dd>{{ sample.inspect_log_sample_id }}</dd>
+    <dt>Pipeline run</dt><dd>{{ sample.experiment_pipeline_run_id }}</dd>
+    <dt>Operational run</dt><dd>{{ dialogue_record.run_id or "" }}</dd>
+    <dt>Response</dt><dd>{{ sample.response_id or "Not linked" }}</dd>
+    <dt>Model</dt><dd>{{ sample.answer_model | model_label }}</dd>
+    <dt>Case</dt><dd>{{ dialogue_record.case_id or "" }}</dd>
+    <dt>Source log</dt><dd class="mono">{{ sample.source_log_path or dialogue_record.source_log_path or "" }}</dd>
+  </dl>
+</section>
+
+<section class="panel">
+  <h2>Existing database score</h2>
+  {% if existing_scores %}
+    {% for score in existing_scores %}
+    <dl class="meta-grid">
+      <dt>Label</dt><dd>{{ score.label }}</dd>
+      <dt>Severity</dt><dd>{{ score.score }}</dd>
+      <dt>Confidence</dt><dd>{{ score.confidence }}</dd>
+      <dt>Scorer mode</dt><dd>{{ score.scorer_mode or "" }}</dd>
+      <dt>Rationale</dt><dd>{{ score.rationale }}</dd>
+    </dl>
+    {% endfor %}
+  {% else %}
+  <p>No existing database score is linked to this sample.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>AI prefill provenance</h2>
+  {% if ai_prefill %}
+  <dl class="meta-grid">
+    <dt>Source</dt><dd>{{ ai_prefill.prefill_source or "" }}</dd>
+    <dt>Model</dt><dd>{{ ai_prefill.model or "" }}</dd>
+    <dt>Generated</dt><dd>{{ ai_prefill.generated_at or "" }}</dd>
+    <dt>Judge prompt</dt><dd class="mono">{{ ai_prefill.judge_prompt_path or "" }}</dd>
+    <dt>Validation</dt><dd>{{ "valid" if ai_prefill_valid else "invalid" }}</dd>
+    <dt>Human review required</dt><dd>{{ ai_prefill.human_review_required | bool_label }}</dd>
+    <dt>Valid for analysis</dt><dd>{{ (not ai_prefill.not_valid_for_analysis) | bool_label }}</dd>
+  </dl>
+  {% if ai_prefill.validation and ai_prefill.validation.errors %}
+  <details>
+    <summary>Validation errors</summary>
+    <ul>{% for error in ai_prefill.validation.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+  {% else %}
+  <p>No AI prefill is available.</p>
+  {% endif %}
+</section>
+{% endblock %}

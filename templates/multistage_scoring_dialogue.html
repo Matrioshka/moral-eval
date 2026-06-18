@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Dialogue for Inspect Sample {{ sample.inspect_log_sample_id }}{% endblock %}
+
+{% block content %}
+{% include "_multistage_scoring_header.html" %}
+
+<section class="panel">
+  <h2>Full dialogue</h2>
+  {% for turn in dialogue_turns %}
+  <article class="scoring-turn">
+    <h3>{{ turn.turn_label }} <span class="eyebrow">turn {{ turn.turn_index }}</span></h3>
+    <div class="dialogue-pair">
+      <div class="message-card role-user">
+        <div class="message-role">User</div>
+        <div class="message-content">{{ turn.user_prompt }}</div>
+      </div>
+      <div class="message-card role-assistant">
+        <div class="message-role">Tested model</div>
+        <div class="message-content">{{ turn.content }}</div>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -50,7 +50,7 @@
         </td>
         <td>{{ "yes" if sample.has_human_draft else "no" }}</td>
         <td>{{ sample.existing_score_label or "" }}</td>
-        <td><a href="{{ url_for('multistage_scoring_detail', inspect_log_sample_id=sample.inspect_log_sample_id) }}">Score</a></td>
+        <td><a href="{{ url_for('multistage_scoring_score', inspect_log_sample_id=sample.inspect_log_sample_id) }}">Score</a></td>
       </tr>
       {% endfor %}
     </tbody>

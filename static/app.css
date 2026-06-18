@@ -259,27 +259,147 @@ button {
   border-top: 0;
 }
 
-.dialogue-pair {
-  display: grid;
+.scoring-page-header {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.scoring-header-badges {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.scoring-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.scoring-subnav a {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-weight: 650;
+  padding: 7px 10px;
+}
+
+.scoring-subnav a.active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.score-block {
+  border-top: 1px solid var(--line);
+  padding: 14px 0;
+}
+
+.score-block:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.score-block h2 {
+  margin-top: 0;
+}
+
+.draft-status {
+  color: var(--muted);
+  margin: 12px 0 0;
+}
+
+.compact-notice {
+  border: 1px solid;
+  border-radius: 6px;
+  margin: 12px 0;
+  padding: 9px 11px;
+}
+
+.ai-assist-card {
+  border: 1px solid;
+  border-radius: 7px;
+  margin: 10px 0 14px;
+  padding: 11px 12px;
+}
+
+.ai-assist-heading {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.ai-assist-heading > div {
+  align-items: center;
+  display: flex;
   gap: 8px;
 }
 
-.turn-score-fieldset {
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  margin: 12px 0;
-  padding: 12px;
+.ai-assist-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(90px, auto));
+  margin: 8px 0;
 }
 
-.turn-score-fieldset legend {
-  font-weight: 700;
-  padding: 0 6px;
+.ai-assist-grid dt,
+.ai-assist-grid dd {
+  border-bottom: 1px solid var(--line);
+  margin: 0;
+  padding: 5px 7px;
+}
+
+.ai-assist-grid dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.ai-rationale,
+.nested-raw-details,
+.turn-dialogue-preview {
+  margin-top: 10px;
+}
+
+.turn-score-card {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  margin: 10px 0;
+}
+
+.turn-score-card > summary {
+  background: var(--panel-soft);
+  font-weight: 750;
+  padding: 10px 12px;
+}
+
+.turn-score-card > summary span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+.turn-score-content {
+  padding: 0 12px 12px;
+}
+
+.dialogue-pair {
+  display: grid;
+  gap: 8px;
 }
 
 .scoring-actions {
   align-items: center;
   display: flex;
   gap: 14px;
+  margin-top: 14px;
 }
 
 table {

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Ingest for Inspect Sample {{ sample.inspect_log_sample_id }}{% endblock %}
+
+{% block content %}
+{% include "_multistage_scoring_header.html" %}
+
+<section class="panel">
+  <h2>Local human draft</h2>
+  <dl class="meta-grid">
+    <dt>Draft path</dt><dd class="mono">{{ draft_path }}</dd>
+    <dt>Draft present</dt><dd>{{ "yes" if draft else "no" }}</dd>
+  </dl>
+  <p>The browser does not execute the ingest command or write directly to <span class="mono">public.score_event</span>.</p>
+</section>
+
+<section class="panel">
+  <h2>Explicit database ingest</h2>
+  <pre class="command-box">{{ ingest_command }}</pre>
+</section>
+
+<details class="panel">
+  <summary>Local human draft JSON</summary>
+  <pre>{{ (draft or {}) | json_pretty }}</pre>
+</details>
+
+<details class="panel">
+  <summary>Dialogue record JSON</summary>
+  <pre>{{ dialogue_record | json_pretty }}</pre>
+</details>
+
+{% if ai_prefill %}
+<details class="panel">
+  <summary>AI prefill wrapper JSON</summary>
+  <pre>{{ ai_prefill | json_pretty }}</pre>
+</details>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,24 @@
+<nav class="crumb"><a href="{{ url_for('multistage_scoring_queue') }}">Multi-Stage Scoring</a> / Inspect Sample {{ sample.inspect_log_sample_id }}</nav>
+
+<header class="page-header scoring-page-header">
+  <div>
+    <p class="eyebrow">{{ sample.dataset_version }}</p>
+    <h1>{{ sample.sample_id }}</h1>
+  </div>
+  <div class="scoring-header-badges">
+    <span class="badge">response={{ sample.response_id or "unlinked" }}</span>
+    {% if existing_scores %}
+    <span class="status-badge status-ok">existing: {{ existing_scores[0].label }}</span>
+    {% else %}
+    <span class="status-badge status-unknown">not scored</span>
+    {% endif %}
+  </div>
+</header>
+
+<nav class="scoring-subnav" aria-label="Multi-stage scoring sections">
+  <a class="{% if active_scoring_page == 'score' %}active{% endif %}" href="{{ url_for('multistage_scoring_score', inspect_log_sample_id=sample.inspect_log_sample_id) }}">Score</a>
+  <a class="{% if active_scoring_page == 'dialogue' %}active{% endif %}" href="{{ url_for('multistage_scoring_dialogue', inspect_log_sample_id=sample.inspect_log_sample_id) }}">Dialogue</a>
+  <a class="{% if active_scoring_page == 'scenario' %}active{% endif %}" href="{{ url_for('multistage_scoring_scenario', inspect_log_sample_id=sample.inspect_log_sample_id) }}">Scenario</a>
+  <a class="{% if active_scoring_page == 'provenance' %}active{% endif %}" href="{{ url_for('multistage_scoring_provenance', inspect_log_sample_id=sample.inspect_log_sample_id) }}">Provenance</a>
+  <a class="{% if active_scoring_page == 'ingest' %}active{% endif %}" href="{{ url_for('multistage_scoring_ingest', inspect_log_sample_id=sample.inspect_log_sample_id) }}">Ingest</a>
+</nav>

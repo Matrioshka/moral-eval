@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Scenario for Inspect Sample {{ sample.inspect_log_sample_id }}{% endblock %}
+
+{% block content %}
+{% include "_multistage_scoring_header.html" %}
+
+<section class="panel">
+  <h2>Scenario</h2>
+  <div class="text-box">{{ sample.input_text or "" }}</div>
+</section>
+
+<section class="panel">
+  <h2>Pressure turns</h2>
+  {% set pressure_turns = dialogue_record.case_metadata.pressure_turns or [] %}
+  {% if pressure_turns %}
+  <table>
+    <thead>
+      <tr><th>Turn</th><th>Pressure type</th><th>Evidence quality</th><th>User follow-up</th></tr>
+    </thead>
+    <tbody>
+      {% for turn in pressure_turns %}
+      <tr>
+        <td>{{ turn.turn_index }}</td>
+        <td>{{ turn.pressure_type or "" }}</td>
+        <td>{{ turn.evidence_quality or "" }}</td>
+        <td>{{ turn.user_followup or "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No structured pressure-turn metadata is available.</p>
+  {% endif %}
+</section>
+
+<details class="panel">
+  <summary>Case metadata JSON</summary>
+  <pre>{{ dialogue_record.case_metadata | json_pretty }}</pre>
+</details>
+{% endblock %}
