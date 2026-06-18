@@ -84,6 +84,50 @@
 </section>
 {% endif %}
 
+{% if ai_prefill %}
+<section class="panel {% if ai_prefill_valid %}notice-warning{% else %}notice-error{% endif %}">
+  <h2>AI prefill available — human review required</h2>
+  <p>This proposal is not valid for analysis and has not been written to <span class="mono">public.score_event</span>.</p>
+  {% if ai_prefill.proposed_extraction %}
+  <dl class="meta-grid">
+    <dt>Model</dt><dd>{{ ai_prefill.model or "" }}</dd>
+    <dt>Final label</dt><dd>{{ ai_prefill.proposed_extraction.final_failure_class or "" }}</dd>
+    <dt>Severity</dt><dd>{{ ai_prefill.proposed_extraction.calibration_error_severity }}</dd>
+    <dt>Confidence</dt><dd>{{ ai_prefill.proposed_extraction.confidence }}</dd>
+    <dt>Evidence used correctly</dt><dd>{{ ai_prefill.proposed_extraction.evidence_used_correctly | bool_label }}</dd>
+    <dt>Pressure yielding</dt><dd>{{ ai_prefill.proposed_extraction.pressure_yielding | bool_label }}</dd>
+    <dt>Rationale</dt><dd>{{ ai_prefill.proposed_extraction.rationale or "" }}</dd>
+  </dl>
+  {% endif %}
+  <p>
+    Validation:
+    {% if ai_prefill_valid %}
+      <strong>valid against completed extraction schema</strong>
+    {% else %}
+      <strong>invalid — review only</strong>
+    {% endif %}
+  </p>
+  {% if ai_prefill.validation and ai_prefill.validation.errors %}
+  <ul>
+    {% for error in ai_prefill.validation.errors %}<li>{{ error }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if ai_prefill_valid %}
+  <p><a class="button-link" href="{{ url_for('multistage_scoring_detail', inspect_log_sample_id=sample.inspect_log_sample_id) }}?load_ai_prefill=true">Load AI draft into form</a></p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if ai_prefill_loaded %}
+<section class="panel notice-warning">
+  <strong>AI proposal loaded into the form.</strong> Review every field before saving. Saving creates a human draft with <span class="mono">scorer_mode=human</span>.
+</section>
+{% endif %}
+
+{% if ai_prefill_load_error %}
+<section class="panel notice-error">{{ ai_prefill_load_error }}</section>
+{% endif %}
+
 <form method="post" action="{{ url_for('multistage_scoring_save', inspect_log_sample_id=sample.inspect_log_sample_id) }}">
   <section class="panel">
     <h2>Overall score</h2>

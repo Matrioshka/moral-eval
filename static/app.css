@@ -202,6 +202,11 @@ a:hover {
   background: var(--error-bg);
 }
 
+.notice-warning {
+  border-color: var(--warning-text);
+  background: var(--warning-bg);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));

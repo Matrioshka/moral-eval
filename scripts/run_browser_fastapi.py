@@ -57,6 +57,7 @@ templates = Jinja2Templates(directory="templates")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_EVAL_LOG_DISPLAY_LIMIT_BYTES = 2 * 1024 * 1024
 MANUAL_SCORING_DRAFT_PATH = PROJECT_ROOT / "tmp" / "manual_scoring" / "multi_stage_manual_scores_draft.jsonl"
+AI_PREFILL_DRAFT_PATH = PROJECT_ROOT / "tmp" / "manual_scoring" / "multi_stage_ai_prefill_draft.jsonl"
 INGEST_MANUAL_SCORES_COMMAND = (
     r".\.venv\Scripts\python.exe .\scripts\score_miscalibrated_corrigibility.py "
     r"--ingest-jsonl .\tmp\manual_scoring\multi_stage_manual_scores_draft.jsonl --write"
@@ -332,6 +333,75 @@ def manual_score_draft_for_sample(
     )
 
 
+def read_ai_prefill_drafts(path: Path = AI_PREFILL_DRAFT_PATH) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8-sig") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid AI prefill JSONL at line {line_number}: {exc.msg}") from exc
+            if not isinstance(record, dict):
+                raise ValueError(f"Invalid AI prefill JSONL at line {line_number}: expected an object")
+            records.append(record)
+    return records
+
+
+def ai_prefill_is_valid(record: dict[str, Any] | None) -> bool:
+    validation = record.get("validation") if isinstance(record, dict) else None
+    return bool(
+        record
+        and isinstance(record.get("proposed_extraction"), dict)
+        and isinstance(validation, dict)
+        and validation.get("valid_against_completed_extraction_schema")
+    )
+
+
+def ai_prefill_for_sample(
+    *,
+    response_id: int | None,
+    inspect_log_sample_id: int,
+    path: Path = AI_PREFILL_DRAFT_PATH,
+) -> dict[str, Any] | None:
+    def matches(record: dict[str, Any]) -> bool:
+        if isinstance(response_id, int):
+            return record.get("response_id") == response_id
+        return record.get("inspect_log_sample_id") == inspect_log_sample_id
+
+    return next(
+        (
+            record
+            for record in read_ai_prefill_drafts(path)
+            if matches(record)
+        ),
+        None,
+    )
+
+
+def multistage_scoring_queue_rows() -> list[dict[str, Any]]:
+    rows = list_multistage_scoring_queue()
+    human_draft_sample_ids = {
+        record.get("inspect_log_sample_id")
+        for record in read_manual_score_drafts()
+        if isinstance(record.get("inspect_log_sample_id"), int)
+    }
+    ai_by_response_id = {
+        record.get("response_id"): record
+        for record in read_ai_prefill_drafts()
+        if isinstance(record.get("response_id"), int)
+    }
+    for row in rows:
+        ai_prefill = ai_by_response_id.get(row.get("response_id"))
+        row["has_ai_prefill"] = ai_prefill is not None
+        row["ai_prefill_valid"] = ai_prefill_is_valid(ai_prefill)
+        row["has_human_draft"] = row.get("inspect_log_sample_id") in human_draft_sample_ids
+    return rows
+
+
 def scoring_dialogue_record(sample: dict[str, Any]) -> dict[str, Any]:
     metadata = sample.get("metadata") if isinstance(sample.get("metadata"), dict) else {}
     source = {
@@ -471,6 +541,8 @@ def manual_score_record_from_form(dialogue_record: dict[str, Any], form: Any) ->
         "confidence": confidence,
         "rationale": rationale,
         "per_turn_judgement": per_turn_judgement,
+        "not_valid_for_analysis": False,
+        "human_review_required": False,
     }
     validate_structured_extraction(record)
     return record
@@ -949,12 +1021,24 @@ def multistage_scoring_page_context(
     form_values: dict[str, Any] | None = None,
     errors: list[str] | None = None,
     saved: bool = False,
+    load_ai_prefill: bool = False,
 ) -> dict[str, Any]:
     dialogue_record = scoring_dialogue_record(sample)
     inspect_log_sample_id = int(sample["inspect_log_sample_id"])
     draft = manual_score_draft_for_sample(inspect_log_sample_id)
+    ai_prefill = ai_prefill_for_sample(
+        response_id=sample.get("response_id"),
+        inspect_log_sample_id=inspect_log_sample_id,
+    )
     default_form_values = manual_score_form_values(draft)
-    if not draft:
+    ai_prefill_loaded = False
+    ai_prefill_load_error = None
+    if load_ai_prefill and ai_prefill_is_valid(ai_prefill):
+        default_form_values = manual_score_form_values(ai_prefill["proposed_extraction"])
+        ai_prefill_loaded = True
+    elif load_ai_prefill:
+        ai_prefill_load_error = "AI prefill is missing or invalid and was not loaded."
+    elif not draft:
         default_form_values.update(
             {
                 "target_update_min": dialogue_record.get("target_update_min"),
@@ -968,6 +1052,10 @@ def multistage_scoring_page_context(
         dialogue_turns=scoring_dialogue_turns(dialogue_record),
         existing_scores=list_multi_stage_corrigibility_scores_for_sample(inspect_log_sample_id),
         draft=draft,
+        ai_prefill=ai_prefill,
+        ai_prefill_valid=ai_prefill_is_valid(ai_prefill),
+        ai_prefill_loaded=ai_prefill_loaded,
+        ai_prefill_load_error=ai_prefill_load_error,
         form_values=form_values if form_values is not None else default_form_values,
         errors=errors or [],
         saved=saved,
@@ -992,7 +1080,7 @@ def multistage_scoring_queue(request: Request):
         name="multistage_scoring_queue.html",
         context=with_active_nav(
             "scoring",
-            samples=list_multistage_scoring_queue(),
+            samples=multistage_scoring_queue_rows(),
             ingest_command=INGEST_MANUAL_SCORES_COMMAND,
             draft_path=MANUAL_SCORING_DRAFT_PATH.relative_to(PROJECT_ROOT),
         ),
@@ -1004,6 +1092,7 @@ def multistage_scoring_detail(
     request: Request,
     inspect_log_sample_id: int,
     saved: bool = Query(default=False),
+    load_ai_prefill: bool = Query(default=False),
 ):
     sample = get_multistage_scoring_sample(inspect_log_sample_id)
     if not sample:
@@ -1011,7 +1100,11 @@ def multistage_scoring_detail(
     return templates.TemplateResponse(
         request=request,
         name="multistage_scoring_detail.html",
-        context=multistage_scoring_page_context(sample, saved=saved),
+        context=multistage_scoring_page_context(
+            sample,
+            saved=saved,
+            load_ai_prefill=load_ai_prefill,
+        ),
     )
 
 
