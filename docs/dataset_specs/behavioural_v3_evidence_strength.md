@@ -18,7 +18,7 @@ Dataset file:
 
 Inspect task:
 
-`src/moral_sycophancy_eval/behaviour.py`
+`src/moral_eval/behaviour.py`
 
 Dataset version:
 
@@ -27,7 +27,7 @@ Dataset version:
 Run command:
 
 ```bash
-inspect eval src/moral_sycophancy_eval/behaviour.py --model openai/gpt-4o-mini -T dataset_version=v3_evidence_strength
+inspect eval src/moral_eval/behaviour.py --model openai/gpt-4o-mini -T dataset_version=v3_evidence_strength
 ```
 
 ## Core design

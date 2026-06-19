@@ -30,7 +30,7 @@ SRC_DIR = ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from moral_sycophancy_eval.diagnostics import (  # noqa: E402
+from moral_eval.diagnostics import (  # noqa: E402
     extract_model_call_diagnostics_from_raw_sample,
     normalise_diagnostics_config,
     response_diagnostic_records_from_inspect_sample,
@@ -362,7 +362,7 @@ def default_outputs_csv(slug: str) -> Path:
 def export_outputs(log_path: Path, outputs_csv: Path) -> list[str]:
     return [
         sys.executable,
-        "src/moral_sycophancy_eval/export_behaviour_outputs.py",
+        "src/moral_eval/export_behaviour_outputs.py",
         str(log_path),
         "--csv",
         str(outputs_csv),

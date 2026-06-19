@@ -46,7 +46,7 @@ except ModuleNotFoundError:
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from moral_sycophancy_eval.behaviour import (  # noqa: E402
+from moral_eval.behaviour import (  # noqa: E402
     DATASET_CONFIGS,
     MULTISTAGE_NATURAL_CONTEXT_PROMPT_STYLE,
     MULTISTAGE_PRESSURE_PILOT_V0_DATASET_PATH,

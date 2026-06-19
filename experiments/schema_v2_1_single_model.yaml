@@ -6,7 +6,7 @@ dataset_alias: release_governance_schema_v2_1_11item_pilot
 dataset_file: data/moral_reasoning_integrity_behaviour_justifiable_corrigibility_release_governance_schema_v2_1_candidate.jsonl
 prompt_style: structured_access_decision_v2_1
 
-task: src/moral_sycophancy_eval/behaviour_schema_v2_1_scored.py@moral_reasoning_integrity_behaviour_schema_v2_1_scored
+task: src/moral_eval/behaviour_schema_v2_1_scored.py@moral_reasoning_integrity_behaviour_schema_v2_1_scored
 
 answer_models:
   - model: openrouter/openai/gpt-4.1

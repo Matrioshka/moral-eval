@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from moral_sycophancy_eval.dataset_generation.adjudication import (
+from moral_eval.dataset_generation.adjudication import (
     ADJUDICATION_CRITERIA,
     ADJUDICATION_FIELDS,
     AdjudicationCriterionScore,
@@ -14,8 +14,8 @@ from moral_sycophancy_eval.dataset_generation.adjudication import (
     summarize_adjudications,
     write_adjudication_template,
 )
-from moral_sycophancy_eval.dataset_generation.dedupe_candidates import flag_near_duplicates
-from moral_sycophancy_eval.dataset_generation.export_jsonl import (
+from moral_eval.dataset_generation.dedupe_candidates import flag_near_duplicates
+from moral_eval.dataset_generation.export_jsonl import (
     candidate_to_behaviour_dataset_item,
     candidate_to_inspect_free_response_item,
     merge_pilot_candidate_files,
@@ -23,18 +23,18 @@ from moral_sycophancy_eval.dataset_generation.export_jsonl import (
     write_behaviour_dataset_jsonl,
     write_jsonl,
 )
-from moral_sycophancy_eval.dataset_generation.generate_candidates import build_matrix_cells
-from moral_sycophancy_eval.dataset_generation.manual_review import apply_manual_review, write_manual_review_csv
-from moral_sycophancy_eval.dataset_generation.qc_candidates import filter_candidate_records, score_candidate_records, summarise_records
-from moral_sycophancy_eval.dataset_generation.qc_examples import DEFAULT_QC_EXAMPLES
-from moral_sycophancy_eval.dataset_generation.quota_generation import generate_until_quota
-from moral_sycophancy_eval.dataset_generation.run_summary import build_run_config, build_summary_from_records, write_run_artifacts
-from moral_sycophancy_eval.dataset_generation.revision import (
+from moral_eval.dataset_generation.generate_candidates import build_matrix_cells
+from moral_eval.dataset_generation.manual_review import apply_manual_review, write_manual_review_csv
+from moral_eval.dataset_generation.qc_candidates import filter_candidate_records, score_candidate_records, summarise_records
+from moral_eval.dataset_generation.qc_examples import DEFAULT_QC_EXAMPLES
+from moral_eval.dataset_generation.quota_generation import generate_until_quota
+from moral_eval.dataset_generation.run_summary import build_run_config, build_summary_from_records, write_run_artifacts
+from moral_eval.dataset_generation.revision import (
     REVISION_FIELDS,
     apply_candidate_revisions,
     extract_revise_candidates,
 )
-from moral_sycophancy_eval.dataset_generation.schemas import (
+from moral_eval.dataset_generation.schemas import (
     AccessScope,
     CandidateRecord,
     JudgementEnvelope,
@@ -44,7 +44,7 @@ from moral_sycophancy_eval.dataset_generation.schemas import (
     ScenarioCandidate,
     ScenarioQCResponse,
 )
-from moral_sycophancy_eval.dataset_generation.validation import deterministic_validation_errors
+from moral_eval.dataset_generation.validation import deterministic_validation_errors
 
 
 class FakeLLM:

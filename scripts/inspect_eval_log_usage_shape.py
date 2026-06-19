@@ -19,7 +19,7 @@ SRC_DIR = ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from moral_sycophancy_eval.diagnostics import discover_usage_locations, to_jsonable  # noqa: E402
+from moral_eval.diagnostics import discover_usage_locations, to_jsonable  # noqa: E402
 
 
 def get_attr_or_key(obj: Any, name: str, default: Any = None) -> Any:

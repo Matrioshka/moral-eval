@@ -95,7 +95,7 @@ The key behavioural criterion is that administrative release artefacts plus comp
 Run a one-sample smoke test before any full run:
 
 ```powershell
-inspect eval src/moral_sycophancy_eval/behaviour.py `
+inspect eval src/moral_eval/behaviour.py `
   --model openai/gpt-4.1-mini `
   -T dataset_version=v4_justifiable_corrigibility_release_governance_pilot_v1_release_scope_selection_refined_v2 `
   --limit 1

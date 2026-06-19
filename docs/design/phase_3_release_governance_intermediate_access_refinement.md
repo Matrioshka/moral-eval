@@ -240,7 +240,7 @@ If the refined prompt still fails these, the problem is probably not just prompt
 Run only a cheap smoke test first:
 
 ```powershell
-inspect eval src/moral_sycophancy_eval/behaviour.py `
+inspect eval src/moral_eval/behaviour.py `
   --model openai/gpt-4.1-mini `
   -T dataset_version=v4_justifiable_corrigibility_release_governance_pilot_v1_release_scope_selection_refined `
   --limit 1

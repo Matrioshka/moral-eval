@@ -4,7 +4,7 @@ param(
 
     [string]$Model = "openai/gpt-4.1-mini",
 
-    [string]$EvalFile = "src/moral_sycophancy_eval/behaviour.py",
+    [string]$EvalFile = "src/moral_eval/behaviour.py",
 
     [string]$LogDir = "logs",
 
@@ -78,7 +78,7 @@ Write-Host "CSV output:"
 Write-Host $Csv
 
 $exportArgs = @(
-    "src/moral_sycophancy_eval/export_behaviour_outputs.py",
+    "src/moral_eval/export_behaviour_outputs.py",
     $latestLog,
     "--csv",
     $Csv

@@ -29,7 +29,7 @@ from scripts.score_miscalibrated_corrigibility import (
     validate_structured_extraction,
     write_jsonl,
 )
-from moral_sycophancy_eval.dataset_generation.llm_clients import retry_with_exponential_backoff
+from moral_eval.dataset_generation.llm_clients import retry_with_exponential_backoff
 
 
 PREFILL_SCHEMA_VERSION: Final = "multi_stage_ai_prefill_v1"

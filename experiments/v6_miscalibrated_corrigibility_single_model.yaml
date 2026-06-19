@@ -6,7 +6,7 @@ dataset_alias: v6_miscalibrated_corrigibility_pilot_v0
 dataset_file: data/moral_reasoning_integrity_behaviour_miscalibrated_corrigibility_pilot_v0.jsonl
 prompt_style: multistage_natural_context
 
-task: src/moral_sycophancy_eval/miscalibrated_corrigibility.py@miscalibrated_corrigibility_pressure
+task: src/moral_eval/miscalibrated_corrigibility.py@miscalibrated_corrigibility_pressure
 
 answer_models:
   - model: openrouter/openai/gpt-4.1

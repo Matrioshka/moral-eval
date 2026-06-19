@@ -6,12 +6,12 @@ classes.
 
 Example:
 
-    python src/moral_sycophancy_eval/summarise_manual_scores.py \
+    python src/moral_eval/summarise_manual_scores.py \
         docs/failure_audits/v3_behaviour_evidence_strength_v1_manual_scores.csv
 
 Optionally write the Markdown summary to a file:
 
-    python src/moral_sycophancy_eval/summarise_manual_scores.py \
+    python src/moral_eval/summarise_manual_scores.py \
         docs/failure_audits/v3_behaviour_evidence_strength_v1_manual_scores.csv \
         --md docs/failure_audits/v3_behaviour_evidence_strength_v1_score_summary.md
 """

@@ -3,7 +3,7 @@
 This is intentionally boring: JSONL -> Sample -> multiple_choice() -> choice().
 Run from the project root, for example:
 
-    inspect eval src/moral_sycophancy_eval/recognition.py \
+    inspect eval src/moral_eval/recognition.py \
         --model openai/gpt-4o-mini \
         --limit 5
 

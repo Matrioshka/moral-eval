@@ -34,12 +34,12 @@ The recognition baseline asks the model to identify which of two answers is syco
 Relevant files:
 
 - `data/moral_sycophancy_recognition_seed_v*.jsonl`
-- `src/moral_sycophancy_eval/recognition.py`
+- `src/moral_eval/recognition.py`
 
 Run:
 
 ```bash
-inspect eval src/moral_sycophancy_eval/recognition.py --model openai/gpt-4o-mini
+inspect eval src/moral_eval/recognition.py --model openai/gpt-4o-mini
 ```
 
 ### Integrity MCQ eval
@@ -49,12 +49,12 @@ The integrity MCQ eval tests whether a model selects the answer that best preser
 Relevant files:
 
 - `data/moral_reasoning_integrity_seed_v*.jsonl`
-- `src/moral_sycophancy_eval/integrity.py`
+- `src/moral_eval/integrity.py`
 
 Run:
 
 ```bash
-inspect eval src/moral_sycophancy_eval/integrity.py --model openai/gpt-4o-mini -T dataset_version=v3
+inspect eval src/moral_eval/integrity.py --model openai/gpt-4o-mini -T dataset_version=v3
 ```
 
 ### Behavioural free-response eval
@@ -63,34 +63,34 @@ The behavioural eval places the model directly in the pressured interaction and 
 
 Relevant files:
 
-- `src/moral_sycophancy_eval/behaviour.py`
-- `src/moral_sycophancy_eval/export_behaviour_outputs.py`
-- `src/moral_sycophancy_eval/summarise_manual_scores.py`
-- `src/moral_sycophancy_eval/behaviour_schema_v2_1_scored.py`
-- `src/moral_sycophancy_eval/schema_v2_1_scorer.py`
+- `src/moral_eval/behaviour.py`
+- `src/moral_eval/export_behaviour_outputs.py`
+- `src/moral_eval/summarise_manual_scores.py`
+- `src/moral_eval/behaviour_schema_v2_1_scored.py`
+- `src/moral_eval/schema_v2_1_scorer.py`
 
 Run the canonical evidence-strength dataset:
 
 ```bash
-inspect eval src/moral_sycophancy_eval/behaviour.py --model openai/gpt-4o-mini -T dataset_version=v3_evidence_strength_v1
+inspect eval src/moral_eval/behaviour.py --model openai/gpt-4o-mini -T dataset_version=v3_evidence_strength_v1
 ```
 
 Run the trap-expansion diagnostic dataset:
 
 ```bash
-inspect eval src/moral_sycophancy_eval/behaviour.py --model openai/gpt-4o-mini -T dataset_version=v3_evidence_strength_trap_expansion_v1
+inspect eval src/moral_eval/behaviour.py --model openai/gpt-4o-mini -T dataset_version=v3_evidence_strength_trap_expansion_v1
 ```
 
 Run the frozen Phase 3 release-governance schema-v2.1 pilot:
 
 ```bash
-inspect eval src/moral_sycophancy_eval/behaviour.py --model openai/gpt-4.1-mini -T dataset_version=v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot
+inspect eval src/moral_eval/behaviour.py --model openai/gpt-4.1-mini -T dataset_version=v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot
 ```
 
 Run the deterministic schema-v2.1 scored variant:
 
 ```bash
-inspect eval src/moral_sycophancy_eval/behaviour_schema_v2_1_scored.py --model openai/gpt-4.1-mini -T dataset_version=v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot
+inspect eval src/moral_eval/behaviour_schema_v2_1_scored.py --model openai/gpt-4.1-mini -T dataset_version=v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot
 ```
 
 Use whichever model/provider string is configured in your Inspect environment.
@@ -177,7 +177,7 @@ The failures are over-approval failures from bounded safety evaluation to more p
 
 #### Deterministic schema-v2.1 scored variant
 
-`src/moral_sycophancy_eval/behaviour_schema_v2_1_scored.py` is an Inspect-native scored variant of the schema-v2.1 behavioural task.
+`src/moral_eval/behaviour_schema_v2_1_scored.py` is an Inspect-native scored variant of the schema-v2.1 behavioural task.
 
 It appends an explicit `SCHEMA_V2_1_ACCESS_DECISION_JSON` block requirement to the prompt and then applies `schema_v2_1_access_scorer`, a deterministic scorer that:
 
@@ -208,7 +208,7 @@ This matches the earlier manual headline count for GPT-4.1-mini on the frozen 11
 Run:
 
 ```bash
-inspect eval src/moral_sycophancy_eval/behaviour_schema_v2_1_scored.py --model openai/gpt-4.1-mini -T dataset_version=v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot
+inspect eval src/moral_eval/behaviour_schema_v2_1_scored.py --model openai/gpt-4.1-mini -T dataset_version=v4_justifiable_corrigibility_release_governance_schema_v2_1_11item_pilot
 ```
 
 Run scorer unit tests:
@@ -268,13 +268,13 @@ A future frozen canonical v2 may merge selected trap-expansion items, but only a
 Generate a Markdown score summary from a manual scoring CSV:
 
 ```bash
-python src/moral_sycophancy_eval/summarise_manual_scores.py docs/failure_audits/v3_behaviour_evidence_strength_v1_manual_scores.csv --md docs/failure_audits/v3_behaviour_evidence_strength_v1_score_summary.md
+python src/moral_eval/summarise_manual_scores.py docs/failure_audits/v3_behaviour_evidence_strength_v1_manual_scores.csv --md docs/failure_audits/v3_behaviour_evidence_strength_v1_score_summary.md
 ```
 
 For the trap expansion:
 
 ```bash
-python src/moral_sycophancy_eval/summarise_manual_scores.py docs/failure_audits/v3_behaviour_evidence_strength_trap_expansion_v1_manual_scores.csv --md docs/failure_audits/v3_behaviour_evidence_strength_trap_expansion_v1_score_summary.md
+python src/moral_eval/summarise_manual_scores.py docs/failure_audits/v3_behaviour_evidence_strength_trap_expansion_v1_manual_scores.csv --md docs/failure_audits/v3_behaviour_evidence_strength_trap_expansion_v1_score_summary.md
 ```
 
 ## Historical notes

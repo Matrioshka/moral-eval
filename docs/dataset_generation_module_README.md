@@ -141,7 +141,7 @@ Identical duplicate `case_id` records are retained once in first-seen order. Con
 
 ## Export to the current Inspect dataset shape
 
-The reviewed export targets the existing multi-stage record contract consumed by `src/moral_sycophancy_eval/behaviour.py`. Behavioural prompts and pressure turns remain separate from judgement and review metadata.
+The reviewed export targets the existing multi-stage record contract consumed by `src/moral_eval/behaviour.py`. Behavioural prompts and pressure turns remain separate from judgement and review metadata.
 
 ```bash
 python scripts/generate_phase3_dataset_candidates.py \

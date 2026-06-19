@@ -6,7 +6,7 @@ manual audit labels on the same samples. It does not re-score model reasoning.
 
 Example:
 
-    python src/moral_sycophancy_eval/compare_manual_vs_inspect_scores.py \
+    python src/moral_eval/compare_manual_vs_inspect_scores.py \
         --eval-log logs/example.eval \
         --manual-csv docs/failure_audits/v4_release_governance_schema_v2_1_candidate_11item_gpt-4.1-mini_structured_access_decision_v2_1_manual_scores.csv \
         --output-md docs/reports/schema_v2_1_manual_vs_deterministic_scoring.md \

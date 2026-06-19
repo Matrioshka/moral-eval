@@ -25,7 +25,7 @@ if str(ROOT / "scripts") not in sys.path:
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from moral_sycophancy_eval.diagnostics import normalise_diagnostics_config  # noqa: E402
+from moral_eval.diagnostics import normalise_diagnostics_config  # noqa: E402
 from run_experiment_pipeline import (  # noqa: E402
     upsert_model_call_diagnostics,
     upsert_response_diagnostics,

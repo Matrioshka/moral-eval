@@ -24,7 +24,7 @@ from backfill_inspect_logs_to_postgres import (  # noqa: E402
     repo_stem_label,
     sample_identifier,
 )
-from moral_sycophancy_eval.diagnostics import normalise_diagnostics_config  # noqa: E402
+from moral_eval.diagnostics import normalise_diagnostics_config  # noqa: E402
 
 
 class BackfillInspectLogsTest(unittest.TestCase):

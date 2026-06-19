@@ -49,25 +49,25 @@ SRC = REPO_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from moral_sycophancy_eval.dataset_generation.generate_candidates import build_matrix_cells
-from moral_sycophancy_eval.dataset_generation.adjudication import (
+from moral_eval.dataset_generation.generate_candidates import build_matrix_cells
+from moral_eval.dataset_generation.adjudication import (
     apply_adjudication,
     write_adjudication_template,
 )
-from moral_sycophancy_eval.dataset_generation.export_jsonl import (
+from moral_eval.dataset_generation.export_jsonl import (
     merge_pilot_candidate_files,
     read_jsonl,
     write_behaviour_dataset_jsonl,
 )
-from moral_sycophancy_eval.dataset_generation.llm_clients import OpenAICompatibleJSONClient, OpenAIParseClient
-from moral_sycophancy_eval.dataset_generation.manual_review import apply_manual_review
-from moral_sycophancy_eval.dataset_generation.pipeline import generate_score_filter_export
-from moral_sycophancy_eval.dataset_generation.quota_generation import generate_until_quota
-from moral_sycophancy_eval.dataset_generation.revision import (
+from moral_eval.dataset_generation.llm_clients import OpenAICompatibleJSONClient, OpenAIParseClient
+from moral_eval.dataset_generation.manual_review import apply_manual_review
+from moral_eval.dataset_generation.pipeline import generate_score_filter_export
+from moral_eval.dataset_generation.quota_generation import generate_until_quota
+from moral_eval.dataset_generation.revision import (
     apply_candidate_revisions,
     extract_revise_candidates,
 )
-from moral_sycophancy_eval.dataset_generation.schemas import MatrixCell
+from moral_eval.dataset_generation.schemas import MatrixCell
 
 
 def parse_args() -> argparse.Namespace:

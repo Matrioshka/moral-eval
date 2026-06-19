@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from moral_sycophancy_eval.diagnostics import (  # noqa: E402
+from moral_eval.diagnostics import (  # noqa: E402
     PROVIDER_SUMMARY_MODE,
     USAGE_ONLY_MODE,
     discover_usage_locations,
@@ -161,7 +161,7 @@ def test_response_diagnostic_upsert_is_idempotent_by_response_mode_version() -> 
 
 def test_diagnostics_do_not_change_inspect_command() -> None:
     base = {
-        "task": "moral_sycophancy_eval/behaviour.py@moral_reasoning_integrity_behaviour",
+        "task": "moral_eval/behaviour.py@moral_reasoning_integrity_behaviour",
         "dataset_version": "v5_multistage_pressure_pilot_v0",
         "model": "openai/test",
     }

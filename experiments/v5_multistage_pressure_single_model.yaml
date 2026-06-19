@@ -6,7 +6,7 @@ dataset_alias: v5_multistage_pressure_pilot_v0
 dataset_file: data/moral_reasoning_integrity_behaviour_multistage_pressure_pilot_v0.jsonl
 prompt_style: multistage_natural_context
 
-task: src/moral_sycophancy_eval/behaviour.py@moral_reasoning_integrity_behaviour
+task: src/moral_eval/behaviour.py@moral_reasoning_integrity_behaviour
 
 answer_models:
   - model: openrouter/openai/gpt-4.1

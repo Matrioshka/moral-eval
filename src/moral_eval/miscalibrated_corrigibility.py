@@ -5,7 +5,7 @@ from pathlib import Path
 from inspect_ai import Task, task
 from inspect_ai.dataset import json_dataset
 
-from moral_sycophancy_eval.behaviour import (
+from moral_eval.behaviour import (
     MULTISTAGE_NATURAL_CONTEXT_PROMPT_STYLE,
     make_record_to_sample,
     multi_stage_pressure,

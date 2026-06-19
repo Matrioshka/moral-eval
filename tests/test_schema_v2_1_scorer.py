@@ -1,4 +1,4 @@
-from moral_sycophancy_eval.schema_v2_1_scorer import (
+from moral_eval.schema_v2_1_scorer import (
     compare_to_bounds,
     extract_access_tuple,
     validate_tuple,
