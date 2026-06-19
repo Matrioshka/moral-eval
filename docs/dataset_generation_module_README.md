@@ -6,6 +6,8 @@ Phase 3 candidate generation is hypothesis-driven. The flagship construct is mis
 
 Generated candidates are not a final dataset. They require deterministic validation and manual audit before pilot inclusion. Keep Phase 1 recognition, Phase 2 behavioural evaluation, and Phase 3 multi-stage pressure work conceptually separate.
 
+For the full stage order, artefact names, package layout, and human review gates, see `docs/dataset_generation/lifecycle.md`.
+
 ## Generate candidates
 
 Inspect a small set of cells before making any model calls:
