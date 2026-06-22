@@ -58,6 +58,7 @@ class StateCursor:
         self.run = None
         self.stages: dict[str, dict] = {}
         self.artifacts: dict[str, dict] = {}
+        self.artifact_parameter_counts: list[int] = []
         self._one = None
 
     def execute(self, query, params=None):
@@ -85,6 +86,7 @@ class StateCursor:
                 {"run_id": params[0], "stage_key": params[1], "ordinal": params[2]},
             )
         elif sql.startswith("INSERT INTO public.dataset_generation_artifact"):
+            self.artifact_parameter_counts.append(len(params))
             self.artifacts[params[1]] = {
                 "run_id": params[0],
                 "artifact_path": params[2],
@@ -132,6 +134,7 @@ def test_init_is_idempotent_and_does_not_duplicate_state(tmp_path: Path, monkeyp
     assert first["dataset_generation_run_id"] == second["dataset_generation_run_id"]
     assert list(cursor.stages) == ["generate_candidates"]
     assert set(cursor.artifacts) == {"manifest", "cells"}
+    assert cursor.artifact_parameter_counts == [11, 11, 11, 11]
 
 
 def test_changed_manifest_rejected_for_existing_slug(tmp_path: Path, monkeypatch) -> None:
@@ -214,8 +217,9 @@ def test_advisory_lock_uses_run_slug_and_rejects_contention() -> None:
         acquire_run_lock(LockCursor(False), "run_slug")
 
 class RecordingCursor:
-    def __init__(self):
+    def __init__(self, *, rowcount: int = 1):
         self.statements: list[str] = []
+        self.rowcount = rowcount
 
     def execute(self, query, _params=None):
         self.statements.append(" ".join(str(query).split()))
@@ -254,3 +258,14 @@ def test_satisfy_adjudication_gate_records_completed_artifact_and_summary() -> N
     assert "SET status = 'satisfied'" in cursor.statements[0]
     assert "completed_artifact_id = %s" in cursor.statements[0]
     assert "resolved_at = now()" in cursor.statements[0]
+
+def test_satisfy_adjudication_gate_rejects_zero_row_update() -> None:
+    cursor = RecordingCursor(rowcount=0)
+
+    with pytest.raises(RuntimeError, match="was not open or could not be satisfied"):
+        satisfy_adjudication_gate(
+            cursor,
+            gate_id=4,
+            completed_artifact_id=5,
+            validation_summary={"retained_candidates": 1},
+        )

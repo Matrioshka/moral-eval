@@ -254,6 +254,7 @@ def record_artifact(
             observation.row_count,
             human_edited,
             json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
+            producing_stage_id,
         ),
     )
 
@@ -586,3 +587,7 @@ def satisfy_adjudication_gate(
             gate_id,
         ),
     )
+    if cur.rowcount != 1:
+        raise RuntimeError(
+            f"adjudication gate {gate_id} was not open or could not be satisfied"
+        )
