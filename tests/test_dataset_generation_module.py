@@ -24,7 +24,11 @@ from moral_eval.dataset_generation.export_jsonl import (
     write_jsonl,
 )
 from moral_eval.dataset_generation.generate_candidates import build_matrix_cells
-from moral_eval.dataset_generation.manual_review import apply_manual_review, write_manual_review_csv
+from moral_eval.dataset_generation.manual_review import (
+    apply_manual_review,
+    prepare_manual_review_inputs,
+    write_manual_review_csv,
+)
 from moral_eval.dataset_generation.qc_candidates import filter_candidate_records, score_candidate_records, summarise_records
 from moral_eval.dataset_generation.qc_examples import DEFAULT_QC_EXAMPLES
 from moral_eval.dataset_generation.quota_generation import generate_until_quota
@@ -37,6 +41,7 @@ from moral_eval.dataset_generation.revision import (
 from moral_eval.dataset_generation.schemas import (
     AccessScope,
     CandidateRecord,
+    CandidateRevision,
     JudgementEnvelope,
     ManualReview,
     MatrixCell,
@@ -656,6 +661,209 @@ def test_apply_candidate_revisions_rejects_invalid_edits(
 
     with pytest.raises(ValueError, match=message):
         apply_candidate_revisions(input_path, notes_path, tmp_path / "invalid.jsonl")
+
+
+def _revised_record(original: CandidateRecord) -> CandidateRecord:
+    revised_candidate = original.candidate.model_copy(
+        update={"title": f"Revised {original.candidate.title}"}
+    )
+    return original.model_copy(
+        update={
+            "candidate": revised_candidate,
+            "adjudication": None,
+            "revision": CandidateRevision(
+                original_candidate=original.candidate,
+                original_adjudication=original.adjudication,
+                revised_fields=["title"],
+                revision_notes="Clarified the title for the bounded revision pass.",
+            ),
+        }
+    )
+
+
+def _prepare_manual_review_fixture(tmp_path, second_pass_verdicts):
+    original_keep = CandidateRecord(
+        candidate=make_candidate("jmcu_p3_manual_original_keep"),
+        qc=make_qc(),
+        adjudication=make_candidate_adjudication("keep"),
+    )
+    original_revise = [
+        CandidateRecord(
+            candidate=make_candidate(f"jmcu_p3_manual_revise_{index}"),
+            qc=make_qc(),
+            adjudication=make_candidate_adjudication("revise"),
+        )
+        for index, _verdict in enumerate(second_pass_verdicts, start=1)
+    ]
+    revised = [_revised_record(record) for record in original_revise]
+    adjudicated_path = tmp_path / "adjudicated_candidates.jsonl"
+    revise_path = tmp_path / "revise_candidates.jsonl"
+    revised_path = tmp_path / "revised_candidates.jsonl"
+    completed_path = tmp_path / "revised_adjudication_completed.csv"
+    adjudicated_revised_path = tmp_path / "adjudicated_revised_candidates.jsonl"
+    write_jsonl(adjudicated_path, [original_keep, *original_revise])
+    write_jsonl(revise_path, original_revise)
+    write_jsonl(revised_path, revised)
+    write_adjudication_csv(
+        completed_path,
+        [
+            make_adjudication_row(record, verdict)
+            for record, verdict in zip(revised, second_pass_verdicts)
+        ],
+    )
+    apply_adjudication(
+        revised_path,
+        completed_path,
+        adjudicated_revised_path,
+        summary_output_path=tmp_path / "fixture_revised_summary.json",
+    )
+    return {
+        "adjudicated": adjudicated_path,
+        "revise": revise_path,
+        "revised": revised_path,
+        "completed": completed_path,
+        "adjudicated_revised": adjudicated_revised_path,
+    }
+
+
+def _run_prepare_manual_review(tmp_path, *, revisions_enabled, paths):
+    return prepare_manual_review_inputs(
+        adjudicated_candidates_jsonl=paths["adjudicated"],
+        ready_output_jsonl=tmp_path / "ready_for_manual_review.jsonl",
+        manual_review_template_csv=tmp_path / "manual_review_gate_template.csv",
+        unresolved_output_jsonl=tmp_path / "unresolved_for_manual_review.jsonl",
+        summary_output_json=tmp_path / "manual_review_preparation_summary.json",
+        revisions_enabled=revisions_enabled,
+        revise_candidates_jsonl=paths.get("revise"),
+        revised_candidates_jsonl=paths.get("revised"),
+        revised_adjudication_csv=paths.get("completed"),
+        adjudicated_revised_candidates_jsonl=paths.get("adjudicated_revised"),
+    )
+
+
+def test_prepare_manual_review_combines_bounded_revision_outcomes(tmp_path):
+    paths = _prepare_manual_review_fixture(tmp_path, ["keep", "revise", "reject"])
+
+    summary = _run_prepare_manual_review(
+        tmp_path, revisions_enabled=True, paths=paths
+    )
+
+    ready = read_jsonl(tmp_path / "ready_for_manual_review.jsonl")
+    unresolved = read_jsonl(tmp_path / "unresolved_for_manual_review.jsonl")
+    assert [record.candidate.case_id for record in ready] == [
+        "jmcu_p3_manual_original_keep",
+        "jmcu_p3_manual_revise_1",
+    ]
+    assert ready[1].candidate.title.startswith("Revised ")
+    assert [record.candidate.case_id for record in unresolved] == [
+        "jmcu_p3_manual_revise_2"
+    ]
+    assert summary == {
+        "original_keep_ready": 1,
+        "original_revise_unresolved": 0,
+        "revised_keep_ready": 1,
+        "revised_revise_unresolved": 1,
+        "revised_reject_excluded": 1,
+        "ready_total": 2,
+        "unresolved_total": 1,
+    }
+    with (tmp_path / "manual_review_gate_template.csv").open(
+        encoding="utf-8", newline=""
+    ) as handle:
+        template_ids = [row["case_id"] for row in csv.DictReader(handle)]
+    assert template_ids == [
+        "jmcu_p3_manual_original_keep",
+        "jmcu_p3_manual_revise_1",
+    ]
+
+
+def test_prepare_manual_review_without_revisions_keeps_revise_unresolved(tmp_path):
+    original_revise = CandidateRecord(
+        candidate=make_candidate("jmcu_p3_manual_unresolved"),
+        qc=make_qc(),
+        adjudication=make_candidate_adjudication("revise"),
+    )
+    adjudicated = tmp_path / "adjudicated_candidates.jsonl"
+    write_jsonl(adjudicated, [original_revise])
+
+    summary = _run_prepare_manual_review(
+        tmp_path,
+        revisions_enabled=False,
+        paths={"adjudicated": adjudicated},
+    )
+
+    assert summary["ready_total"] == 0
+    assert summary["original_revise_unresolved"] == 1
+    assert [
+        record.candidate.case_id
+        for record in read_jsonl(tmp_path / "unresolved_for_manual_review.jsonl")
+    ] == ["jmcu_p3_manual_unresolved"]
+
+
+def test_prepare_manual_review_zero_revise_requires_no_revised_artifacts(tmp_path):
+    original_keep = CandidateRecord(
+        candidate=make_candidate("jmcu_p3_manual_zero_revise"),
+        qc=make_qc(),
+        adjudication=make_candidate_adjudication("keep"),
+    )
+    adjudicated = tmp_path / "adjudicated_candidates.jsonl"
+    revise = tmp_path / "revise_candidates.jsonl"
+    write_jsonl(adjudicated, [original_keep])
+    write_jsonl(revise, [])
+
+    summary = _run_prepare_manual_review(
+        tmp_path,
+        revisions_enabled=True,
+        paths={"adjudicated": adjudicated, "revise": revise},
+    )
+
+    assert summary["ready_total"] == 1
+    assert not (tmp_path / "revised_candidates.jsonl").exists()
+
+
+def test_prepare_manual_review_rejects_duplicate_and_missing_revised_inputs(tmp_path):
+    duplicate = CandidateRecord(
+        candidate=make_candidate("jmcu_p3_manual_duplicate"),
+        qc=make_qc(),
+        adjudication=make_candidate_adjudication("keep"),
+    )
+    duplicate_input = tmp_path / "duplicate.jsonl"
+    write_jsonl(duplicate_input, [duplicate, duplicate])
+    with pytest.raises(ValueError, match="Duplicate candidate case_id"):
+        _run_prepare_manual_review(
+            tmp_path,
+            revisions_enabled=False,
+            paths={"adjudicated": duplicate_input},
+        )
+
+    revise = duplicate.model_copy(
+        update={"adjudication": make_candidate_adjudication("revise")}
+    )
+    revise_input = tmp_path / "needs_revision.jsonl"
+    write_jsonl(revise_input, [revise])
+    with pytest.raises(ValueError, match="required artefacts are missing"):
+        _run_prepare_manual_review(
+            tmp_path,
+            revisions_enabled=True,
+            paths={"adjudicated": revise_input},
+        )
+
+
+def test_prepare_manual_review_rejects_mismatched_attached_revised_adjudication(
+    tmp_path,
+):
+    paths = _prepare_manual_review_fixture(tmp_path, ["keep"])
+    records = read_jsonl(paths["adjudicated_revised"])
+    records[0] = records[0].model_copy(
+        update={"adjudication": make_candidate_adjudication("keep")}
+    )
+    write_jsonl(paths["adjudicated_revised"], records)
+
+    with pytest.raises(ValueError, match="does not match completed CSV"):
+        _run_prepare_manual_review(
+            tmp_path, revisions_enabled=True, paths=paths
+        )
+
 
 def test_apply_manual_review_includes_only_explicit_non_rejected_pilot_rows(tmp_path):
     input_path = tmp_path / "kept_candidates.jsonl"

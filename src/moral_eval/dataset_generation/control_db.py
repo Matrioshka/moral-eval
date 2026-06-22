@@ -746,3 +746,40 @@ def satisfy_revised_adjudication_gate(
         raise RuntimeError(
             f"revised adjudication gate {gate_id} was not open or could not be satisfied"
         )
+
+
+def open_manual_review_gate(
+    cur,
+    *,
+    run_id: int,
+    stage_id: int,
+    template_artifact_id: int,
+    expected_completed_path: str,
+    instructions: str,
+) -> None:
+    cur.execute(
+        """
+        INSERT INTO public.dataset_generation_gate (
+            dataset_generation_run_id,
+            dataset_generation_stage_id,
+            template_artifact_id,
+            gate_key,
+            gate_type,
+            status,
+            expected_completed_path,
+            instructions
+        )
+        VALUES (%s, %s, %s, 'manual_review', 'human_csv_review', 'open', %s, %s)
+        ON CONFLICT (dataset_generation_run_id, gate_key) DO UPDATE SET
+            dataset_generation_stage_id = EXCLUDED.dataset_generation_stage_id,
+            template_artifact_id = EXCLUDED.template_artifact_id,
+            status = 'open',
+            expected_completed_path = EXCLUDED.expected_completed_path,
+            instructions = EXCLUDED.instructions,
+            validation_summary = '{}'::jsonb,
+            opened_at = now(),
+            resolved_at = NULL,
+            updated_at = now()
+        """,
+        (run_id, stage_id, template_artifact_id, expected_completed_path, instructions),
+    )

@@ -14,6 +14,7 @@ from moral_eval.dataset_generation.control_db import (
     count_file_rows,
     initialise_run,
     observe_file,
+    open_manual_review_gate,
     open_revision_gate,
     open_revised_adjudication_gate,
     open_adjudication_gate,
@@ -342,3 +343,17 @@ def test_satisfy_revised_adjudication_gate_requires_one_open_gate() -> None:
             completed_artifact_id=9,
             validation_summary={"retained_candidates": 1},
         )
+
+
+def test_manual_review_gate_is_dedicated_and_non_global() -> None:
+    cursor = RecordingCursor()
+    open_manual_review_gate(
+        cursor,
+        run_id=1,
+        stage_id=2,
+        template_artifact_id=3,
+        expected_completed_path="data/generated/run/manual_review_completed.csv",
+        instructions="Complete manual review.",
+    )
+    assert "'manual_review', 'human_csv_review', 'open'" in cursor.statements[0]
+    assert "UPDATE public.dataset_generation_run" not in cursor.statements[0]

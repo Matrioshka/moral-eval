@@ -19,6 +19,7 @@ from .control_db import (
     mark_stage_skipped,
     observe_file,
     open_adjudication_gate,
+    open_manual_review_gate,
     open_revision_gate,
     open_revised_adjudication_gate,
     record_artifact,
@@ -29,6 +30,7 @@ from .control_db import (
 )
 from .llm_clients import OpenAICompatibleJSONClient, OpenAIParseClient
 from .manifest import DatasetGenerationManifest, manifest_from_snapshot
+from .manual_review import prepare_manual_review_inputs
 from .pipeline import generate_score_filter_export
 from .quota_generation import generate_until_quota
 from .revision import apply_candidate_revisions, extract_revise_candidates
@@ -42,6 +44,7 @@ SUPPORTED_STAGES = {
     "apply_revision",
     "prepare_revised_adjudication",
     "apply_revised_adjudication",
+    "prepare_manual_review",
 }
 GENERATION_ARTIFACTS = (
     ("raw_candidates", "raw_candidates.jsonl", "jsonl", "generated_candidates"),
@@ -230,6 +233,42 @@ def execute_apply_revised_adjudication(
     return output_jsonl, summary_json, len(retained)
 
 
+def execute_prepare_manual_review(
+    manifest: DatasetGenerationManifest,
+    repo_root: Path,
+) -> tuple[Path, Path, Path, Path, dict[str, int]]:
+    output_dir = repo_root / manifest.run.output_dir
+    ready_jsonl = output_dir / "ready_for_manual_review.jsonl"
+    template_csv = output_dir / "manual_review_gate_template.csv"
+    unresolved_jsonl = output_dir / "unresolved_for_manual_review.jsonl"
+    summary_json = output_dir / "manual_review_preparation_summary.json"
+    conflicts = [
+        path
+        for path in (ready_jsonl, template_csv, unresolved_jsonl, summary_json)
+        if path.exists()
+    ]
+    if conflicts:
+        rendered = ", ".join(str(path) for path in conflicts)
+        raise FileExistsError(
+            f"refusing to overwrite manual-review preparation output(s): {rendered}"
+        )
+    summary = prepare_manual_review_inputs(
+        adjudicated_candidates_jsonl=output_dir / "adjudicated_candidates.jsonl",
+        ready_output_jsonl=ready_jsonl,
+        manual_review_template_csv=template_csv,
+        unresolved_output_jsonl=unresolved_jsonl,
+        summary_output_json=summary_json,
+        revisions_enabled=manifest.workflow.revisions,
+        revise_candidates_jsonl=output_dir / "revise_candidates.jsonl",
+        revised_candidates_jsonl=output_dir / "revised_candidates.jsonl",
+        revised_adjudication_csv=output_dir / "revised_adjudication_completed.csv",
+        adjudicated_revised_candidates_jsonl=(
+            output_dir / "adjudicated_revised_candidates.jsonl"
+        ),
+    )
+    return ready_jsonl, template_csv, unresolved_jsonl, summary_json, summary
+
+
 def _revised_candidate_count(output_dir: Path) -> int | None:
     revised = output_dir / "revised_candidates.jsonl"
     if revised.is_file():
@@ -275,6 +314,19 @@ def _stage_config(manifest: DatasetGenerationManifest, stage_key: str) -> dict[s
             "output_artifacts": [
                 "adjudicated_revised_candidates",
                 "revised_adjudication_summary",
+            ],
+        }
+    if stage_key == "prepare_manual_review":
+        return {
+            "input_artifacts": [
+                "adjudicated_candidates",
+                "adjudicated_revised_candidates",
+            ],
+            "output_artifacts": [
+                "ready_for_manual_review",
+                "manual_review_gate_template",
+                "unresolved_for_manual_review",
+                "manual_review_preparation_summary",
             ],
         }
     return {"input_artifact": "kept_candidates", "output": "adjudication_template.csv"}
@@ -361,6 +413,10 @@ def advance_one(
     apply_revised_adjudication_executor: Callable[
         [DatasetGenerationManifest, Path, Path], tuple[Path, Path, int]
     ] = execute_apply_revised_adjudication,
+    prepare_manual_review_executor: Callable[
+        [DatasetGenerationManifest, Path],
+        tuple[Path, Path, Path, Path, dict[str, int]],
+    ] = execute_prepare_manual_review,
 ) -> NextResult:
     """Advance at most one supported stage for a run."""
     root = Path(repo_root).resolve()
@@ -932,6 +988,105 @@ def advance_one(
                         completed_path=_repo_relative(
                             completed_revised_adjudication_file, root
                         ),
+                    )
+                if stage_key == "prepare_manual_review":
+                    (
+                        ready_jsonl,
+                        template_csv,
+                        unresolved_jsonl,
+                        summary_json,
+                        summary,
+                    ) = prepare_manual_review_executor(manifest, root)
+                    outputs = (
+                        (
+                            "ready_for_manual_review",
+                            ready_jsonl,
+                            "jsonl",
+                            "manual_review_input",
+                        ),
+                        (
+                            "manual_review_gate_template",
+                            template_csv,
+                            "csv",
+                            "human_gate_template",
+                        ),
+                        (
+                            "unresolved_for_manual_review",
+                            unresolved_jsonl,
+                            "jsonl",
+                            "unresolved_after_revision",
+                        ),
+                        (
+                            "manual_review_preparation_summary",
+                            summary_json,
+                            "json",
+                            "manual_review_preparation_summary",
+                        ),
+                    )
+                    for artifact_key, path, artifact_type, artifact_role in outputs:
+                        if not path.is_file():
+                            raise RuntimeError(
+                                "manual-review preparation did not produce expected "
+                                f"artefact: {path}"
+                            )
+                        record_artifact(
+                            cur,
+                            run_id=run_id,
+                            artifact_key=artifact_key,
+                            artifact_path=_repo_relative(path, root),
+                            artifact_type=artifact_type,
+                            artifact_role=artifact_role,
+                            observation=observe_file(path),
+                            producing_stage_id=stage_id,
+                        )
+                    artifact_keys = [item[0] for item in outputs]
+                    mark_stage_completed(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        result={"artifact_keys": artifact_keys, **summary},
+                    )
+                    if summary["ready_total"] > 0:
+                        template_id = artifact_id(
+                            cur,
+                            run_id=run_id,
+                            artifact_key="manual_review_gate_template",
+                        )
+                        completed_relative = _repo_relative(
+                            template_csv.with_name("manual_review_completed.csv"),
+                            root,
+                        )
+                        template_relative = _repo_relative(template_csv, root)
+                        instructions = (
+                            f"Copy {template_relative} to {completed_relative}, "
+                            "complete every manual-review row, then run the next command."
+                        )
+                        open_manual_review_gate(
+                            cur,
+                            run_id=run_id,
+                            stage_id=stage_id,
+                            template_artifact_id=template_id,
+                            expected_completed_path=completed_relative,
+                            instructions=instructions,
+                        )
+                        connection.commit()
+                        return NextResult(
+                            "completed",
+                            "Review task opened at manual_review gate.\n"
+                            f"Template CSV: {template_relative}\n"
+                            f"CSV to edit: {completed_relative}\n"
+                            f"Instructions: {instructions}\n"
+                            f"Next command: python scripts/moral_gen.py next {run_slug}",
+                            stage_key=stage_key,
+                            template_path=template_relative,
+                            completed_path=completed_relative,
+                        )
+                    connection.commit()
+                    return NextResult(
+                        "completed",
+                        "Completed stage: prepare_manual_review; no candidates are ready, "
+                        "so no manual-review gate was opened.",
+                        stage_key=stage_key,
                     )
                 template_path = adjudication_executor(manifest, root)
                 if not template_path.is_file():

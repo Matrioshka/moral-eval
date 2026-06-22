@@ -172,6 +172,13 @@ def patch_db(monkeypatch, state: dict, events: list[tuple]) -> None:
             ("revised_adjudication_gate_satisfied", kwargs["completed_artifact_id"])
         ),
     )
+    monkeypatch.setattr(
+        runner,
+        "open_manual_review_gate",
+        lambda _cur, **kwargs: events.append(
+            ("manual_review_gate", kwargs["expected_completed_path"])
+        ),
+    )
 
 
 def write_generation_outputs(manifest, repo_root: Path) -> None:
@@ -818,3 +825,102 @@ def test_revised_adjudication_executors_refuse_conflicting_outputs(
                 tmp_path,
                 output / "revised_adjudication_completed.csv",
             )
+
+
+def _fake_prepare_manual_review(repo_root: Path, manifest, *, ready_total: int):
+    output = repo_root / manifest.run.output_dir
+    output.mkdir(parents=True, exist_ok=True)
+    ready = output / "ready_for_manual_review.jsonl"
+    template = output / "manual_review_gate_template.csv"
+    unresolved = output / "unresolved_for_manual_review.jsonl"
+    summary = output / "manual_review_preparation_summary.json"
+    ready.write_text(
+        '{"candidate":{"case_id":"ready-1"}}\n' if ready_total else "",
+        encoding="utf-8",
+    )
+    template.write_text(
+        "case_id,manual_decision\n" + ("ready-1,\n" if ready_total else ""),
+        encoding="utf-8",
+    )
+    unresolved.write_text("", encoding="utf-8")
+    summary.write_text(f'{{"ready_total":{ready_total}}}\n', encoding="utf-8")
+    return ready, template, unresolved, summary, {
+        "original_keep_ready": ready_total,
+        "original_revise_unresolved": 0,
+        "revised_keep_ready": 0,
+        "revised_revise_unresolved": 0,
+        "revised_reject_excluded": 0,
+        "ready_total": ready_total,
+        "unresolved_total": 0,
+    }
+
+
+def test_prepare_manual_review_records_outputs_and_opens_only_manual_gate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    events: list[tuple] = []
+    patch_db(monkeypatch, execution_state("prepare_manual_review"), events)
+
+    result = advance_one(
+        FakeConnection(),
+        "runner_test",
+        repo_root=tmp_path,
+        prepare_manual_review_executor=lambda manifest, root: (
+            _fake_prepare_manual_review(root, manifest, ready_total=1)
+        ),
+    )
+
+    assert result.outcome == "completed"
+    assert result.completed_path.endswith("manual_review_completed.csv")
+    assert [event[1] for event in events if event[0] == "artifact"] == [
+        "ready_for_manual_review",
+        "manual_review_gate_template",
+        "unresolved_for_manual_review",
+        "manual_review_preparation_summary",
+    ]
+    assert (
+        "manual_review_gate",
+        "data/generated/runner_test/manual_review_completed.csv",
+    ) in events
+    assert not any(
+        event[0] in {"gate", "revision_gate", "revised_adjudication_gate"}
+        for event in events
+    )
+    assert len([event for event in events if event[0] == "completed"]) == 1
+
+
+def test_prepare_manual_review_zero_ready_records_audit_without_gate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    events: list[tuple] = []
+    patch_db(monkeypatch, execution_state("prepare_manual_review"), events)
+
+    result = advance_one(
+        FakeConnection(),
+        "runner_test",
+        repo_root=tmp_path,
+        prepare_manual_review_executor=lambda manifest, root: (
+            _fake_prepare_manual_review(root, manifest, ready_total=0)
+        ),
+    )
+
+    assert result.outcome == "completed"
+    assert "no manual-review gate was opened" in result.message
+    assert len([event for event in events if event[0] == "artifact"]) == 4
+    assert not any("gate" in event[0] for event in events)
+
+
+def test_prepare_manual_review_executor_refuses_conflicting_outputs(
+    tmp_path: Path,
+) -> None:
+    snapshot = manifest_snapshot(allow_model_calls=False)
+    snapshot["workflow"]["manual_review"] = True
+    manifest = runner.manifest_from_snapshot(snapshot)
+    output = tmp_path / manifest.run.output_dir
+    output.mkdir(parents=True)
+    existing = output / "ready_for_manual_review.jsonl"
+    existing.write_text("existing", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        runner.execute_prepare_manual_review(manifest, tmp_path)
+    assert existing.read_text(encoding="utf-8") == "existing"
