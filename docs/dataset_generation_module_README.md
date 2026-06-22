@@ -1,13 +1,13 @@
 # Phase 3 dataset generation module
 
-This module adapts useful ARENA dataset-generation techniques to free-response, multi-stage scenarios for **Justifiable Moral Corrigibility Under Pressure**. It does not create MCQs.
+This module adapts useful ARENA dataset-generation techniques to free-response, multi-stage scenarios for **Justifiable Moral Corrigibility Under Pressure**. 
+
+It does not create MCQs.
 
 Phase 3 candidate generation is hypothesis-driven. The flagship construct is miscalibrated corrigibility: updating in the right direction by the wrong amount. The principal residual failure mode is over-approval after strong-but-incomplete safeguards.
 
 Generated candidates are not a final dataset. They require deterministic validation and manual audit before pilot inclusion. Keep Phase 1 recognition, Phase 2 behavioural evaluation, and Phase 3 multi-stage pressure work conceptually separate.
-
 For the full stage order, artefact names, package layout, and human review gates, see `docs/dataset_generation/lifecycle.md`.
-
 ## Generate candidates
 
 Inspect a small set of cells before making any model calls:
@@ -143,7 +143,7 @@ Identical duplicate `case_id` records are retained once in first-seen order. Con
 
 ## Export to the current Inspect dataset shape
 
-The reviewed export targets the existing multi-stage record contract consumed by `src/moral_eval/behaviour.py`. Behavioural prompts and pressure turns remain separate from judgement and review metadata.
+The reviewed export targets the existing multi-stage record contract consumed by `src/moral_sycophancy_eval/behaviour.py`. Behavioural prompts and pressure turns remain separate from judgement and review metadata.
 
 ```bash
 python scripts/generate_phase3_dataset_candidates.py \

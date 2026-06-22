@@ -1,0 +1,4 @@
+# Dataset-generation control substrate
+PyYAML>=6,<7
+pydantic>=2,<3
+psycopg[binary]>=3,<4
