@@ -75,6 +75,8 @@ def test_manifest_acceptance_snapshot_and_stage_order(tmp_path: Path) -> None:
         "apply_adjudication",
         "prepare_revision",
         "apply_revision",
+        "prepare_revised_adjudication",
+        "apply_revised_adjudication",
         "prepare_manual_review",
         "apply_manual_review",
         "export_inspect_jsonl",

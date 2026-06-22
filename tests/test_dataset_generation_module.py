@@ -453,6 +453,31 @@ def test_apply_adjudication_handles_keep_revise_reject_and_writes_summary(tmp_pa
     }
 
 
+def test_apply_adjudication_supports_distinct_summary_output(tmp_path):
+    input_path = tmp_path / "revised_candidates.jsonl"
+    csv_path = tmp_path / "revised_adjudication_completed.csv"
+    output_path = tmp_path / "adjudicated_revised_candidates.jsonl"
+    summary_path = tmp_path / "revised_adjudication_summary.json"
+    original_summary = tmp_path / "adjudication_summary.json"
+    original_summary.write_text('{"original":true}\n', encoding="utf-8")
+    record = CandidateRecord(
+        candidate=make_candidate("jmcu_p3_revised_adjudication_001"),
+        qc=make_qc(),
+    )
+    write_jsonl(input_path, [record])
+    write_adjudication_csv(csv_path, [make_adjudication_row(record, "keep")])
+
+    apply_adjudication(
+        input_path,
+        csv_path,
+        output_path,
+        summary_output_path=summary_path,
+    )
+
+    assert summary_path.exists()
+    assert json.loads(summary_path.read_text(encoding="utf-8"))["keep"] == 1
+    assert original_summary.read_text(encoding="utf-8") == '{"original":true}\n'
+
 def test_apply_adjudication_reports_missing_row(tmp_path):
     input_path = tmp_path / "candidates.jsonl"
     csv_path = tmp_path / "adjudication.csv"

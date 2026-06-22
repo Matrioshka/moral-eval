@@ -15,10 +15,12 @@ from moral_eval.dataset_generation.control_db import (
     initialise_run,
     observe_file,
     open_revision_gate,
+    open_revised_adjudication_gate,
     open_adjudication_gate,
     sha256_file,
     satisfy_adjudication_gate,
     satisfy_revision_gate,
+    satisfy_revised_adjudication_gate,
 )
 from moral_eval.dataset_generation.manifest import load_manifest
 
@@ -307,4 +309,36 @@ def test_satisfy_revision_gate_requires_one_open_gate() -> None:
             gate_id=6,
             completed_artifact_id=7,
             validation_summary={"revised_candidates": 1},
+        )
+
+def test_revised_adjudication_gate_is_dedicated_and_non_global() -> None:
+    cursor = RecordingCursor()
+    open_revised_adjudication_gate(
+        cursor,
+        run_id=1,
+        stage_id=2,
+        template_artifact_id=3,
+        expected_completed_path="data/generated/run/revised_adjudication_completed.csv",
+        instructions="Complete revised adjudication.",
+    )
+    assert "'revised_adjudication', 'human_csv_review', 'open'" in cursor.statements[0]
+    assert "UPDATE public.dataset_generation_run" not in cursor.statements[0]
+
+
+def test_satisfy_revised_adjudication_gate_requires_one_open_gate() -> None:
+    cursor = RecordingCursor()
+    satisfy_revised_adjudication_gate(
+        cursor,
+        gate_id=8,
+        completed_artifact_id=9,
+        validation_summary={"retained_candidates": 1},
+    )
+    assert "gate_key = 'revised_adjudication'" in cursor.statements[0]
+
+    with pytest.raises(RuntimeError, match="revised adjudication gate 8 was not open"):
+        satisfy_revised_adjudication_gate(
+            RecordingCursor(rowcount=0),
+            gate_id=8,
+            completed_artifact_id=9,
+            validation_summary={"retained_candidates": 1},
         )

@@ -233,7 +233,14 @@ def planned_stage_keys(manifest: DatasetGenerationManifest) -> list[str]:
     if manifest.workflow.adjudication:
         stages.extend(["prepare_adjudication", "apply_adjudication"])
     if manifest.workflow.revisions:
-        stages.extend(["prepare_revision", "apply_revision"])
+        stages.extend(
+            [
+                "prepare_revision",
+                "apply_revision",
+                "prepare_revised_adjudication",
+                "apply_revised_adjudication",
+            ]
+        )
     if manifest.workflow.manual_review:
         stages.extend(["prepare_manual_review", "apply_manual_review"])
     if manifest.export.inspect_jsonl:

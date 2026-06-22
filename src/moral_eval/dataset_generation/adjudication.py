@@ -341,6 +341,8 @@ def apply_adjudication(
     input_jsonl: str | Path,
     adjudication_csv: str | Path,
     output_jsonl: str | Path,
+    *,
+    summary_output_path: str | Path | None = None,
 ) -> list[Any]:
     """Attach adjudications and retain keep/revise candidates for later work."""
     from .export_jsonl import read_jsonl, write_jsonl
@@ -378,7 +380,11 @@ def apply_adjudication(
 
     write_jsonl(output_jsonl, retained)
     summary = summarize_adjudications(ordered_adjudications)
-    summary_path = Path(output_jsonl).parent / "adjudication_summary.json"
+    summary_path = (
+        Path(summary_output_path)
+        if summary_output_path is not None
+        else Path(output_jsonl).parent / "adjudication_summary.json"
+    )
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(
         json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

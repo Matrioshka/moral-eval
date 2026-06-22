@@ -20,10 +20,12 @@ from .control_db import (
     observe_file,
     open_adjudication_gate,
     open_revision_gate,
+    open_revised_adjudication_gate,
     record_artifact,
     release_run_lock,
     satisfy_adjudication_gate,
     satisfy_revision_gate,
+    satisfy_revised_adjudication_gate,
 )
 from .llm_clients import OpenAICompatibleJSONClient, OpenAIParseClient
 from .manifest import DatasetGenerationManifest, manifest_from_snapshot
@@ -38,6 +40,8 @@ SUPPORTED_STAGES = {
     "apply_adjudication",
     "prepare_revision",
     "apply_revision",
+    "prepare_revised_adjudication",
+    "apply_revised_adjudication",
 }
 GENERATION_ARTIFACTS = (
     ("raw_candidates", "raw_candidates.jsonl", "jsonl", "generated_candidates"),
@@ -189,6 +193,52 @@ def execute_apply_revision(
     )
     return revised_jsonl, len(records)
 
+def execute_prepare_revised_adjudication(
+    manifest: DatasetGenerationManifest,
+    repo_root: Path,
+) -> Path:
+    output_dir = repo_root / manifest.run.output_dir
+    template = output_dir / "revised_adjudication_template.csv"
+    if template.exists():
+        raise FileExistsError(
+            f"refusing to overwrite revised adjudication template: {template}"
+        )
+    write_adjudication_template(output_dir / "revised_candidates.jsonl", template)
+    return template
+
+
+def execute_apply_revised_adjudication(
+    manifest: DatasetGenerationManifest,
+    repo_root: Path,
+    completed_csv: Path,
+) -> tuple[Path, Path, int]:
+    output_dir = repo_root / manifest.run.output_dir
+    output_jsonl = output_dir / "adjudicated_revised_candidates.jsonl"
+    summary_json = output_dir / "revised_adjudication_summary.json"
+    conflicts = [path for path in (output_jsonl, summary_json) if path.exists()]
+    if conflicts:
+        rendered = ", ".join(str(path) for path in conflicts)
+        raise FileExistsError(
+            f"refusing to overwrite revised adjudication output(s): {rendered}"
+        )
+    retained = apply_adjudication_file(
+        output_dir / "revised_candidates.jsonl",
+        completed_csv,
+        output_jsonl,
+        summary_output_path=summary_json,
+    )
+    return output_jsonl, summary_json, len(retained)
+
+
+def _revised_candidate_count(output_dir: Path) -> int | None:
+    revised = output_dir / "revised_candidates.jsonl"
+    if revised.is_file():
+        return observe_file(revised).row_count or 0
+    revise = output_dir / "revise_candidates.jsonl"
+    if revise.is_file() and (observe_file(revise).row_count or 0) == 0:
+        return 0
+    return None
+
 def _stage_config(manifest: DatasetGenerationManifest, stage_key: str) -> dict[str, Any]:
     if stage_key == "generate_candidates":
         return {
@@ -210,6 +260,22 @@ def _stage_config(manifest: DatasetGenerationManifest, stage_key: str) -> dict[s
         return {
             "input_artifacts": ["revise_candidates", "revision_notes_completed"],
             "output_artifacts": ["revised_candidates"],
+        }
+    if stage_key == "prepare_revised_adjudication":
+        return {
+            "input_artifacts": ["revised_candidates"],
+            "output_artifacts": ["revised_adjudication_template"],
+        }
+    if stage_key == "apply_revised_adjudication":
+        return {
+            "input_artifacts": [
+                "revised_candidates",
+                "revised_adjudication_completed",
+            ],
+            "output_artifacts": [
+                "adjudicated_revised_candidates",
+                "revised_adjudication_summary",
+            ],
         }
     return {"input_artifact": "kept_candidates", "output": "adjudication_template.csv"}
 
@@ -289,6 +355,12 @@ def advance_one(
     apply_revision_executor: Callable[
         [DatasetGenerationManifest, Path, Path], tuple[Path, int]
     ] = execute_apply_revision,
+    revised_adjudication_executor: Callable[
+        [DatasetGenerationManifest, Path], Path
+    ] = execute_prepare_revised_adjudication,
+    apply_revised_adjudication_executor: Callable[
+        [DatasetGenerationManifest, Path, Path], tuple[Path, Path, int]
+    ] = execute_apply_revised_adjudication,
 ) -> NextResult:
     """Advance at most one supported stage for a run."""
     root = Path(repo_root).resolve()
@@ -319,6 +391,7 @@ def advance_one(
             stage_key = str(stage["stage_key"])
             completed_adjudication_file: Path | None = None
             completed_revision_file: Path | None = None
+            completed_revised_adjudication_file: Path | None = None
             if stage_key == "apply_adjudication":
                 if gate is None or gate.get("gate_key") != "adjudication":
                     return NextResult(
@@ -371,6 +444,59 @@ def advance_one(
                 completed_path = gate.get("expected_completed_path")
                 completed_revision_file = root / completed_path if completed_path else None
                 if completed_revision_file is None or not completed_revision_file.is_file():
+                    return NextResult(
+                        "stage_waiting_human",
+                        _stage_waiting_for_gate_message(stage_key, gate),
+                        stage_key=stage_key,
+                        template_path=gate.get("template_path"),
+                        completed_path=completed_path,
+                    )
+            if stage_key in {
+                "prepare_revised_adjudication",
+                "apply_revised_adjudication",
+            }:
+                output_dir = root / str(run["output_dir"])
+                revised_count = _revised_candidate_count(output_dir)
+                if revised_count == 0:
+                    run_id = int(run["dataset_generation_run_id"])
+                    stage_id = int(stage["dataset_generation_stage_id"])
+                    mark_stage_skipped(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        result={
+                            "revised_candidates": 0,
+                            "reason": "no revised candidates",
+                        },
+                    )
+                    connection.commit()
+                    return NextResult(
+                        "skipped",
+                        f"Skipped stage: {stage_key}; there are no revised candidates.",
+                        stage_key=stage_key,
+                    )
+                if revised_count is None:
+                    return NextResult(
+                        "stage_waiting_input",
+                        f"Stage {stage_key} requires "
+                        f"{(output_dir / 'revised_candidates.jsonl').relative_to(root).as_posix()}.",
+                        stage_key=stage_key,
+                    )
+            if stage_key == "apply_revised_adjudication":
+                if gate is None or gate.get("gate_key") != "revised_adjudication":
+                    return NextResult(
+                        "stage_waiting_gate",
+                        "Stage apply_revised_adjudication requires an open revised_adjudication gate.",
+                        stage_key=stage_key,
+                    )
+                completed_path = gate.get("expected_completed_path")
+                completed_revised_adjudication_file = (
+                    root / completed_path if completed_path else None
+                )
+                if (
+                    completed_revised_adjudication_file is None
+                    or not completed_revised_adjudication_file.is_file()
+                ):
                     return NextResult(
                         "stage_waiting_human",
                         _stage_waiting_for_gate_message(stage_key, gate),
@@ -637,6 +763,175 @@ def advance_one(
                         "Completed stage: apply_revision. Gate B is satisfied; revised candidates await re-adjudication.",
                         stage_key=stage_key,
                         completed_path=_repo_relative(completed_revision_file, root),
+                    )
+                if stage_key == "prepare_revised_adjudication":
+                    template_path = revised_adjudication_executor(manifest, root)
+                    if not template_path.is_file():
+                        raise RuntimeError(
+                            "revised adjudication preparation did not produce expected "
+                            f"artefact: {template_path}"
+                        )
+                    template_relative = _repo_relative(template_path, root)
+                    record_artifact(
+                        cur,
+                        run_id=run_id,
+                        artifact_key="revised_adjudication_template",
+                        artifact_path=template_relative,
+                        artifact_type="csv",
+                        artifact_role="human_gate_template",
+                        observation=observe_file(template_path),
+                        producing_stage_id=stage_id,
+                    )
+                    template_id = artifact_id(
+                        cur,
+                        run_id=run_id,
+                        artifact_key="revised_adjudication_template",
+                    )
+                    completed_relative = _repo_relative(
+                        template_path.with_name(
+                            "revised_adjudication_completed.csv"
+                        ),
+                        root,
+                    )
+                    instructions = (
+                        f"Copy {template_relative} to {completed_relative}, adjudicate every "
+                        "revised candidate, then run the next command."
+                    )
+                    mark_stage_completed(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        result={
+                            "artifact_keys": ["revised_adjudication_template"],
+                            "revised_candidates": observe_file(
+                                root / manifest.run.output_dir / "revised_candidates.jsonl"
+                            ).row_count,
+                        },
+                    )
+                    open_revised_adjudication_gate(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        template_artifact_id=template_id,
+                        expected_completed_path=completed_relative,
+                        instructions=instructions,
+                    )
+                    connection.commit()
+                    revised_gate = {
+                        "gate_key": "revised_adjudication",
+                        "template_path": template_relative,
+                        "expected_completed_path": completed_relative,
+                        "instructions": instructions,
+                    }
+                    return NextResult(
+                        "completed",
+                        "Review task opened at revised_adjudication gate.\n"
+                        f"Template CSV: {template_relative}\n"
+                        f"CSV to edit: {completed_relative}\n"
+                        f"Instructions: {instructions}\n"
+                        f"Next command: python scripts/moral_gen.py next {run_slug}",
+                        stage_key=stage_key,
+                        template_path=template_relative,
+                        completed_path=completed_relative,
+                    )
+
+                if stage_key == "apply_revised_adjudication":
+                    if completed_revised_adjudication_file is None or gate is None:
+                        raise RuntimeError(
+                            "revised adjudication gate input was not resolved"
+                        )
+                    output_jsonl, summary_json, retained_count = (
+                        apply_revised_adjudication_executor(
+                            manifest,
+                            root,
+                            completed_revised_adjudication_file,
+                        )
+                    )
+                    for path in (output_jsonl, summary_json):
+                        if not path.is_file():
+                            raise RuntimeError(
+                                "revised adjudication did not produce expected "
+                                f"artefact: {path}"
+                            )
+                    completed_observation = observe_file(
+                        completed_revised_adjudication_file
+                    )
+                    record_artifact(
+                        cur,
+                        run_id=run_id,
+                        artifact_key="revised_adjudication_completed",
+                        artifact_path=_repo_relative(
+                            completed_revised_adjudication_file, root
+                        ),
+                        artifact_type="csv",
+                        artifact_role="human_gate_completed",
+                        observation=completed_observation,
+                        human_edited=True,
+                        producing_stage_id=stage_id,
+                    )
+                    outputs = (
+                        (
+                            "adjudicated_revised_candidates",
+                            output_jsonl,
+                            "jsonl",
+                            "adjudicated_revised_candidates",
+                        ),
+                        (
+                            "revised_adjudication_summary",
+                            summary_json,
+                            "json",
+                            "revised_adjudication_summary",
+                        ),
+                    )
+                    for artifact_key, path, artifact_type, artifact_role in outputs:
+                        record_artifact(
+                            cur,
+                            run_id=run_id,
+                            artifact_key=artifact_key,
+                            artifact_path=_repo_relative(path, root),
+                            artifact_type=artifact_type,
+                            artifact_role=artifact_role,
+                            observation=observe_file(path),
+                            producing_stage_id=stage_id,
+                        )
+                    completed_artifact_id = artifact_id(
+                        cur,
+                        run_id=run_id,
+                        artifact_key="revised_adjudication_completed",
+                    )
+                    validation_summary = {
+                        "completed_csv_rows": completed_observation.row_count,
+                        "retained_candidates": retained_count,
+                    }
+                    satisfy_revised_adjudication_gate(
+                        cur,
+                        gate_id=int(gate["dataset_generation_gate_id"]),
+                        completed_artifact_id=completed_artifact_id,
+                        validation_summary=validation_summary,
+                    )
+                    artifact_keys = [
+                        "revised_adjudication_completed",
+                        "adjudicated_revised_candidates",
+                        "revised_adjudication_summary",
+                    ]
+                    mark_stage_completed(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        result={
+                            "artifact_keys": artifact_keys,
+                            **validation_summary,
+                        },
+                    )
+                    connection.commit()
+                    return NextResult(
+                        "completed",
+                        "Completed stage: apply_revised_adjudication. "
+                        "The revised outputs are not eligible for manual review or export.",
+                        stage_key=stage_key,
+                        completed_path=_repo_relative(
+                            completed_revised_adjudication_file, root
+                        ),
                     )
                 template_path = adjudication_executor(manifest, root)
                 if not template_path.is_file():

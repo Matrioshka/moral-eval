@@ -158,6 +158,20 @@ def patch_db(monkeypatch, state: dict, events: list[tuple]) -> None:
             ("revision_gate_satisfied", kwargs["completed_artifact_id"])
         ),
     )
+    monkeypatch.setattr(
+        runner,
+        "open_revised_adjudication_gate",
+        lambda _cur, **kwargs: events.append(
+            ("revised_adjudication_gate", kwargs["expected_completed_path"])
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "satisfy_revised_adjudication_gate",
+        lambda _cur, **kwargs: events.append(
+            ("revised_adjudication_gate_satisfied", kwargs["completed_artifact_id"])
+        ),
+    )
 
 
 def write_generation_outputs(manifest, repo_root: Path) -> None:
@@ -596,4 +610,211 @@ def test_revision_executors_refuse_conflicting_outputs(
         with pytest.raises(FileExistsError, match="refusing to overwrite revision output"):
             runner.execute_apply_revision(
                 manifest, tmp_path, output / "revision_notes_completed.csv"
+            )
+
+def revised_adjudication_gate() -> dict:
+    return {
+        "dataset_generation_gate_id": 60,
+        "gate_key": "revised_adjudication",
+        "template_path": "data/generated/runner_test/revised_adjudication_template.csv",
+        "expected_completed_path": "data/generated/runner_test/revised_adjudication_completed.csv",
+        "instructions": "Complete revised adjudication.",
+    }
+
+
+def test_revised_adjudication_stages_skip_when_no_revised_candidates(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    (output / "revise_candidates.jsonl").write_text("", encoding="utf-8")
+
+    for stage_key in (
+        "prepare_revised_adjudication",
+        "apply_revised_adjudication",
+    ):
+        events: list[tuple] = []
+        patch_db(monkeypatch, execution_state(stage_key), events)
+        result = advance_one(FakeConnection(), "runner_test", repo_root=tmp_path)
+        assert result.outcome == "skipped"
+        assert ("skipped", 20) in events
+        assert not any(
+            event[0] == "revised_adjudication_gate" for event in events
+        )
+
+
+def test_prepare_revised_adjudication_records_template_and_opens_dedicated_gate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    (output / "revised_candidates.jsonl").write_text(
+        '{"case_id":"revised-1"}\n', encoding="utf-8"
+    )
+    events: list[tuple] = []
+    patch_db(
+        monkeypatch,
+        execution_state("prepare_revised_adjudication"),
+        events,
+    )
+
+    def prepare(manifest, repo_root: Path):
+        template = (
+            repo_root
+            / manifest.run.output_dir
+            / "revised_adjudication_template.csv"
+        )
+        template.write_text("case_id\nrevised-1\n", encoding="utf-8")
+        return template
+
+    result = advance_one(
+        FakeConnection(),
+        "runner_test",
+        repo_root=tmp_path,
+        revised_adjudication_executor=prepare,
+    )
+    assert result.outcome == "completed"
+    assert ("artifact", "revised_adjudication_template") in events
+    assert (
+        "revised_adjudication_gate",
+        "data/generated/runner_test/revised_adjudication_completed.csv",
+    ) in events
+    assert not any(event[0] == "gate" for event in events)
+
+
+def test_apply_revised_adjudication_waits_for_its_completed_csv(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    (output / "revised_candidates.jsonl").write_text(
+        '{"case_id":"revised-1"}\n', encoding="utf-8"
+    )
+    events: list[tuple] = []
+    patch_db(
+        monkeypatch,
+        execution_state(
+            "apply_revised_adjudication",
+            gate=revised_adjudication_gate(),
+        ),
+        events,
+    )
+    result = advance_one(FakeConnection(), "runner_test", repo_root=tmp_path)
+    assert result.outcome == "stage_waiting_human"
+    assert "revised_adjudication_completed.csv" in result.message
+    assert events == [("lock", "runner_test"), ("unlock", "runner_test")]
+
+
+def test_apply_revised_adjudication_records_distinct_outputs_and_satisfies_gate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    (output / "revised_candidates.jsonl").write_text(
+        '{"case_id":"revised-1"}\n', encoding="utf-8"
+    )
+    completed = output / "revised_adjudication_completed.csv"
+    completed.write_text("case_id\nrevised-1\n", encoding="utf-8")
+    original_summary = output / "adjudication_summary.json"
+    original_summary.write_text('{"original":true}\n', encoding="utf-8")
+    events: list[tuple] = []
+    patch_db(
+        monkeypatch,
+        execution_state(
+            "apply_revised_adjudication",
+            gate=revised_adjudication_gate(),
+        ),
+        events,
+    )
+
+    def apply(manifest, repo_root: Path, completed_csv: Path):
+        assert completed_csv == completed
+        target = repo_root / manifest.run.output_dir
+        output_jsonl = target / "adjudicated_revised_candidates.jsonl"
+        summary = target / "revised_adjudication_summary.json"
+        output_jsonl.write_text('{"case_id":"revised-1"}\n', encoding="utf-8")
+        summary.write_text('{"total":1}\n', encoding="utf-8")
+        return output_jsonl, summary, 1
+
+    result = advance_one(
+        FakeConnection(),
+        "runner_test",
+        repo_root=tmp_path,
+        apply_revised_adjudication_executor=apply,
+    )
+    assert result.outcome == "completed"
+    assert [event[1] for event in events if event[0] == "artifact"] == [
+        "revised_adjudication_completed",
+        "adjudicated_revised_candidates",
+        "revised_adjudication_summary",
+    ]
+    assert ("revised_adjudication_gate_satisfied", 30) in events
+    assert original_summary.read_text(encoding="utf-8") == '{"original":true}\n'
+    assert "not eligible for manual review or export" in result.message
+
+
+def test_invalid_revised_adjudication_fails_stage_and_leaves_gate_open(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    (output / "revised_candidates.jsonl").write_text(
+        '{"case_id":"revised-1"}\n', encoding="utf-8"
+    )
+    (output / "revised_adjudication_completed.csv").write_text(
+        "invalid,data\n", encoding="utf-8"
+    )
+    events: list[tuple] = []
+    patch_db(
+        monkeypatch,
+        execution_state(
+            "apply_revised_adjudication",
+            gate=revised_adjudication_gate(),
+        ),
+        events,
+    )
+
+    def invalid(_manifest, _root: Path, _completed: Path):
+        raise ValueError("Adjudication CSV is missing required columns")
+
+    with pytest.raises(StageExecutionError, match="missing required columns"):
+        advance_one(
+            FakeConnection(),
+            "runner_test",
+            repo_root=tmp_path,
+            apply_revised_adjudication_executor=invalid,
+        )
+    assert any(event[0] == "failed" for event in events)
+    assert not any(
+        event[0] == "revised_adjudication_gate_satisfied" for event in events
+    )
+
+
+@pytest.mark.parametrize(
+    "stage_key",
+    ["prepare_revised_adjudication", "apply_revised_adjudication"],
+)
+def test_revised_adjudication_executors_refuse_conflicting_outputs(
+    tmp_path: Path, stage_key: str
+) -> None:
+    manifest = runner.manifest_from_snapshot(
+        manifest_snapshot(allow_model_calls=False)
+    )
+    output = tmp_path / manifest.run.output_dir
+    output.mkdir(parents=True)
+    if stage_key == "prepare_revised_adjudication":
+        (output / "revised_adjudication_template.csv").write_text(
+            "existing", encoding="utf-8"
+        )
+        with pytest.raises(FileExistsError, match="refusing to overwrite"):
+            runner.execute_prepare_revised_adjudication(manifest, tmp_path)
+    else:
+        (output / "adjudicated_revised_candidates.jsonl").write_text(
+            "existing", encoding="utf-8"
+        )
+        with pytest.raises(FileExistsError, match="refusing to overwrite"):
+            runner.execute_apply_revised_adjudication(
+                manifest,
+                tmp_path,
+                output / "revised_adjudication_completed.csv",
             )
