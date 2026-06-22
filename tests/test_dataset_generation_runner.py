@@ -461,7 +461,7 @@ def test_prepare_revision_records_only_revision_outputs_and_opens_gate(
     assert "gate B" in result.message
 
 
-def test_prepare_and_apply_revision_skip_cleanly_when_no_candidates(
+def test_prepare_completes_and_apply_skips_when_no_revision_candidates(
     tmp_path: Path, monkeypatch
 ) -> None:
     prepare_events: list[tuple] = []
@@ -482,8 +482,8 @@ def test_prepare_and_apply_revision_skip_cleanly_when_no_candidates(
         repo_root=tmp_path,
         prepare_revision_executor=prepare_empty,
     )
-    assert prepare_result.outcome == "skipped"
-    assert ("skipped", 20) in prepare_events
+    assert prepare_result.outcome == "completed"
+    assert ("completed", 20) in prepare_events
     assert not any(event[0] == "revision_gate" for event in prepare_events)
 
     apply_events: list[tuple] = []

@@ -523,20 +523,19 @@ def advance_one(
                         )
                     artifact_keys = ["revise_candidates", "revision_notes"]
                     if revise_count == 0:
-                        mark_stage_skipped(
+                        mark_stage_completed(
                             cur,
                             run_id=run_id,
                             stage_id=stage_id,
                             result={
                                 "artifact_keys": artifact_keys,
                                 "revision_candidates": 0,
-                                "reason": "no revise candidates",
                             },
                         )
                         connection.commit()
                         return NextResult(
-                            "skipped",
-                            "Skipped stage: prepare_revision; adjudication produced no revise candidates.",
+                            "completed",
+                            "Completed stage: prepare_revision; adjudication produced no revise candidates.",
                             stage_key=stage_key,
                         )
                     notes_id = artifact_id(cur, run_id=run_id, artifact_key="revision_notes")
