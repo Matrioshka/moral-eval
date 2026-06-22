@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from .adjudication import apply_adjudication as apply_adjudication_file
 from .adjudication import write_adjudication_template
 from .control_db import (
     acquire_run_lock,
@@ -19,6 +20,7 @@ from .control_db import (
     open_adjudication_gate,
     record_artifact,
     release_run_lock,
+    satisfy_adjudication_gate,
 )
 from .llm_clients import OpenAICompatibleJSONClient, OpenAIParseClient
 from .manifest import DatasetGenerationManifest, manifest_from_snapshot
@@ -26,7 +28,7 @@ from .pipeline import generate_score_filter_export
 from .quota_generation import generate_until_quota
 from .schemas import MatrixCell
 
-SUPPORTED_STAGES = {"generate_candidates", "prepare_adjudication"}
+SUPPORTED_STAGES = {"generate_candidates", "prepare_adjudication", "apply_adjudication"}
 GENERATION_ARTIFACTS = (
     ("raw_candidates", "raw_candidates.jsonl", "jsonl", "generated_candidates"),
     ("scored_candidates", "scored_candidates.jsonl", "jsonl", "scored_candidates"),
@@ -121,12 +123,36 @@ def execute_prepare_adjudication(manifest: DatasetGenerationManifest, repo_root:
     return template
 
 
+def execute_apply_adjudication(
+    manifest: DatasetGenerationManifest,
+    repo_root: Path,
+    completed_csv: Path,
+) -> tuple[Path, Path, int]:
+    output_dir = repo_root / manifest.run.output_dir
+    output_jsonl = output_dir / "adjudicated_candidates.jsonl"
+    summary_json = output_dir / "adjudication_summary.json"
+    conflicts = [path for path in (output_jsonl, summary_json) if path.exists()]
+    if conflicts:
+        rendered = ", ".join(str(path) for path in conflicts)
+        raise FileExistsError(f"refusing to overwrite adjudication output(s): {rendered}")
+    retained = apply_adjudication_file(
+        output_dir / "kept_candidates.jsonl",
+        completed_csv,
+        output_jsonl,
+    )
+    return output_jsonl, summary_json, len(retained)
+
 def _stage_config(manifest: DatasetGenerationManifest, stage_key: str) -> dict[str, Any]:
     if stage_key == "generate_candidates":
         return {
             "cells": manifest.cells.model_dump(mode="json"),
             "generation": manifest.generation.model_dump(mode="json"),
             "quality": manifest.quality.model_dump(mode="json"),
+        }
+    if stage_key == "apply_adjudication":
+        return {
+            "input_artifacts": ["kept_candidates", "adjudication_completed"],
+            "output_artifacts": ["adjudicated_candidates", "adjudication_summary"],
         }
     return {"input_artifact": "kept_candidates", "output": "adjudication_template.csv"}
 
@@ -185,6 +211,9 @@ def advance_one(
     repo_root: str | Path,
     generation_executor: Callable[[DatasetGenerationManifest, Path], None] = execute_generation,
     adjudication_executor: Callable[[DatasetGenerationManifest, Path], Path] = execute_prepare_adjudication,
+    apply_adjudication_executor: Callable[
+        [DatasetGenerationManifest, Path, Path], tuple[Path, Path, int]
+    ] = execute_apply_adjudication,
 ) -> NextResult:
     """Advance at most one supported stage for a run."""
     root = Path(repo_root).resolve()
@@ -213,14 +242,20 @@ def advance_one(
             if stage is None:
                 return NextResult("idle", f"No pending stage for {run_slug}.")
             stage_key = str(stage["stage_key"])
-            if (
-                stage_key == "apply_adjudication"
-                and gate is not None
-                and gate.get("gate_key") == "adjudication"
-            ):
+            completed_adjudication_file: Path | None = None
+            if stage_key == "apply_adjudication":
+                if gate is None or gate.get("gate_key") != "adjudication":
+                    return NextResult(
+                        "stage_waiting_gate",
+                        "Stage apply_adjudication requires an open adjudication gate.",
+                        stage_key=stage_key,
+                    )
                 completed_path = gate.get("expected_completed_path")
-                completed_file = root / completed_path if completed_path else None
-                if completed_file is None or not completed_file.is_file():
+                completed_adjudication_file = root / completed_path if completed_path else None
+                if (
+                    completed_adjudication_file is None
+                    or not completed_adjudication_file.is_file()
+                ):
                     return NextResult(
                         "stage_waiting_human",
                         _stage_waiting_for_gate_message(stage_key, gate),
@@ -278,6 +313,75 @@ def advance_one(
                         stage_key=stage_key,
                     )
 
+                if stage_key == "apply_adjudication":
+                    if completed_adjudication_file is None or gate is None:
+                        raise RuntimeError("adjudication gate input was not resolved")
+                    output_jsonl, summary_json, retained_count = apply_adjudication_executor(
+                        manifest, root, completed_adjudication_file
+                    )
+                    for path in (output_jsonl, summary_json):
+                        if not path.is_file():
+                            raise RuntimeError(
+                                f"adjudication did not produce expected artefact: {path}"
+                            )
+                    completed_observation = observe_file(completed_adjudication_file)
+                    record_artifact(
+                        cur,
+                        run_id=run_id,
+                        artifact_key="adjudication_completed",
+                        artifact_path=_repo_relative(completed_adjudication_file, root),
+                        artifact_type="csv",
+                        artifact_role="human_gate_completed",
+                        observation=completed_observation,
+                        human_edited=True,
+                        producing_stage_id=stage_id,
+                    )
+                    output_artifacts = (
+                        ("adjudicated_candidates", output_jsonl, "jsonl", "adjudicated_candidates"),
+                        ("adjudication_summary", summary_json, "json", "adjudication_summary"),
+                    )
+                    for artifact_key, path, artifact_type, artifact_role in output_artifacts:
+                        record_artifact(
+                            cur,
+                            run_id=run_id,
+                            artifact_key=artifact_key,
+                            artifact_path=_repo_relative(path, root),
+                            artifact_type=artifact_type,
+                            artifact_role=artifact_role,
+                            observation=observe_file(path),
+                            producing_stage_id=stage_id,
+                        )
+                    completed_artifact_id = artifact_id(
+                        cur, run_id=run_id, artifact_key="adjudication_completed"
+                    )
+                    validation_summary = {
+                        "completed_csv_rows": completed_observation.row_count,
+                        "retained_candidates": retained_count,
+                    }
+                    satisfy_adjudication_gate(
+                        cur,
+                        gate_id=int(gate["dataset_generation_gate_id"]),
+                        completed_artifact_id=completed_artifact_id,
+                        validation_summary=validation_summary,
+                    )
+                    artifact_keys = [
+                        "adjudication_completed",
+                        "adjudicated_candidates",
+                        "adjudication_summary",
+                    ]
+                    mark_stage_completed(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        result={"artifact_keys": artifact_keys, **validation_summary},
+                    )
+                    connection.commit()
+                    return NextResult(
+                        "completed",
+                        f"Completed stage: {stage_key}. Gate A is satisfied.",
+                        stage_key=stage_key,
+                        completed_path=_repo_relative(completed_adjudication_file, root),
+                    )
                 template_path = adjudication_executor(manifest, root)
                 if not template_path.is_file():
                     raise RuntimeError(f"adjudication template was not created: {template_path}")

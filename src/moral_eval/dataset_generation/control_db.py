@@ -326,17 +326,18 @@ def read_run_status(cur, run_slug: str) -> dict[str, Any]:
         SELECT gate_key, gate_type, status, expected_completed_path, instructions
         FROM public.dataset_generation_gate
         WHERE dataset_generation_run_id = %s
-          AND status = 'open'
-        ORDER BY opened_at, dataset_generation_gate_id
+        ORDER BY opened_at DESC, dataset_generation_gate_id DESC
         LIMIT 1
         """,
         (run_id,),
     )
-    open_gate = cur.fetchone()
+    gate_row = cur.fetchone()
+    gate_status = dict(gate_row) if gate_row is not None else None
     return {
         "run": run,
         "next_stage": dict(next_stage) if next_stage is not None else None,
-        "open_gate": dict(open_gate) if open_gate is not None else None,
+        "open_gate": gate_status if gate_status and gate_status["status"] == "open" else None,
+        "gate_status": gate_status,
     }
 
 
@@ -558,4 +559,30 @@ def open_adjudication_gate(
             updated_at = now()
         """,
         (run_id, stage_id, template_artifact_id, expected_completed_path, instructions),
+    )
+
+def satisfy_adjudication_gate(
+    cur,
+    *,
+    gate_id: int,
+    completed_artifact_id: int,
+    validation_summary: dict[str, Any],
+) -> None:
+    cur.execute(
+        """
+        UPDATE public.dataset_generation_gate
+        SET status = 'satisfied',
+            completed_artifact_id = %s,
+            validation_summary = %s::jsonb,
+            resolved_at = now(),
+            updated_at = now()
+        WHERE dataset_generation_gate_id = %s
+          AND gate_key = 'adjudication'
+          AND status = 'open'
+        """,
+        (
+            completed_artifact_id,
+            json.dumps(validation_summary, ensure_ascii=False, sort_keys=True),
+            gate_id,
+        ),
     )

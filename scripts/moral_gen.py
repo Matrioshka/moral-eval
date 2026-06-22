@@ -73,13 +73,16 @@ def command_status(args: argparse.Namespace) -> int:
     print(f"Current stage: {run.get('current_stage') or '-'}")
     next_stage = status["next_stage"]
     print(f"Next pending stage: {next_stage['stage_key'] if next_stage else '-'}")
-    gate = status["open_gate"]
+    gate = status.get("gate_status") or status.get("open_gate")
     if gate:
-        print(f"Open gate: {gate['gate_key']} ({gate['gate_type']})")
+        print(
+            f"Gate: {gate['gate_key']} ({gate['gate_type']}) "
+            f"[{gate['status']}]"
+        )
         if gate.get("expected_completed_path"):
             print(f"Expected file: {gate['expected_completed_path']}")
     else:
-        print("Open gate: -")
+        print("Gate: -")
     print(f"Last error: {run.get('last_error') or '-'}")
     return 0
 

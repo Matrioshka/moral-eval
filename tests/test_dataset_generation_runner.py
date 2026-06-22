@@ -131,6 +131,13 @@ def patch_db(monkeypatch, state: dict, events: list[tuple]) -> None:
             ("gate", kwargs["expected_completed_path"])
         ),
     )
+    monkeypatch.setattr(
+        runner,
+        "satisfy_adjudication_gate",
+        lambda _cur, **kwargs: events.append(
+            ("gate_satisfied", kwargs["completed_artifact_id"])
+        ),
+    )
 
 
 def write_generation_outputs(manifest, repo_root: Path) -> None:
@@ -255,6 +262,84 @@ def test_next_blocks_only_stage_that_requires_open_gate_file(
     assert "Required file: data/generated/runner_test/adjudication_completed.csv" in result.message
     assert events == [("lock", "runner_test"), ("unlock", "runner_test")]
 
+
+def test_apply_adjudication_records_artifacts_satisfies_gate_and_completes_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    gate = {
+        "dataset_generation_gate_id": 40,
+        "gate_key": "adjudication",
+        "template_path": "data/generated/runner_test/adjudication_template.csv",
+        "expected_completed_path": "data/generated/runner_test/adjudication_completed.csv",
+        "instructions": "Complete the CSV.",
+    }
+    completed = tmp_path / gate["expected_completed_path"]
+    completed.parent.mkdir(parents=True, exist_ok=True)
+    completed.write_text("case_id,overall_verdict\ncase-1,keep\n", encoding="utf-8")
+    events: list[tuple] = []
+    patch_db(monkeypatch, execution_state("apply_adjudication", gate=gate), events)
+
+    def apply(manifest, repo_root: Path, completed_csv: Path):
+        assert completed_csv == completed
+        output_dir = repo_root / manifest.run.output_dir
+        output_jsonl = output_dir / "adjudicated_candidates.jsonl"
+        summary_json = output_dir / "adjudication_summary.json"
+        output_jsonl.write_text('{"case_id":"case-1"}\n', encoding="utf-8")
+        summary_json.write_text('{"total":1}\n', encoding="utf-8")
+        return output_jsonl, summary_json, 1
+
+    result = advance_one(
+        FakeConnection(),
+        "runner_test",
+        repo_root=tmp_path,
+        apply_adjudication_executor=apply,
+    )
+
+    assert result.outcome == "completed"
+    assert result.stage_key == "apply_adjudication"
+    assert [event[1] for event in events if event[0] == "artifact"] == [
+        "adjudication_completed",
+        "adjudicated_candidates",
+        "adjudication_summary",
+    ]
+    assert ("gate_satisfied", 30) in events
+    assert events.count(("completed", 20)) == 1
+    assert not any(event[0] == "gate" for event in events)
+
+
+def test_invalid_completed_adjudication_fails_stage_and_leaves_gate_open(
+    tmp_path: Path, monkeypatch
+) -> None:
+    gate = {
+        "dataset_generation_gate_id": 40,
+        "gate_key": "adjudication",
+        "template_path": "data/generated/runner_test/adjudication_template.csv",
+        "expected_completed_path": "data/generated/runner_test/adjudication_completed.csv",
+        "instructions": "Complete the CSV.",
+    }
+    completed = tmp_path / gate["expected_completed_path"]
+    completed.parent.mkdir(parents=True, exist_ok=True)
+    completed.write_text("invalid,data\n", encoding="utf-8")
+    events: list[tuple] = []
+    patch_db(monkeypatch, execution_state("apply_adjudication", gate=gate), events)
+
+    def invalid(_manifest, _repo_root: Path, _completed_csv: Path):
+        raise ValueError("Adjudication CSV is missing required columns")
+
+    with pytest.raises(StageExecutionError, match="missing required columns"):
+        advance_one(
+            FakeConnection(),
+            "runner_test",
+            repo_root=tmp_path,
+            apply_adjudication_executor=invalid,
+        )
+
+    assert any(
+        event[0] == "failed" and "missing required columns" in event[1]
+        for event in events
+    )
+    assert not any(event[0] == "gate_satisfied" for event in events)
+    assert not any(event[0] == "completed" for event in events)
 
 def test_open_gate_does_not_block_an_independent_runnable_stage(
     tmp_path: Path, monkeypatch

@@ -16,6 +16,7 @@ from moral_eval.dataset_generation.control_db import (
     observe_file,
     open_adjudication_gate,
     sha256_file,
+    satisfy_adjudication_gate,
 )
 from moral_eval.dataset_generation.manifest import load_manifest
 
@@ -238,3 +239,18 @@ def test_open_adjudication_gate_does_not_change_run_status() -> None:
     )
     assert "UPDATE public.dataset_generation_run" not in cursor.statements[0]
     assert "waiting_human" not in cursor.statements[0]
+
+def test_satisfy_adjudication_gate_records_completed_artifact_and_summary() -> None:
+    cursor = RecordingCursor()
+
+    satisfy_adjudication_gate(
+        cursor,
+        gate_id=4,
+        completed_artifact_id=5,
+        validation_summary={"retained_candidates": 1},
+    )
+
+    assert len(cursor.statements) == 1
+    assert "SET status = 'satisfied'" in cursor.statements[0]
+    assert "completed_artifact_id = %s" in cursor.statements[0]
+    assert "resolved_at = now()" in cursor.statements[0]

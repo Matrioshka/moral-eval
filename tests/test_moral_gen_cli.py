@@ -71,7 +71,7 @@ def test_status_output(monkeypatch, capsys) -> None:
     output = capsys.readouterr().out
     assert "Status: initialised" in output
     assert "Next pending stage: generate_candidates" in output
-    assert "Open gate: -" in output
+    assert "Gate: -" in output
 
 
 def test_status_displays_open_gate_without_implying_global_wait(monkeypatch, capsys) -> None:
@@ -90,6 +90,7 @@ def test_status_displays_open_gate_without_implying_global_wait(monkeypatch, cap
             "open_gate": {
                 "gate_key": "adjudication",
                 "gate_type": "human_csv_review",
+                "status": "open",
                 "expected_completed_path": "data/generated/run/adjudication_completed.csv",
             },
         },
@@ -99,8 +100,35 @@ def test_status_displays_open_gate_without_implying_global_wait(monkeypatch, cap
     output = capsys.readouterr().out
     assert "Status: running" in output
     assert "Next pending stage: apply_adjudication" in output
-    assert "Open gate: adjudication (human_csv_review)" in output
+    assert "Gate: adjudication (human_csv_review) [open]" in output
     assert "Expected file: data/generated/run/adjudication_completed.csv" in output
+
+def test_status_displays_satisfied_gate(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(moral_gen, "connect_db", lambda **_kwargs: FakeConnection())
+    monkeypatch.setattr(
+        moral_gen,
+        "read_run_status",
+        lambda _cur, _slug: {
+            "run": {
+                "run_slug": "run_slug",
+                "status": "running",
+                "current_stage": None,
+                "last_error": None,
+            },
+            "next_stage": {"stage_key": "prepare_revision"},
+            "open_gate": None,
+            "gate_status": {
+                "gate_key": "adjudication",
+                "gate_type": "human_csv_review",
+                "status": "satisfied",
+                "expected_completed_path": "data/generated/run/adjudication_completed.csv",
+            },
+        },
+    )
+
+    assert moral_gen.command_status(argparse.Namespace(run_slug="run_slug")) == 0
+    output = capsys.readouterr().out
+    assert "Gate: adjudication (human_csv_review) [satisfied]" in output
 
 def test_artifacts_output(monkeypatch, capsys) -> None:
     monkeypatch.setattr(moral_gen, "connect_db", lambda **_kwargs: FakeConnection())
