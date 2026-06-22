@@ -81,6 +81,7 @@ def execution_state(stage_key: str, *, allow_model_calls: bool = True, gate=None
         "run": {
             "dataset_generation_run_id": 10,
             "run_slug": "runner_test",
+            "output_dir": "data/generated/runner_test",
             "status": "initialised",
             "current_stage": None,
             "last_error": None,
@@ -120,6 +121,11 @@ def patch_db(monkeypatch, state: dict, events: list[tuple]) -> None:
     )
     monkeypatch.setattr(
         runner,
+        "mark_stage_skipped",
+        lambda _cur, **kwargs: events.append(("skipped", kwargs["stage_id"])),
+    )
+    monkeypatch.setattr(
+        runner,
         "record_artifact",
         lambda _cur, **kwargs: events.append(("artifact", kwargs["artifact_key"])),
     )
@@ -136,6 +142,20 @@ def patch_db(monkeypatch, state: dict, events: list[tuple]) -> None:
         "satisfy_adjudication_gate",
         lambda _cur, **kwargs: events.append(
             ("gate_satisfied", kwargs["completed_artifact_id"])
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "open_revision_gate",
+        lambda _cur, **kwargs: events.append(
+            ("revision_gate", kwargs["expected_completed_path"])
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "satisfy_revision_gate",
+        lambda _cur, **kwargs: events.append(
+            ("revision_gate_satisfied", kwargs["completed_artifact_id"])
         ),
     )
 
@@ -397,3 +417,183 @@ def test_failed_run_does_not_skip_to_a_later_pending_stage(tmp_path: Path, monke
     assert result.outcome == "failed"
     assert "generation failed" in result.message
     assert events == [("lock", "runner_test"), ("unlock", "runner_test")]
+
+def revision_gate() -> dict:
+    return {
+        "dataset_generation_gate_id": 50,
+        "gate_key": "revision",
+        "template_path": "data/generated/runner_test/revision_notes.csv",
+        "expected_completed_path": "data/generated/runner_test/revision_notes_completed.csv",
+        "instructions": "Complete the revision worksheet.",
+    }
+
+
+def test_prepare_revision_records_only_revision_outputs_and_opens_gate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    events: list[tuple] = []
+    patch_db(monkeypatch, execution_state("prepare_revision"), events)
+
+    def prepare(manifest, repo_root: Path):
+        output = repo_root / manifest.run.output_dir
+        output.mkdir(parents=True, exist_ok=True)
+        revise = output / "revise_candidates.jsonl"
+        notes = output / "revision_notes.csv"
+        revise.write_text('{"case_id":"revise-1"}\n', encoding="utf-8")
+        notes.write_text("case_id,revision_notes\nrevise-1,fix it\n", encoding="utf-8")
+        return revise, notes, 1
+
+    result = advance_one(
+        FakeConnection(),
+        "runner_test",
+        repo_root=tmp_path,
+        prepare_revision_executor=prepare,
+    )
+
+    assert result.outcome == "completed"
+    assert result.stage_key == "prepare_revision"
+    assert [event[1] for event in events if event[0] == "artifact"] == [
+        "revise_candidates",
+        "revision_notes",
+    ]
+    assert ("revision_gate", "data/generated/runner_test/revision_notes_completed.csv") in events
+    assert ("completed", 20) in events
+    assert "gate B" in result.message
+
+
+def test_prepare_and_apply_revision_skip_cleanly_when_no_candidates(
+    tmp_path: Path, monkeypatch
+) -> None:
+    prepare_events: list[tuple] = []
+    patch_db(monkeypatch, execution_state("prepare_revision"), prepare_events)
+
+    def prepare_empty(manifest, repo_root: Path):
+        output = repo_root / manifest.run.output_dir
+        output.mkdir(parents=True, exist_ok=True)
+        revise = output / "revise_candidates.jsonl"
+        notes = output / "revision_notes.csv"
+        revise.write_text("", encoding="utf-8")
+        notes.write_text("case_id,revision_notes\n", encoding="utf-8")
+        return revise, notes, 0
+
+    prepare_result = advance_one(
+        FakeConnection(),
+        "runner_test",
+        repo_root=tmp_path,
+        prepare_revision_executor=prepare_empty,
+    )
+    assert prepare_result.outcome == "skipped"
+    assert ("skipped", 20) in prepare_events
+    assert not any(event[0] == "revision_gate" for event in prepare_events)
+
+    apply_events: list[tuple] = []
+    patch_db(monkeypatch, execution_state("apply_revision"), apply_events)
+    apply_result = advance_one(FakeConnection(), "runner_test", repo_root=tmp_path)
+    assert apply_result.outcome == "skipped"
+    assert apply_events == [
+        ("lock", "runner_test"),
+        ("skipped", 20),
+        ("unlock", "runner_test"),
+    ]
+
+
+def test_apply_revision_waits_for_completed_notes(tmp_path: Path, monkeypatch) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    (output / "revise_candidates.jsonl").write_text(
+        '{"case_id":"revise-1"}\n', encoding="utf-8"
+    )
+    events: list[tuple] = []
+    patch_db(monkeypatch, execution_state("apply_revision", gate=revision_gate()), events)
+
+    result = advance_one(FakeConnection(), "runner_test", repo_root=tmp_path)
+
+    assert result.outcome == "stage_waiting_human"
+    assert result.stage_key == "apply_revision"
+    assert "revision_notes_completed.csv" in result.message
+    assert events == [("lock", "runner_test"), ("unlock", "runner_test")]
+
+
+def test_apply_revision_records_artifacts_satisfies_gate_and_completes_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    (output / "revise_candidates.jsonl").write_text(
+        '{"case_id":"revise-1"}\n', encoding="utf-8"
+    )
+    completed = output / "revision_notes_completed.csv"
+    completed.write_text("case_id,revision_notes\nrevise-1,fixed\n", encoding="utf-8")
+    events: list[tuple] = []
+    patch_db(monkeypatch, execution_state("apply_revision", gate=revision_gate()), events)
+
+    def apply(manifest, repo_root: Path, completed_csv: Path):
+        assert completed_csv == completed
+        revised = repo_root / manifest.run.output_dir / "revised_candidates.jsonl"
+        revised.write_text('{"case_id":"revise-1"}\n', encoding="utf-8")
+        return revised, 1
+
+    result = advance_one(
+        FakeConnection(),
+        "runner_test",
+        repo_root=tmp_path,
+        apply_revision_executor=apply,
+    )
+
+    assert result.outcome == "completed"
+    assert [event[1] for event in events if event[0] == "artifact"] == [
+        "revision_notes_completed",
+        "revised_candidates",
+    ]
+    assert ("revision_gate_satisfied", 30) in events
+    assert events.count(("completed", 20)) == 1
+    assert "await re-adjudication" in result.message
+
+
+def test_invalid_revision_notes_fail_stage_and_leave_gate_open(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    (output / "revise_candidates.jsonl").write_text(
+        '{"case_id":"revise-1"}\n', encoding="utf-8"
+    )
+    (output / "revision_notes_completed.csv").write_text(
+        "invalid,data\n", encoding="utf-8"
+    )
+    events: list[tuple] = []
+    patch_db(monkeypatch, execution_state("apply_revision", gate=revision_gate()), events)
+
+    def invalid(_manifest, _repo_root: Path, _completed_csv: Path):
+        raise ValueError("Revision-notes CSV is missing required columns")
+
+    with pytest.raises(StageExecutionError, match="missing required columns"):
+        advance_one(
+            FakeConnection(),
+            "runner_test",
+            repo_root=tmp_path,
+            apply_revision_executor=invalid,
+        )
+
+    assert any(event[0] == "failed" for event in events)
+    assert not any(event[0] == "revision_gate_satisfied" for event in events)
+    assert not any(event[0] == "completed" for event in events)
+
+
+@pytest.mark.parametrize("stage_key", ["prepare_revision", "apply_revision"])
+def test_revision_executors_refuse_conflicting_outputs(
+    tmp_path: Path, stage_key: str
+) -> None:
+    manifest = runner.manifest_from_snapshot(manifest_snapshot(allow_model_calls=False))
+    output = tmp_path / manifest.run.output_dir
+    output.mkdir(parents=True)
+    if stage_key == "prepare_revision":
+        (output / "revision_notes.csv").write_text("existing", encoding="utf-8")
+        with pytest.raises(FileExistsError, match="refusing to overwrite revision output"):
+            runner.execute_prepare_revision(manifest, tmp_path)
+    else:
+        (output / "revised_candidates.jsonl").write_text("existing", encoding="utf-8")
+        with pytest.raises(FileExistsError, match="refusing to overwrite revision output"):
+            runner.execute_apply_revision(
+                manifest, tmp_path, output / "revision_notes_completed.csv"
+            )

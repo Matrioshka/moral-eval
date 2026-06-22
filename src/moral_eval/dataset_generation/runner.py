@@ -1,4 +1,4 @@
-"""Advance manifest-driven dataset generation through the first human gate."""
+"""Advance manifest-driven dataset generation through bounded review stages."""
 
 from __future__ import annotations
 
@@ -16,19 +16,29 @@ from .control_db import (
     mark_stage_completed,
     mark_stage_failed,
     mark_stage_running,
+    mark_stage_skipped,
     observe_file,
     open_adjudication_gate,
+    open_revision_gate,
     record_artifact,
     release_run_lock,
     satisfy_adjudication_gate,
+    satisfy_revision_gate,
 )
 from .llm_clients import OpenAICompatibleJSONClient, OpenAIParseClient
 from .manifest import DatasetGenerationManifest, manifest_from_snapshot
 from .pipeline import generate_score_filter_export
 from .quota_generation import generate_until_quota
+from .revision import apply_candidate_revisions, extract_revise_candidates
 from .schemas import MatrixCell
 
-SUPPORTED_STAGES = {"generate_candidates", "prepare_adjudication", "apply_adjudication"}
+SUPPORTED_STAGES = {
+    "generate_candidates",
+    "prepare_adjudication",
+    "apply_adjudication",
+    "prepare_revision",
+    "apply_revision",
+}
 GENERATION_ARTIFACTS = (
     ("raw_candidates", "raw_candidates.jsonl", "jsonl", "generated_candidates"),
     ("scored_candidates", "scored_candidates.jsonl", "jsonl", "scored_candidates"),
@@ -142,6 +152,43 @@ def execute_apply_adjudication(
     )
     return output_jsonl, summary_json, len(retained)
 
+
+def execute_prepare_revision(
+    manifest: DatasetGenerationManifest,
+    repo_root: Path,
+) -> tuple[Path, Path, int]:
+    output_dir = repo_root / manifest.run.output_dir
+    revise_jsonl = output_dir / "revise_candidates.jsonl"
+    revision_notes = output_dir / "revision_notes.csv"
+    conflicts = [path for path in (revise_jsonl, revision_notes) if path.exists()]
+    if conflicts:
+        rendered = ", ".join(str(path) for path in conflicts)
+        raise FileExistsError(f"refusing to overwrite revision output(s): {rendered}")
+    records = extract_revise_candidates(
+        output_dir / "adjudicated_candidates.jsonl",
+        revise_jsonl,
+        revision_notes,
+        adjudication_csv=output_dir / "adjudication_completed.csv",
+    )
+    return revise_jsonl, revision_notes, len(records)
+
+
+def execute_apply_revision(
+    manifest: DatasetGenerationManifest,
+    repo_root: Path,
+    completed_csv: Path,
+) -> tuple[Path, int]:
+    output_dir = repo_root / manifest.run.output_dir
+    revised_jsonl = output_dir / "revised_candidates.jsonl"
+    if revised_jsonl.exists():
+        raise FileExistsError(f"refusing to overwrite revision output: {revised_jsonl}")
+    records = apply_candidate_revisions(
+        output_dir / "revise_candidates.jsonl",
+        completed_csv,
+        revised_jsonl,
+    )
+    return revised_jsonl, len(records)
+
 def _stage_config(manifest: DatasetGenerationManifest, stage_key: str) -> dict[str, Any]:
     if stage_key == "generate_candidates":
         return {
@@ -153,6 +200,16 @@ def _stage_config(manifest: DatasetGenerationManifest, stage_key: str) -> dict[s
         return {
             "input_artifacts": ["kept_candidates", "adjudication_completed"],
             "output_artifacts": ["adjudicated_candidates", "adjudication_summary"],
+        }
+    if stage_key == "prepare_revision":
+        return {
+            "input_artifacts": ["adjudicated_candidates", "adjudication_completed"],
+            "output_artifacts": ["revise_candidates", "revision_notes"],
+        }
+    if stage_key == "apply_revision":
+        return {
+            "input_artifacts": ["revise_candidates", "revision_notes_completed"],
+            "output_artifacts": ["revised_candidates"],
         }
     return {"input_artifact": "kept_candidates", "output": "adjudication_template.csv"}
 
@@ -194,6 +251,18 @@ def _gate_task_message(run_slug: str, gate: dict[str, Any]) -> str:
     )
 
 
+def _revision_gate_task_message(run_slug: str, gate: dict[str, Any]) -> str:
+    template = gate.get("template_path") or "-"
+    completed = gate.get("expected_completed_path") or "-"
+    instructions = gate.get("instructions") or "Complete the revision worksheet."
+    return (
+        f"Review task opened at gate B ({gate.get('gate_key', 'revision')}).\n"
+        f"Template CSV: {template}\n"
+        f"CSV to edit: {completed}\n"
+        f"Instructions: {instructions}\n"
+        f"Next command: python scripts/moral_gen.py next {run_slug}"
+    )
+
 def _stage_waiting_for_gate_message(stage_key: str, gate: dict[str, Any]) -> str:
     completed = gate.get("expected_completed_path") or "-"
     instructions = gate.get("instructions") or "Complete the adjudication CSV."
@@ -214,6 +283,12 @@ def advance_one(
     apply_adjudication_executor: Callable[
         [DatasetGenerationManifest, Path, Path], tuple[Path, Path, int]
     ] = execute_apply_adjudication,
+    prepare_revision_executor: Callable[
+        [DatasetGenerationManifest, Path], tuple[Path, Path, int]
+    ] = execute_prepare_revision,
+    apply_revision_executor: Callable[
+        [DatasetGenerationManifest, Path, Path], tuple[Path, int]
+    ] = execute_apply_revision,
 ) -> NextResult:
     """Advance at most one supported stage for a run."""
     root = Path(repo_root).resolve()
@@ -243,6 +318,7 @@ def advance_one(
                 return NextResult("idle", f"No pending stage for {run_slug}.")
             stage_key = str(stage["stage_key"])
             completed_adjudication_file: Path | None = None
+            completed_revision_file: Path | None = None
             if stage_key == "apply_adjudication":
                 if gate is None or gate.get("gate_key") != "adjudication":
                     return NextResult(
@@ -256,6 +332,45 @@ def advance_one(
                     completed_adjudication_file is None
                     or not completed_adjudication_file.is_file()
                 ):
+                    return NextResult(
+                        "stage_waiting_human",
+                        _stage_waiting_for_gate_message(stage_key, gate),
+                        stage_key=stage_key,
+                        template_path=gate.get("template_path"),
+                        completed_path=completed_path,
+                    )
+            if stage_key == "apply_revision":
+                revise_candidates = root / str(run["output_dir"]) / "revise_candidates.jsonl"
+                if not revise_candidates.is_file():
+                    return NextResult(
+                        "stage_waiting_input",
+                        f"Stage apply_revision requires {revise_candidates.relative_to(root).as_posix()}.",
+                        stage_key=stage_key,
+                    )
+                if observe_file(revise_candidates).row_count == 0:
+                    run_id = int(run["dataset_generation_run_id"])
+                    stage_id = int(stage["dataset_generation_stage_id"])
+                    mark_stage_skipped(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        result={"revision_candidates": 0, "reason": "no revise candidates"},
+                    )
+                    connection.commit()
+                    return NextResult(
+                        "skipped",
+                        "Skipped stage: apply_revision; there are no revise candidates.",
+                        stage_key=stage_key,
+                    )
+                if gate is None or gate.get("gate_key") != "revision":
+                    return NextResult(
+                        "stage_waiting_gate",
+                        "Stage apply_revision requires an open revision gate.",
+                        stage_key=stage_key,
+                    )
+                completed_path = gate.get("expected_completed_path")
+                completed_revision_file = root / completed_path if completed_path else None
+                if completed_revision_file is None or not completed_revision_file.is_file():
                     return NextResult(
                         "stage_waiting_human",
                         _stage_waiting_for_gate_message(stage_key, gate),
@@ -381,6 +496,148 @@ def advance_one(
                         f"Completed stage: {stage_key}. Gate A is satisfied.",
                         stage_key=stage_key,
                         completed_path=_repo_relative(completed_adjudication_file, root),
+                    )
+                if stage_key == "prepare_revision":
+                    revise_jsonl, revision_notes, revise_count = prepare_revision_executor(
+                        manifest, root
+                    )
+                    for path in (revise_jsonl, revision_notes):
+                        if not path.is_file():
+                            raise RuntimeError(
+                                f"revision preparation did not produce expected artefact: {path}"
+                            )
+                    revision_artifacts = (
+                        ("revise_candidates", revise_jsonl, "jsonl", "revision_candidates"),
+                        ("revision_notes", revision_notes, "csv", "human_gate_template"),
+                    )
+                    for artifact_key, path, artifact_type, artifact_role in revision_artifacts:
+                        record_artifact(
+                            cur,
+                            run_id=run_id,
+                            artifact_key=artifact_key,
+                            artifact_path=_repo_relative(path, root),
+                            artifact_type=artifact_type,
+                            artifact_role=artifact_role,
+                            observation=observe_file(path),
+                            producing_stage_id=stage_id,
+                        )
+                    artifact_keys = ["revise_candidates", "revision_notes"]
+                    if revise_count == 0:
+                        mark_stage_skipped(
+                            cur,
+                            run_id=run_id,
+                            stage_id=stage_id,
+                            result={
+                                "artifact_keys": artifact_keys,
+                                "revision_candidates": 0,
+                                "reason": "no revise candidates",
+                            },
+                        )
+                        connection.commit()
+                        return NextResult(
+                            "skipped",
+                            "Skipped stage: prepare_revision; adjudication produced no revise candidates.",
+                            stage_key=stage_key,
+                        )
+                    notes_id = artifact_id(cur, run_id=run_id, artifact_key="revision_notes")
+                    notes_relative = _repo_relative(revision_notes, root)
+                    completed_relative = _repo_relative(
+                        revision_notes.with_name("revision_notes_completed.csv"), root
+                    )
+                    instructions = (
+                        f"Copy {notes_relative} to {completed_relative}, revise every listed "
+                        "candidate, complete revision_notes, then run the next command."
+                    )
+                    mark_stage_completed(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        result={
+                            "artifact_keys": artifact_keys,
+                            "revision_candidates": revise_count,
+                        },
+                    )
+                    open_revision_gate(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        template_artifact_id=notes_id,
+                        expected_completed_path=completed_relative,
+                        instructions=instructions,
+                    )
+                    connection.commit()
+                    revision_gate = {
+                        "gate_key": "revision",
+                        "template_path": notes_relative,
+                        "expected_completed_path": completed_relative,
+                        "instructions": instructions,
+                    }
+                    return NextResult(
+                        "completed",
+                        _revision_gate_task_message(run_slug, revision_gate),
+                        stage_key=stage_key,
+                        template_path=notes_relative,
+                        completed_path=completed_relative,
+                    )
+
+                if stage_key == "apply_revision":
+                    if completed_revision_file is None or gate is None:
+                        raise RuntimeError("revision gate input was not resolved")
+                    revised_jsonl, revised_count = apply_revision_executor(
+                        manifest, root, completed_revision_file
+                    )
+                    if not revised_jsonl.is_file():
+                        raise RuntimeError(
+                            f"revision application did not produce expected artefact: {revised_jsonl}"
+                        )
+                    completed_observation = observe_file(completed_revision_file)
+                    record_artifact(
+                        cur,
+                        run_id=run_id,
+                        artifact_key="revision_notes_completed",
+                        artifact_path=_repo_relative(completed_revision_file, root),
+                        artifact_type="csv",
+                        artifact_role="human_gate_completed",
+                        observation=completed_observation,
+                        human_edited=True,
+                        producing_stage_id=stage_id,
+                    )
+                    record_artifact(
+                        cur,
+                        run_id=run_id,
+                        artifact_key="revised_candidates",
+                        artifact_path=_repo_relative(revised_jsonl, root),
+                        artifact_type="jsonl",
+                        artifact_role="revised_candidates",
+                        observation=observe_file(revised_jsonl),
+                        producing_stage_id=stage_id,
+                    )
+                    completed_artifact_id = artifact_id(
+                        cur, run_id=run_id, artifact_key="revision_notes_completed"
+                    )
+                    validation_summary = {
+                        "completed_csv_rows": completed_observation.row_count,
+                        "revised_candidates": revised_count,
+                    }
+                    satisfy_revision_gate(
+                        cur,
+                        gate_id=int(gate["dataset_generation_gate_id"]),
+                        completed_artifact_id=completed_artifact_id,
+                        validation_summary=validation_summary,
+                    )
+                    artifact_keys = ["revision_notes_completed", "revised_candidates"]
+                    mark_stage_completed(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        result={"artifact_keys": artifact_keys, **validation_summary},
+                    )
+                    connection.commit()
+                    return NextResult(
+                        "completed",
+                        "Completed stage: apply_revision. Gate B is satisfied; revised candidates await re-adjudication.",
+                        stage_key=stage_key,
+                        completed_path=_repo_relative(completed_revision_file, root),
                     )
                 template_path = adjudication_executor(manifest, root)
                 if not template_path.is_file():

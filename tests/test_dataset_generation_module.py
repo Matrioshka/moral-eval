@@ -565,6 +565,73 @@ def test_candidate_revision_extract_apply_round_trip_preserves_provenance(tmp_pa
     assert read_jsonl(revised_path) == revised
 
 
+def _revision_input_and_row(tmp_path, case_id="jmcu_p3_revision_invalid_001"):
+    input_path = tmp_path / "revise_candidates.jsonl"
+    notes_path = tmp_path / "revision_notes_completed.csv"
+    record = CandidateRecord(
+        candidate=make_candidate(case_id),
+        qc=make_qc(),
+        adjudication=make_candidate_adjudication("revise"),
+    )
+    write_jsonl(input_path, [record])
+    row = {
+        field: "" for field in REVISION_FIELDS
+    }
+    row.update(
+        {
+            "case_id": case_id,
+            "domain": record.candidate.domain,
+            "evidence_quality": record.candidate.evidence_quality,
+            "pressure_type": record.candidate.primary_pressure_type,
+            "title": record.candidate.title,
+            "overall_verdict": "revise",
+            "consolidated_required_edits": "[]",
+            "adjudicator_notes": "fixture",
+            "revision_notes": "Completed revision fixture.",
+        }
+    )
+    return input_path, notes_path, row
+
+
+def _write_revision_rows(path, rows):
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=REVISION_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def test_apply_candidate_revisions_rejects_missing_and_unknown_rows(tmp_path):
+    input_path, notes_path, row = _revision_input_and_row(tmp_path)
+    _write_revision_rows(notes_path, [])
+    with pytest.raises(ValueError, match="Missing revision rows"):
+        apply_candidate_revisions(input_path, notes_path, tmp_path / "missing.jsonl")
+
+    valid_row = dict(row)
+    valid_row["revised_title"] = "Changed title"
+    unknown_row = dict(valid_row)
+    unknown_row["case_id"] = "unknown-case"
+    _write_revision_rows(notes_path, [valid_row, unknown_row])
+    with pytest.raises(ValueError, match="unknown case_ids"):
+        apply_candidate_revisions(input_path, notes_path, tmp_path / "unknown.jsonl")
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("revision_notes", "Completed but unchanged.", "does not change any candidate fields"),
+        ("revised_pressure_turns_json", "not-json", "Invalid revised_pressure_turns_json"),
+    ],
+)
+def test_apply_candidate_revisions_rejects_invalid_edits(
+    tmp_path, field, value, message
+):
+    input_path, notes_path, row = _revision_input_and_row(tmp_path)
+    row[field] = value
+    _write_revision_rows(notes_path, [row])
+
+    with pytest.raises(ValueError, match=message):
+        apply_candidate_revisions(input_path, notes_path, tmp_path / "invalid.jsonl")
+
 def test_apply_manual_review_includes_only_explicit_non_rejected_pilot_rows(tmp_path):
     input_path = tmp_path / "kept_candidates.jsonl"
     review_path = tmp_path / "manual_review_completed.csv"

@@ -14,9 +14,11 @@ from moral_eval.dataset_generation.control_db import (
     count_file_rows,
     initialise_run,
     observe_file,
+    open_revision_gate,
     open_adjudication_gate,
     sha256_file,
     satisfy_adjudication_gate,
+    satisfy_revision_gate,
 )
 from moral_eval.dataset_generation.manifest import load_manifest
 
@@ -268,4 +270,41 @@ def test_satisfy_adjudication_gate_rejects_zero_row_update() -> None:
             gate_id=4,
             completed_artifact_id=5,
             validation_summary={"retained_candidates": 1},
+        )
+
+def test_open_revision_gate_does_not_change_run_status() -> None:
+    cursor = RecordingCursor()
+
+    open_revision_gate(
+        cursor,
+        run_id=1,
+        stage_id=2,
+        template_artifact_id=3,
+        expected_completed_path="data/generated/run/revision_notes_completed.csv",
+        instructions="Complete the revision worksheet.",
+    )
+
+    assert len(cursor.statements) == 1
+    assert "'revision', 'human_csv_review', 'open'" in cursor.statements[0]
+    assert "UPDATE public.dataset_generation_run" not in cursor.statements[0]
+    assert "waiting_human" not in cursor.statements[0]
+
+
+def test_satisfy_revision_gate_requires_one_open_gate() -> None:
+    cursor = RecordingCursor()
+    satisfy_revision_gate(
+        cursor,
+        gate_id=6,
+        completed_artifact_id=7,
+        validation_summary={"revised_candidates": 1},
+    )
+    assert "gate_key = 'revision'" in cursor.statements[0]
+    assert "SET status = 'satisfied'" in cursor.statements[0]
+
+    with pytest.raises(RuntimeError, match="revision gate 6 was not open"):
+        satisfy_revision_gate(
+            RecordingCursor(rowcount=0),
+            gate_id=6,
+            completed_artifact_id=7,
+            validation_summary={"revised_candidates": 1},
         )
