@@ -22,11 +22,12 @@ from moral_eval.dataset_generation.control_db import (  # noqa: E402
     read_run_status,
 )
 from moral_eval.dataset_generation.manifest import load_manifest  # noqa: E402
+from moral_eval.dataset_generation.runner import advance_one  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Control dataset-generation manifests without executing generation stages."
+        description="Control and advance manifest-driven dataset-generation runs."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -40,6 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
         "artifacts", help="List recorded artefacts and filesystem drift."
     )
     artifacts_parser.add_argument("run_slug")
+
+    next_parser = subparsers.add_parser(
+        "next", help="Advance at most one stage, stopping at an open human gate."
+    )
+    next_parser.add_argument("run_slug")
     return parser
 
 
@@ -109,6 +115,13 @@ def command_artifacts(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_next(args: argparse.Namespace) -> int:
+    with connect_db(repo_root=ROOT) as connection:
+        result = advance_one(connection, args.run_slug, repo_root=ROOT)
+    print(result.message)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -116,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         "init": command_init,
         "status": command_status,
         "artifacts": command_artifacts,
+        "next": command_next,
     }
     try:
         return commands[args.command](args)

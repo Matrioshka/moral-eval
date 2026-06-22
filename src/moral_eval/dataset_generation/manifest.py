@@ -88,6 +88,10 @@ class WorkflowManifest(StrictModel):
         return self
 
 
+class SafetyManifest(StrictModel):
+    allow_model_calls: bool = False
+
+
 class ExportManifest(StrictModel):
     inspect_jsonl: bool = True
     dataset_version: str | None = None
@@ -115,6 +119,7 @@ class DatasetGenerationManifest(StrictModel):
     generation: GenerationManifest
     quality: QualityManifest = Field(default_factory=QualityManifest)
     workflow: WorkflowManifest = Field(default_factory=WorkflowManifest)
+    safety: SafetyManifest = Field(default_factory=SafetyManifest)
     export: ExportManifest
 
     @model_validator(mode="after")
@@ -214,6 +219,13 @@ def load_manifest(path: str | Path, *, repo_root: str | Path) -> LoadedManifest:
         snapshot=snapshot,
         repo_root=root,
     )
+
+
+def manifest_from_snapshot(snapshot: dict[str, Any]) -> DatasetGenerationManifest:
+    """Rehydrate a validated manifest from the JSONB control snapshot."""
+    payload = dict(snapshot)
+    payload.pop("manifest_path", None)
+    return DatasetGenerationManifest.model_validate(payload)
 
 
 def planned_stage_keys(manifest: DatasetGenerationManifest) -> list[str]:

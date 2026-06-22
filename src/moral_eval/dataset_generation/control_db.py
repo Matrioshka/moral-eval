@@ -25,6 +25,10 @@ class RunNotFoundError(RuntimeError):
     """Raised when a dataset-generation run slug is unknown."""
 
 
+class RunLockUnavailableError(RuntimeError):
+    """Raised when another process holds the run-level advisory lock."""
+
+
 @dataclass(frozen=True)
 class ArtifactObservation:
     sha256: str
@@ -208,6 +212,7 @@ def record_artifact(
     observation: ArtifactObservation,
     human_edited: bool = False,
     metadata: dict[str, Any] | None = None,
+    producing_stage_id: int | None = None,
 ) -> None:
     cur.execute(
         """
@@ -221,9 +226,10 @@ def record_artifact(
             byte_count,
             row_count,
             human_edited,
-            artifact_metadata
+            artifact_metadata,
+            producing_stage_id
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
         ON CONFLICT (dataset_generation_run_id, artifact_key) DO UPDATE SET
             artifact_path = EXCLUDED.artifact_path,
             artifact_type = EXCLUDED.artifact_type,
@@ -233,6 +239,7 @@ def record_artifact(
             row_count = EXCLUDED.row_count,
             human_edited = EXCLUDED.human_edited,
             artifact_metadata = EXCLUDED.artifact_metadata,
+            producing_stage_id = EXCLUDED.producing_stage_id,
             observed_at = now(),
             updated_at = now()
         """,
@@ -379,3 +386,176 @@ def list_artifacts(
     for artifact in artifacts:
         artifact["drift"] = artifact_drift(artifact, repo_root=repo_root)
     return artifacts
+
+
+def acquire_run_lock(cur, run_slug: str) -> None:
+    """Acquire a session-level advisory lock scoped to one run slug."""
+    cur.execute(
+        "SELECT pg_try_advisory_lock(hashtextextended(%s, 0)) AS acquired",
+        (run_slug,),
+    )
+    row = cur.fetchone()
+    acquired = row.get("acquired") if isinstance(row, dict) else row[0]
+    if not acquired:
+        raise RunLockUnavailableError(
+            f"dataset-generation run is already being advanced: {run_slug}"
+        )
+
+
+def release_run_lock(cur, run_slug: str) -> None:
+    cur.execute(
+        "SELECT pg_advisory_unlock(hashtextextended(%s, 0))",
+        (run_slug,),
+    )
+
+
+def load_run_execution_state(cur, run_slug: str) -> dict[str, Any]:
+    run = _load_run(cur, run_slug)
+    run_id = int(run["dataset_generation_run_id"])
+    cur.execute(
+        """
+        SELECT *
+        FROM public.dataset_generation_stage
+        WHERE dataset_generation_run_id = %s
+          AND status = 'pending'
+        ORDER BY ordinal
+        LIMIT 1
+        """,
+        (run_id,),
+    )
+    next_stage = cur.fetchone()
+    cur.execute(
+        """
+        SELECT gate.*, template.artifact_path AS template_path
+        FROM public.dataset_generation_gate AS gate
+        LEFT JOIN public.dataset_generation_artifact AS template
+          ON template.dataset_generation_artifact_id = gate.template_artifact_id
+        WHERE gate.dataset_generation_run_id = %s
+          AND gate.status = 'open'
+        ORDER BY gate.opened_at, gate.dataset_generation_gate_id
+        LIMIT 1
+        """,
+        (run_id,),
+    )
+    open_gate = cur.fetchone()
+    return {
+        "run": run,
+        "next_stage": dict(next_stage) if next_stage is not None else None,
+        "open_gate": dict(open_gate) if open_gate is not None else None,
+    }
+
+
+def mark_stage_running(
+    cur, *, run_id: int, stage_id: int, stage_key: str, config: dict[str, Any]
+) -> None:
+    cur.execute(
+        """
+        UPDATE public.dataset_generation_stage
+        SET status = 'running', stage_config = %s::jsonb, error = NULL,
+            started_at = now(), completed_at = NULL, updated_at = now()
+        WHERE dataset_generation_stage_id = %s
+        """,
+        (json.dumps(config, ensure_ascii=False, sort_keys=True), stage_id),
+    )
+    cur.execute(
+        """
+        UPDATE public.dataset_generation_run
+        SET status = 'running', current_stage = %s, last_error = NULL,
+            started_at = COALESCE(started_at, now()), updated_at = now()
+        WHERE dataset_generation_run_id = %s
+        """,
+        (stage_key, run_id),
+    )
+
+
+def mark_stage_completed(
+    cur, *, run_id: int, stage_id: int, result: dict[str, Any]
+) -> None:
+    cur.execute(
+        """
+        UPDATE public.dataset_generation_stage
+        SET status = 'completed', stage_result = %s::jsonb, error = NULL,
+            completed_at = now(), updated_at = now()
+        WHERE dataset_generation_stage_id = %s
+        """,
+        (json.dumps(result, ensure_ascii=False, sort_keys=True), stage_id),
+    )
+    cur.execute(
+        """
+        UPDATE public.dataset_generation_run
+        SET status = 'running', current_stage = NULL, last_error = NULL, updated_at = now()
+        WHERE dataset_generation_run_id = %s
+        """,
+        (run_id,),
+    )
+
+
+def mark_stage_failed(cur, *, run_id: int, stage_id: int, error: str) -> None:
+    cur.execute(
+        """
+        UPDATE public.dataset_generation_stage
+        SET status = 'failed', error = %s, completed_at = now(), updated_at = now()
+        WHERE dataset_generation_stage_id = %s
+        """,
+        (error, stage_id),
+    )
+    cur.execute(
+        """
+        UPDATE public.dataset_generation_run
+        SET status = 'failed', current_stage = NULL, last_error = %s, updated_at = now()
+        WHERE dataset_generation_run_id = %s
+        """,
+        (error, run_id),
+    )
+
+
+def artifact_id(cur, *, run_id: int, artifact_key: str) -> int:
+    cur.execute(
+        """
+        SELECT dataset_generation_artifact_id
+        FROM public.dataset_generation_artifact
+        WHERE dataset_generation_run_id = %s AND artifact_key = %s
+        """,
+        (run_id, artifact_key),
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise RuntimeError(f"recorded artefact not found: {artifact_key}")
+    return int(row["dataset_generation_artifact_id"])
+
+
+def open_adjudication_gate(
+    cur,
+    *,
+    run_id: int,
+    stage_id: int,
+    template_artifact_id: int,
+    expected_completed_path: str,
+    instructions: str,
+) -> None:
+    cur.execute(
+        """
+        INSERT INTO public.dataset_generation_gate (
+            dataset_generation_run_id,
+            dataset_generation_stage_id,
+            template_artifact_id,
+            gate_key,
+            gate_type,
+            status,
+            expected_completed_path,
+            instructions
+        )
+        VALUES (%s, %s, %s, 'adjudication', 'human_csv_review', 'open', %s, %s)
+        ON CONFLICT (dataset_generation_run_id, gate_key) DO UPDATE SET
+            dataset_generation_stage_id = EXCLUDED.dataset_generation_stage_id,
+            template_artifact_id = EXCLUDED.template_artifact_id,
+            status = 'open',
+            expected_completed_path = EXCLUDED.expected_completed_path,
+            instructions = EXCLUDED.instructions,
+            validation_summary = '{}'::jsonb,
+            opened_at = now(),
+            resolved_at = NULL,
+            updated_at = now()
+        """,
+        (run_id, stage_id, template_artifact_id, expected_completed_path, instructions),
+    )

@@ -8,10 +8,13 @@ import pytest
 from moral_eval.dataset_generation import control_db
 from moral_eval.dataset_generation.control_db import (
     ManifestConflictError,
+    RunLockUnavailableError,
+    acquire_run_lock,
     artifact_drift,
     count_file_rows,
     initialise_run,
     observe_file,
+    open_adjudication_gate,
     sha256_file,
 )
 from moral_eval.dataset_generation.manifest import load_manifest
@@ -185,3 +188,53 @@ def test_migration_has_expected_safe_control_schema() -> None:
     assert "DROP TABLE" not in migration.upper()
     assert "TRUNCATE" not in migration.upper()
     assert "CREATE SCHEMA" not in migration.upper()
+
+class LockCursor:
+    def __init__(self, acquired: bool):
+        self.acquired = acquired
+        self.query = ""
+        self.params = ()
+
+    def execute(self, query, params=None):
+        self.query = str(query)
+        self.params = params or ()
+
+    def fetchone(self):
+        return {"acquired": self.acquired}
+
+
+def test_advisory_lock_uses_run_slug_and_rejects_contention() -> None:
+    cursor = LockCursor(True)
+    acquire_run_lock(cursor, "run_slug")
+    assert "pg_try_advisory_lock" in cursor.query
+    assert cursor.params == ("run_slug",)
+
+    with pytest.raises(RunLockUnavailableError, match="already being advanced"):
+        acquire_run_lock(LockCursor(False), "run_slug")
+
+class RecordingCursor:
+    def __init__(self):
+        self.statements: list[str] = []
+
+    def execute(self, query, _params=None):
+        self.statements.append(" ".join(str(query).split()))
+
+
+def test_open_adjudication_gate_does_not_change_run_status() -> None:
+    cursor = RecordingCursor()
+
+    open_adjudication_gate(
+        cursor,
+        run_id=1,
+        stage_id=2,
+        template_artifact_id=3,
+        expected_completed_path="data/generated/run/adjudication_completed.csv",
+        instructions="Complete the CSV.",
+    )
+
+    assert len(cursor.statements) == 1
+    assert cursor.statements[0].startswith(
+        "INSERT INTO public.dataset_generation_gate"
+    )
+    assert "UPDATE public.dataset_generation_run" not in cursor.statements[0]
+    assert "waiting_human" not in cursor.statements[0]

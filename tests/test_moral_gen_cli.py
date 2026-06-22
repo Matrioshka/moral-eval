@@ -35,6 +35,7 @@ def test_cli_parser_exposes_only_initial_control_commands() -> None:
     assert parser.parse_args(["init", "run.yaml"]).command == "init"
     assert parser.parse_args(["status", "run_slug"]).command == "status"
     assert parser.parse_args(["artifacts", "run_slug"]).command == "artifacts"
+    assert parser.parse_args(["next", "run_slug"]).command == "next"
 
 
 def test_cli_help_lists_control_commands(capsys) -> None:
@@ -46,7 +47,7 @@ def test_cli_help_lists_control_commands(capsys) -> None:
     assert "init" in output
     assert "status" in output
     assert "artifacts" in output
-    assert "next" not in output
+    assert "next" in output
 
 
 def test_status_output(monkeypatch, capsys) -> None:
@@ -72,6 +73,34 @@ def test_status_output(monkeypatch, capsys) -> None:
     assert "Next pending stage: generate_candidates" in output
     assert "Open gate: -" in output
 
+
+def test_status_displays_open_gate_without_implying_global_wait(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(moral_gen, "connect_db", lambda **_kwargs: FakeConnection())
+    monkeypatch.setattr(
+        moral_gen,
+        "read_run_status",
+        lambda _cur, _slug: {
+            "run": {
+                "run_slug": "run_slug",
+                "status": "running",
+                "current_stage": None,
+                "last_error": None,
+            },
+            "next_stage": {"stage_key": "apply_adjudication"},
+            "open_gate": {
+                "gate_key": "adjudication",
+                "gate_type": "human_csv_review",
+                "expected_completed_path": "data/generated/run/adjudication_completed.csv",
+            },
+        },
+    )
+
+    assert moral_gen.command_status(argparse.Namespace(run_slug="run_slug")) == 0
+    output = capsys.readouterr().out
+    assert "Status: running" in output
+    assert "Next pending stage: apply_adjudication" in output
+    assert "Open gate: adjudication (human_csv_review)" in output
+    assert "Expected file: data/generated/run/adjudication_completed.csv" in output
 
 def test_artifacts_output(monkeypatch, capsys) -> None:
     monkeypatch.setattr(moral_gen, "connect_db", lambda **_kwargs: FakeConnection())
@@ -134,3 +163,17 @@ def test_main_reports_control_errors(monkeypatch, capsys) -> None:
     monkeypatch.setattr(moral_gen, "connect_db", lambda **_kwargs: FakeConnection())
     assert moral_gen.main(["status", "missing"]) == 2
     assert "Error: missing" in capsys.readouterr().err
+
+def test_next_output(monkeypatch, capsys) -> None:
+    connection = FakeConnection()
+    monkeypatch.setattr(moral_gen, "connect_db", lambda **_kwargs: connection)
+    monkeypatch.setattr(
+        moral_gen,
+        "advance_one",
+        lambda _connection, slug, **_kwargs: type(
+            "Result", (), {"message": f"Completed stage for {slug}."}
+        )(),
+    )
+
+    assert moral_gen.command_next(argparse.Namespace(run_slug="run_slug")) == 0
+    assert "Completed stage for run_slug." in capsys.readouterr().out

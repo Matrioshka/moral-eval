@@ -13,6 +13,7 @@ def manifest_text(
     output_dir: str = "data/generated/test_run",
     cells_file: str = "data/generation_cells/test_cells.jsonl",
     generation_extra: str = "",
+    safety: str = "",
     workflow: str = "  adjudication: true\n  revisions: true\n  manual_review: true",
     export: str = (
         "  inspect_jsonl: true\n"
@@ -37,7 +38,7 @@ generation:
   seed: 1
   n_per_cell: 1
   max_workers: 1
-{generation_extra}quality:
+{generation_extra}{safety}quality:
   min_mean_quality: 8.0
   max_duplicate_risk: 4
   near_duplicate_threshold: 0.86
@@ -167,3 +168,14 @@ def test_disabled_workflow_sections_omit_stages(tmp_path: Path) -> None:
     )
     loaded = load_manifest(manifest_path, repo_root=tmp_path)
     assert loaded.planned_stages == ["generate_candidates"]
+
+def test_model_call_safety_defaults_false_and_requires_explicit_opt_in(tmp_path: Path) -> None:
+    default_manifest = load_manifest(write_manifest(tmp_path), repo_root=tmp_path)
+    assert default_manifest.manifest.safety.allow_model_calls is False
+    assert default_manifest.snapshot["safety"] == {"allow_model_calls": False}
+
+    opted_in = write_manifest(
+        tmp_path,
+        manifest_text(safety="safety:\n  allow_model_calls: true\n"),
+    )
+    assert load_manifest(opted_in, repo_root=tmp_path).manifest.safety.allow_model_calls is True
