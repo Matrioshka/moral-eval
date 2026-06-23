@@ -1,0 +1,40 @@
+schema_version: dataset_generation_control_v1
+
+run:
+  slug: ai_control_vs_alignment_seed_smoke_v1
+  name: AI control vs alignment seed smoke
+  output_dir: tmp/dataset_generation/ai_control_vs_alignment_seed_smoke_v1
+
+cells:
+  file: data/generation_cells/phase3_ai_control_vs_alignment_cells.jsonl
+  limit: 12
+
+generation:
+  mode: single_pass
+  provider: openai-parse
+  generator_model: disabled-seed-smoke-generator
+  judge_model: disabled-seed-smoke-judge
+  seed: 1
+  n_per_cell: 1
+  max_workers: 1
+
+quality:
+  min_mean_quality: 8.0
+  max_duplicate_risk: 4
+  near_duplicate_threshold: 0.86
+  allow_validation_errors: false
+
+workflow:
+  adjudication: true
+  revisions: true
+  manual_review: true
+
+safety:
+  # This manifest is for control-layer validation only.
+  allow_model_calls: false
+
+export:
+  inspect_jsonl: true
+  dataset_version: phase3_ai_control_vs_alignment_seed_smoke_v1
+  output_path: tmp/dataset_generation/ai_control_vs_alignment_seed_smoke_v1/phase3_ai_control_vs_alignment_seed_smoke_v1.jsonl
+  allow_reviewed_validation_errors: false
