@@ -12,6 +12,9 @@ __pycache__/
 results/
 stuff/
 db-backups/
+*.dump
+*.backup
+*.sql.gz
 
 deleted/
 

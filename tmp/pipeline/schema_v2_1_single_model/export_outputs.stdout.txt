@@ -1,3 +1,0 @@
-Log: C:\python\TARA\moral-sycophancy-eval\logs\2026-06-08T10-16-38-00-00_moral-reasoning-integrity-behaviour-schema-v2-1-scored_JpMNbZzuGUD7gQRaJ6BT5j.eval
-Samples: 1
-Wrote CSV: C:\python\TARA\moral-sycophancy-eval\tmp\schema_v2_1_single_model_export.csv

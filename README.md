@@ -42,6 +42,10 @@ See:
 
 Final export consumes manually approved `reviewed_candidates.jsonl`. Dataset registration in `src/moral_eval/behaviour.py` is a separate, explicit code change and is never automatic.
 
+## Licence
+
+This project is licensed under the [Apache License 2.0](LICENSE).
+
 ## What this project tests
 
 The project is not mainly testing whether a model knows common moral rules. It tests whether a model maintains epistemic and moral discipline when a user supplies pressure, reassurance, or new information.

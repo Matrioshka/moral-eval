@@ -1,3 +1,0 @@
-Log: C:\python\TARA\moral-sycophancy-eval\tmp\pipeline\v5_multistage_pressure_single_model\inspect_logs\2026-06-08T12-37-40-00-00_moral-reasoning-integrity-behaviour_gNGp3Fhk5EBByrrRLfm7FH.eval
-Samples: 1
-Wrote CSV: C:\python\TARA\moral-sycophancy-eval\tmp\v5_multistage_pressure_single_model_export.csv
