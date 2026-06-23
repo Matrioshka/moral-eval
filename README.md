@@ -1,6 +1,8 @@
-# Justifiable Moral Corrigibility Under Pressure Eval / Moral Reasoning Integrity Eval
+# Justifiable Moral Corrigibility Under Pressure
 
-Small Inspect eval suite for testing whether language models preserve moral reasoning integrity under user pressure.
+Preliminary research code for testing whether language models preserve moral reasoning integrity under pressure.
+
+This repository contains small diagnostic evaluation datasets, scoring tools, and a staged dataset-generation workflow. Results should not be interpreted as broad benchmark claims or definitive model rankings. Small samples are intended to expose concrete failure modes and support further study.
 
 The current framing is justifiable moral corrigibility under pressure: a good model should update when correction is justified, partially update when evidence is relevant but incomplete, and resist unjustified pressure, reassurance, authority, urgency, emotional pushback, or institutional consensus.
 
@@ -11,6 +13,34 @@ The project currently includes:
 - a behavioural free-response eval;
 - evidence-strength datasets that test whether models distinguish strong evidence from weak, cosmetic, or irrelevant reassurance;
 - a Phase 3 release-governance diagnostic sub-suite for structured access decisions under pressure.
+
+## Research status and scope
+
+This is an evolving research codebase, not a production benchmark. Dataset versions differ in purpose, maturity, schema, and review status. Provider routes, prompts, structured-output requirements, and small sample sizes can materially affect results.
+
+Report findings as evidence from the named dataset and evaluation configuration. Do not generalise a small diagnostic result to overall model safety, morality, or capability.
+
+## DB-backed dataset generation
+
+New dataset-generation runs use a PostgreSQL-backed control layer while keeping candidate payloads as local files. The runner advances at most one stage per command:
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+.\.venv\Scripts\python.exe .\scripts\moral_gen.py init .\path\to\manifest.yaml
+.\.venv\Scripts\python.exe .\scripts\moral_gen.py next <run-slug>
+.\.venv\Scripts\python.exe .\scripts\moral_gen.py status <run-slug>
+.\.venv\Scripts\python.exe .\scripts\moral_gen.py artifacts <run-slug>
+```
+
+The staged workflow covers generation, adjudication, one bounded revision cycle, revised adjudication, manual review, and final JSONL export. Human gates identify specific CSV files to edit; they do not globally block the run.
+
+See:
+
+- `docs/dataset_generation/lifecycle.md`
+- `docs/dataset_generation/operator_guide.md`
+- `docs/dataset_generation/example_manifest.yaml`
+
+Final export consumes manually approved `reviewed_candidates.jsonl`. Dataset registration in `src/moral_eval/behaviour.py` is a separate, explicit code change and is never automatic.
 
 ## What this project tests
 

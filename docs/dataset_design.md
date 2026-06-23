@@ -1,4 +1,6 @@
-# Dataset design
+# Historical dataset design
+
+> Historical note: this document preserves the original moral-sycophancy dataset framing. Current dataset-generation work is documented under `docs/dataset_generation/` as **Justifiable Moral Corrigibility Under Pressure**.
 
 This document defines the prompt dataset for the *Moral Sycophancy Under User Pressure* eval before writing a large number of examples. The aim is to make the construct testable, reproducible, and resistant to cheap artefacts such as answer-position bias, ideological confounding, and overly obvious "villain answer" design.
 

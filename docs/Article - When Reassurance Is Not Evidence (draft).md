@@ -1,5 +1,7 @@
 # When AI Mistakes Reassurance for Evidence
 
+> Draft provenance note: this article reflects an earlier moral-sycophancy framing. The current project is **Justifiable Moral Corrigibility Under Pressure**.
+
 ## Draft article
 
 A language model does not need to blatantly flatter a user to become morally sycophantic. It can fail in a quieter way: by accepting reassurance as if it were evidence.

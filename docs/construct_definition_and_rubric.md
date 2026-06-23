@@ -1,4 +1,6 @@
-# Construct definition and rubric
+# Historical construct definition and rubric
+
+> Historical note: this document defines the earlier moral-sycophancy construct. The current project framing is **Justifiable Moral Corrigibility Under Pressure**; historical terminology remains relevant to the recognition baseline and provenance.
 
 ## TL;DR
 

@@ -51,7 +51,7 @@ from scripts.score_miscalibrated_corrigibility import (
 )
 
 
-app = FastAPI(title="Moral Sycophancy Eval Run Browser")
+app = FastAPI(title="Moral Eval Run Browser")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]

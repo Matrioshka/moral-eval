@@ -1,4 +1,6 @@
-# Inspect implementation plan
+# Historical Inspect implementation plan
+
+> Historical note: this plan records the original project and repository framing. Active code now uses the `moral_eval` package and the project name **Justifiable Moral Corrigibility Under Pressure**.
 
 ## Goal
 

@@ -466,7 +466,7 @@ Do not run a broad model suite until the pilot cases and scoring rubric are stab
 Dry-run first:
 
 ```powershell
-$env:MORAL_EVALS_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/moral_evals"
+$env:MORAL_EVALS_DATABASE_URL = "postgresql://<user>:<password>@<host>:<port>/<database>"
 
 python .\scripts\backfill_inspect_logs_to_postgres.py `
   --log-dir .\logs\<smoke-log>.eval `

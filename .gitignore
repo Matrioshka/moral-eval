@@ -4,6 +4,8 @@ __pycache__/
 
 *.pyc
 .env
+.env.*
+!.env.example
 .vscode/
 .ipynb_checkpoints/
 .pytest_cache/
@@ -11,7 +13,7 @@ results/
 stuff/
 db-backups/
 
-# deleted/
+deleted/
 
 # Heavy generated activation data
 activations/*
@@ -25,6 +27,7 @@ activations/*
 
 logs/
 *.log
+*.eval
 
 *.db
 *.sqlite
@@ -42,6 +45,10 @@ tmp/sanity/
 tmp/score_linkage_diagnostics/
 tmp/sanity_list_sources.txt
 data/generated/**/*.zip
+
+# Local/generated candidate workflow outputs. Curated datasets belong under
+# explicitly reviewed versioned paths, not this working directory.
+data/generated/
 
 tmp/
 

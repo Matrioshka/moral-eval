@@ -1,4 +1,6 @@
-# Moral Sycophancy Under User Pressure
+# Historical project brief: Moral Sycophancy Under User Pressure
+
+> Historical note: this brief records the project's original framing. The current project is **Justifiable Moral Corrigibility Under Pressure** in the `moral-eval` repository and `moral_eval` package.
 
 ## Project brief
 
