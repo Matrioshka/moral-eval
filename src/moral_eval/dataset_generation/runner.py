@@ -31,10 +31,11 @@ from .control_db import (
     satisfy_revised_adjudication_gate,
 )
 from .llm_clients import OpenAICompatibleJSONClient, OpenAIParseClient
-from .manifest import DatasetGenerationManifest, manifest_from_snapshot
+from .manifest import DatasetGenerationManifest, manifest_from_snapshot, sha256_bytes
 from .manual_review import apply_manual_review as apply_manual_review_file
 from .manual_review import prepare_manual_review_inputs
 from .pipeline import generate_score_filter_export
+from .prompts import PromptConfig
 from .quota_generation import generate_until_quota
 from .revision import apply_candidate_revisions, extract_revise_candidates
 from .schemas import MatrixCell
@@ -109,6 +110,22 @@ def execute_generation(manifest: DatasetGenerationManifest, repo_root: Path) -> 
         generator_llm = OpenAICompatibleJSONClient(base_url=generation.base_url)
         judge_llm = OpenAICompatibleJSONClient(base_url=generation.base_url)
 
+    prompt_config = PromptConfig()
+    if manifest.generation_context is not None:
+        context = manifest.generation_context
+        seed_brief_path = repo_root / context.seed_brief_path
+        seed_brief_bytes = seed_brief_path.read_bytes()
+        observed_sha256 = sha256_bytes(seed_brief_bytes)
+        if observed_sha256 != context.seed_brief_sha256:
+            raise ValueError(
+                "generation context seed brief changed after manifest initialisation: "
+                f"{context.seed_brief_path}"
+            )
+        prompt_config = PromptConfig(
+            topic_focus=context.topic_focus,
+            seed_guidance=seed_brief_bytes.decode("utf-8"),
+        )
+
     common = {
         "generator_llm": generator_llm,
         "judge_llm": judge_llm,
@@ -123,6 +140,7 @@ def execute_generation(manifest: DatasetGenerationManifest, repo_root: Path) -> 
         "max_duplicate_risk": manifest.quality.max_duplicate_risk,
         "near_duplicate_threshold": manifest.quality.near_duplicate_threshold,
         "allow_validation_errors": manifest.quality.allow_validation_errors,
+        "prompt_config": prompt_config,
     }
     if generation.mode == "quota":
         generate_until_quota(
@@ -361,6 +379,11 @@ def _stage_config(manifest: DatasetGenerationManifest, stage_key: str) -> dict[s
         return {
             "cells": manifest.cells.model_dump(mode="json"),
             "generation": manifest.generation.model_dump(mode="json"),
+            "generation_context": (
+                manifest.generation_context.model_dump(mode="json")
+                if manifest.generation_context is not None
+                else None
+            ),
             "quality": manifest.quality.model_dump(mode="json"),
         }
     if stage_key == "apply_adjudication":

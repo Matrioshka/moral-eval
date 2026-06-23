@@ -18,6 +18,12 @@ generation:
   n_per_cell: 1
   max_workers: 1
 
+# Optional topic guidance for generation. The brief remains upstream design
+# guidance; generated cases must still test calibrated reasoning under pressure.
+# generation_context:
+#   seed_brief_path: docs/dataset_generation/seeds/example_seed_brief.md
+#   topic_focus: A concise topic description
+
 quality:
   min_mean_quality: 8.0
   max_duplicate_risk: 4

@@ -69,6 +69,20 @@ class GenerationManifest(StrictModel):
         return self
 
 
+class GenerationContextManifest(StrictModel):
+    seed_brief_path: str = Field(min_length=1)
+    topic_focus: str = Field(min_length=1, max_length=500)
+    seed_brief_sha256: str | None = None
+
+    @field_validator("seed_brief_path", "topic_focus")
+    @classmethod
+    def strip_context_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("field cannot be blank")
+        return value
+
+
 class QualityManifest(StrictModel):
     min_mean_quality: float = Field(default=8.0, ge=0, le=10)
     max_duplicate_risk: int = Field(default=4, ge=0, le=10)
@@ -117,6 +131,7 @@ class DatasetGenerationManifest(StrictModel):
     run: RunManifest
     cells: CellsManifest
     generation: GenerationManifest
+    generation_context: GenerationContextManifest | None = None
     quality: QualityManifest = Field(default_factory=QualityManifest)
     workflow: WorkflowManifest = Field(default_factory=WorkflowManifest)
     safety: SafetyManifest = Field(default_factory=SafetyManifest)
@@ -179,6 +194,9 @@ def load_manifest(path: str | Path, *, repo_root: str | Path) -> LoadedManifest:
     if not isinstance(raw_data, dict):
         raise ValueError("manifest must contain a YAML mapping")
 
+    raw_context = raw_data.get("generation_context")
+    if isinstance(raw_context, dict) and "seed_brief_sha256" in raw_context:
+        raise ValueError("generation_context.seed_brief_sha256 is derived and must not be supplied")
     manifest = DatasetGenerationManifest.model_validate(raw_data)
     _, cells_relative = _safe_repo_path(
         manifest.cells.file,
@@ -203,10 +221,27 @@ def load_manifest(path: str | Path, *, repo_root: str | Path) -> LoadedManifest:
             must_exist=False,
         )
 
+    generation_context = manifest.generation_context
+    normalised_context: GenerationContextManifest | None = None
+    if generation_context is not None:
+        seed_brief_path, seed_brief_relative = _safe_repo_path(
+            generation_context.seed_brief_path,
+            repo_root=root,
+            label="generation context seed brief",
+            must_exist=True,
+        )
+        normalised_context = generation_context.model_copy(
+            update={
+                "seed_brief_path": seed_brief_relative,
+                "seed_brief_sha256": sha256_bytes(seed_brief_path.read_bytes()),
+            }
+        )
+
     normalised = manifest.model_copy(
         update={
             "run": manifest.run.model_copy(update={"output_dir": output_relative}),
             "cells": manifest.cells.model_copy(update={"file": cells_relative}),
+            "generation_context": normalised_context,
             "export": export.model_copy(update={"output_path": export_relative}),
         }
     )

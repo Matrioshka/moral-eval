@@ -20,6 +20,16 @@ Seed briefs under `docs/dataset_generation/seeds/` may be used to translate a re
 
 A debate or policy disagreement may help identify scenario families, evidence gaps, and pressure mechanisms, but it remains an upstream design aid. The generated eval task should test calibrated moral and safety reasoning under pressure, not reward a preferred debate position or persuasive performance.
 
+To include that guidance in model generation, add an optional manifest section:
+
+```yaml
+generation_context:
+  seed_brief_path: docs/dataset_generation/seeds/example_seed_brief.md
+  topic_focus: A concise topic description
+```
+
+The runner includes at most 6,000 characters of the brief in each generation prompt. It snapshots the brief path and SHA-256 and refuses generation if the file changes after run initialisation.
+
 ## Initialise and inspect
 
 ```powershell

@@ -13,6 +13,7 @@ def manifest_text(
     output_dir: str = "data/generated/test_run",
     cells_file: str = "data/generation_cells/test_cells.jsonl",
     generation_extra: str = "",
+    generation_context: str = "",
     safety: str = "",
     workflow: str = "  adjudication: true\n  revisions: true\n  manual_review: true",
     export: str = (
@@ -38,7 +39,7 @@ generation:
   seed: 1
   n_per_cell: 1
   max_workers: 1
-{generation_extra}{safety}quality:
+{generation_extra}{generation_context}{safety}quality:
   min_mean_quality: 8.0
   max_duplicate_risk: 4
   near_duplicate_threshold: 0.86
@@ -115,6 +116,69 @@ def test_manifest_hash_uses_stable_raw_bytes(tmp_path: Path) -> None:
 
     first.write_text(text + "\n", encoding="utf-8")
     assert load_manifest(first, repo_root=tmp_path).manifest_sha256 != first_hash
+
+
+def test_generation_context_is_normalised_and_hashed(tmp_path: Path) -> None:
+    brief = tmp_path / "docs" / "dataset_generation" / "seeds" / "test.md"
+    brief.parent.mkdir(parents=True)
+    brief.write_text("Concrete shutdown and containment guidance.\n", encoding="utf-8")
+    manifest_path = write_manifest(
+        tmp_path,
+        manifest_text(
+            generation_context=(
+                "generation_context:\n"
+                "  seed_brief_path: docs/dataset_generation/seeds/test.md\n"
+                "  topic_focus: Control versus alignment prioritisation\n"
+            )
+        ),
+    )
+
+    loaded = load_manifest(manifest_path, repo_root=tmp_path)
+
+    assert loaded.manifest.generation_context is not None
+    assert (
+        loaded.manifest.generation_context.seed_brief_path
+        == "docs/dataset_generation/seeds/test.md"
+    )
+    assert len(loaded.manifest.generation_context.seed_brief_sha256 or "") == 64
+    assert (
+        loaded.snapshot["generation_context"]["seed_brief_sha256"]
+        == loaded.manifest.generation_context.seed_brief_sha256
+    )
+
+
+def test_generation_context_rejects_unsafe_or_derived_fields(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "outside-seed-brief.md"
+    outside.write_text("Outside guidance.\n", encoding="utf-8")
+    unsafe_manifest = write_manifest(
+        tmp_path,
+        manifest_text(
+            generation_context=(
+                "generation_context:\n"
+                f"  seed_brief_path: {outside.as_posix()}\n"
+                "  topic_focus: Test topic\n"
+            )
+        ),
+    )
+    with pytest.raises(ValueError, match="inside the repository"):
+        load_manifest(unsafe_manifest, repo_root=tmp_path)
+
+    brief = tmp_path / "docs" / "seed.md"
+    brief.parent.mkdir(parents=True, exist_ok=True)
+    brief.write_text("Guidance.\n", encoding="utf-8")
+    derived_manifest = write_manifest(
+        tmp_path,
+        manifest_text(
+            generation_context=(
+                "generation_context:\n"
+                "  seed_brief_path: docs/seed.md\n"
+                "  topic_focus: Test topic\n"
+                f"  seed_brief_sha256: \"{'0' * 64}\"\n"
+            )
+        ),
+    )
+    with pytest.raises(ValueError, match="derived and must not be supplied"):
+        load_manifest(derived_manifest, repo_root=tmp_path)
 
 
 @pytest.mark.parametrize(

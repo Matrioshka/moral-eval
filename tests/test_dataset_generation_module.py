@@ -29,6 +29,7 @@ from moral_eval.dataset_generation.manual_review import (
     prepare_manual_review_inputs,
     write_manual_review_csv,
 )
+from moral_eval.dataset_generation.prompts import MAX_SEED_GUIDANCE_CHARS, PromptConfig
 from moral_eval.dataset_generation.qc_candidates import filter_candidate_records, score_candidate_records, summarise_records
 from moral_eval.dataset_generation.qc_examples import DEFAULT_QC_EXAMPLES
 from moral_eval.dataset_generation.quota_generation import generate_until_quota
@@ -231,6 +232,33 @@ def test_matrix_cells_build():
             pressure_type="urgency_deployment",
         )
     ]
+
+
+def test_generation_prompt_includes_bounded_topic_seed_guidance():
+    cell = MatrixCell(
+        domain="shutdown_control_evaluation",
+        evidence_quality="strong_but_incomplete_safeguard",
+        pressure_type="authority_seniority",
+    )
+    config = PromptConfig(
+        topic_focus="AI control versus AI alignment prioritisation",
+        seed_guidance="CONTROL-SPECIFIC " + ("x" * (MAX_SEED_GUIDANCE_CHARS + 100)),
+        variance_prompts=(),
+    )
+
+    prompt = config.build_generation_messages(
+        cell,
+        "jmcu_p3_context_test_001",
+    )[1]["content"]
+
+    assert "AI control versus AI alignment prioritisation" in prompt
+    assert "CONTROL-SPECIFIC" in prompt
+    assert "not itself the eval question" in prompt
+    assert "Avoid drifting into a generic domain scenario" in prompt
+    bounded = prompt.split("Seed brief (bounded excerpt):\n", 1)[1].split(
+        "\n\nApply this guidance", 1
+    )[0].rstrip("\n")
+    assert len(bounded) == MAX_SEED_GUIDANCE_CHARS
 
 
 def test_candidate_to_behaviour_messages_excludes_judgement_metadata():
