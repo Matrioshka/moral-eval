@@ -222,6 +222,22 @@ def test_next_refuses_generation_without_manifest_opt_in(tmp_path: Path, monkeyp
     assert events == [("lock", "runner_test"), ("unlock", "runner_test")]
 
 
+def test_next_on_completed_run_is_safe_and_idempotent(
+    tmp_path: Path, monkeypatch
+) -> None:
+    events: list[tuple] = []
+    state = execution_state("generate_candidates")
+    state["run"]["status"] = "completed"
+    state["next_stage"] = None
+    patch_db(monkeypatch, state, events)
+
+    result = advance_one(FakeConnection(), "runner_test", repo_root=tmp_path)
+
+    assert result.outcome == "run_completed"
+    assert "is complete" in result.message
+    assert events == [("lock", "runner_test"), ("unlock", "runner_test")]
+
+
 def test_next_fails_clearly_when_advisory_lock_is_unavailable(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         runner,

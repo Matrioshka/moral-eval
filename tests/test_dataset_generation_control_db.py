@@ -18,6 +18,7 @@ from moral_eval.dataset_generation.control_db import (
     open_revision_gate,
     open_revised_adjudication_gate,
     open_adjudication_gate,
+    reconcile_run_completion,
     sha256_file,
     satisfy_adjudication_gate,
     satisfy_manual_review_gate,
@@ -229,6 +230,37 @@ class RecordingCursor:
 
     def execute(self, query, _params=None):
         self.statements.append(" ".join(str(query).split()))
+
+
+def test_completion_reconciliation_requires_all_terminal_stages_and_no_blockers() -> None:
+    cursor = RecordingCursor(rowcount=1)
+
+    assert reconcile_run_completion(cursor, run_id=1) is True
+
+    statement = cursor.statements[0]
+    assert "SET status = 'completed'" in statement
+    assert "run.status NOT IN ('completed', 'failed')" in statement
+    assert "run.current_stage IS NULL" in statement
+    assert "run.last_error IS NULL" in statement
+    assert "stage.status NOT IN ('completed', 'skipped')" in statement
+    assert "gate.status = 'open'" in statement
+
+
+@pytest.mark.parametrize(
+    "blocker",
+    [
+        "pending stage",
+        "running stage",
+        "open human gate",
+        "last error",
+    ],
+)
+def test_completion_reconciliation_does_not_complete_blocked_runs(
+    blocker: str,
+) -> None:
+    cursor = RecordingCursor(rowcount=0)
+
+    assert reconcile_run_completion(cursor, run_id=1) is False, blocker
 
 
 def test_open_adjudication_gate_does_not_change_run_status() -> None:

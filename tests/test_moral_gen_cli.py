@@ -130,6 +130,30 @@ def test_status_displays_satisfied_gate(monkeypatch, capsys) -> None:
     output = capsys.readouterr().out
     assert "Gate: adjudication (human_csv_review) [satisfied]" in output
 
+
+def test_status_displays_completed_run(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(moral_gen, "connect_db", lambda **_kwargs: FakeConnection())
+    monkeypatch.setattr(
+        moral_gen,
+        "read_run_status",
+        lambda _cur, _slug: {
+            "run": {
+                "run_slug": "run_slug",
+                "status": "completed",
+                "current_stage": None,
+                "last_error": None,
+            },
+            "next_stage": None,
+            "open_gate": None,
+        },
+    )
+
+    assert moral_gen.command_status(argparse.Namespace(run_slug="run_slug")) == 0
+    output = capsys.readouterr().out
+    assert "Status: completed" in output
+    assert "Next pending stage: -" in output
+
+
 def test_artifacts_output(monkeypatch, capsys) -> None:
     monkeypatch.setattr(moral_gen, "connect_db", lambda **_kwargs: FakeConnection())
     monkeypatch.setattr(

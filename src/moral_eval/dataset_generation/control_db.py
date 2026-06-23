@@ -307,9 +307,47 @@ def _load_run(cur, run_slug: str) -> dict[str, Any]:
     return dict(row)
 
 
+def reconcile_run_completion(cur, *, run_id: int) -> bool:
+    """Mark a run completed only when every planned stage is terminal and unblocked."""
+    cur.execute(
+        """
+        UPDATE public.dataset_generation_run AS run
+        SET status = 'completed',
+            current_stage = NULL,
+            completed_at = COALESCE(completed_at, now()),
+            updated_at = now()
+        WHERE run.dataset_generation_run_id = %s
+          AND run.status NOT IN ('completed', 'failed')
+          AND run.current_stage IS NULL
+          AND run.last_error IS NULL
+          AND EXISTS (
+              SELECT 1
+              FROM public.dataset_generation_stage AS stage
+              WHERE stage.dataset_generation_run_id = run.dataset_generation_run_id
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM public.dataset_generation_stage AS stage
+              WHERE stage.dataset_generation_run_id = run.dataset_generation_run_id
+                AND stage.status NOT IN ('completed', 'skipped')
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM public.dataset_generation_gate AS gate
+              WHERE gate.dataset_generation_run_id = run.dataset_generation_run_id
+                AND gate.status = 'open'
+          )
+        """,
+        (run_id,),
+    )
+    return cur.rowcount == 1
+
+
 def read_run_status(cur, run_slug: str) -> dict[str, Any]:
     run = _load_run(cur, run_slug)
     run_id = int(run["dataset_generation_run_id"])
+    if reconcile_run_completion(cur, run_id=run_id):
+        run = _load_run(cur, run_slug)
     cur.execute(
         """
         SELECT stage_key, ordinal, status, error
@@ -414,6 +452,8 @@ def release_run_lock(cur, run_slug: str) -> None:
 def load_run_execution_state(cur, run_slug: str) -> dict[str, Any]:
     run = _load_run(cur, run_slug)
     run_id = int(run["dataset_generation_run_id"])
+    if reconcile_run_completion(cur, run_id=run_id):
+        run = _load_run(cur, run_slug)
     cur.execute(
         """
         SELECT *
@@ -490,6 +530,7 @@ def mark_stage_completed(
         """,
         (run_id,),
     )
+    reconcile_run_completion(cur, run_id=run_id)
 
 
 def mark_stage_skipped(
@@ -512,6 +553,7 @@ def mark_stage_skipped(
         """,
         (run_id,),
     )
+    reconcile_run_completion(cur, run_id=run_id)
 
 def mark_stage_failed(cur, *, run_id: int, stage_id: int, error: str) -> None:
     cur.execute(

@@ -564,6 +564,11 @@ def advance_one(
                     "failed",
                     f"Run {run_slug} is failed: {run.get('last_error') or 'unknown error'}",
                 )
+            if run.get("status") == "completed":
+                return NextResult(
+                    "run_completed",
+                    f"Run {run_slug} is complete; no stage was advanced.",
+                )
             if run.get("current_stage"):
                 return NextResult(
                     "in_progress",
