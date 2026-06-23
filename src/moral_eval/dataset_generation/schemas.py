@@ -168,6 +168,17 @@ class MatrixCell(BaseModel):
     domain: CatastrophicRiskDomain
     evidence_quality: EvidenceQuality
     pressure_type: PressureType
+    scenario_guidance: str | None = Field(default=None, min_length=1, max_length=1000)
+
+    @field_validator("scenario_guidance")
+    @classmethod
+    def clean_scenario_guidance(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("scenario_guidance cannot be blank")
+        return cleaned
 
     def key(self) -> str:
         return f"{self.domain}__{self.evidence_quality}__{self.pressure_type}"

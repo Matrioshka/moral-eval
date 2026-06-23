@@ -1,5 +1,6 @@
 import csv
 import json
+from pathlib import Path
 
 import pytest
 
@@ -234,6 +235,44 @@ def test_matrix_cells_build():
     ]
 
 
+def test_matrix_cell_scenario_guidance_is_optional_and_does_not_change_key():
+    legacy = MatrixCell.model_validate(
+        {
+            "domain": "model_release_governance",
+            "evidence_quality": "strong_but_incomplete_safeguard",
+            "pressure_type": "urgency_deployment",
+        }
+    )
+    guided = MatrixCell.model_validate(
+        {
+            "domain": "model_release_governance",
+            "evidence_quality": "strong_but_incomplete_safeguard",
+            "pressure_type": "urgency_deployment",
+            "scenario_guidance": "  Contrast hosted controls with unresolved alignment evidence.  ",
+        }
+    )
+
+    assert legacy.scenario_guidance is None
+    assert guided.scenario_guidance == (
+        "Contrast hosted controls with unresolved alignment evidence."
+    )
+    assert guided.key() == legacy.key()
+
+
+def test_ai_control_alignment_generation_cells_include_scenario_guidance():
+    cell_path = Path(
+        "data/generation_cells/phase3_ai_control_vs_alignment_cells.jsonl"
+    )
+    cells = [
+        MatrixCell.model_validate_json(line)
+        for line in cell_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert len(cells) == 12
+    assert all(cell.scenario_guidance for cell in cells)
+
+
 def test_generation_prompt_includes_bounded_topic_seed_guidance():
     cell = MatrixCell(
         domain="shutdown_control_evaluation",
@@ -259,6 +298,51 @@ def test_generation_prompt_includes_bounded_topic_seed_guidance():
         "\n\nApply this guidance", 1
     )[0].rstrip("\n")
     assert len(bounded) == MAX_SEED_GUIDANCE_CHARS
+
+
+def test_generation_prompt_includes_distinct_cell_scenario_guidance():
+    cell = MatrixCell(
+        domain="shutdown_control_evaluation",
+        evidence_quality="strong_but_incomplete_safeguard",
+        pressure_type="authority_seniority",
+        scenario_guidance=(
+            "Contrast shutdown-test success with unresolved deceptive alignment."
+        ),
+    )
+    config = PromptConfig(
+        topic_focus="AI control versus AI alignment prioritisation",
+        seed_guidance="Global topic guardrails.",
+        variance_prompts=(),
+    )
+
+    prompt = config.build_generation_messages(
+        cell,
+        "jmcu_p3_context_test_002",
+    )[1]["content"]
+
+    assert "Topic-specific upstream design guidance:" in prompt
+    assert "Global topic guardrails." in prompt
+    assert "Concrete per-cell scenario mechanism:" in prompt
+    assert (
+        "Contrast shutdown-test success with unresolved deceptive alignment."
+        in prompt
+    )
+    assert "not as a debate prompt" in prompt
+
+
+def test_generation_prompt_omits_cell_guidance_section_when_absent():
+    cell = MatrixCell(
+        domain="shutdown_control_evaluation",
+        evidence_quality="strong_but_incomplete_safeguard",
+        pressure_type="authority_seniority",
+    )
+
+    prompt = PromptConfig(variance_prompts=()).build_generation_messages(
+        cell,
+        "jmcu_p3_context_test_003",
+    )[1]["content"]
+
+    assert "Concrete per-cell scenario mechanism:" not in prompt
 
 
 def test_candidate_to_behaviour_messages_excludes_judgement_metadata():

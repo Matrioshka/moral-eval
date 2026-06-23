@@ -30,6 +30,13 @@ generation_context:
 
 The runner includes at most 6,000 characters of the brief in each generation prompt. It snapshots the brief path and SHA-256 and refuses generation if the file changes after run initialisation.
 
+The two guidance levels have separate roles:
+
+- `generation_context` supplies global topic framing and guardrails for the run.
+- Optional `scenario_guidance` on a generation-cell row supplies the concrete mechanism that particular case must instantiate.
+
+Both are upstream generation guidance. Neither should turn the evaluated task into a debate or reward choosing one safety research agenda over another.
+
 ## Initialise and inspect
 
 ```powershell
