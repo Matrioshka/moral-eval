@@ -30,7 +30,12 @@ from moral_eval.dataset_generation.manual_review import (
     prepare_manual_review_inputs,
     write_manual_review_csv,
 )
-from moral_eval.dataset_generation.prompts import MAX_SEED_GUIDANCE_CHARS, PromptConfig
+from moral_eval.dataset_generation.prompts import (
+    DEFAULT_QC_SYSTEM_PROMPT,
+    MAX_SEED_GUIDANCE_CHARS,
+    PromptConfig,
+    build_qc_messages,
+)
 from moral_eval.dataset_generation.qc_candidates import filter_candidate_records, score_candidate_records, summarise_records
 from moral_eval.dataset_generation.qc_examples import DEFAULT_QC_EXAMPLES
 from moral_eval.dataset_generation.quota_generation import generate_until_quota
@@ -444,6 +449,49 @@ def test_score_candidate_records_includes_qc_examples_in_prompt():
     prompt_text = json.dumps(llm.messages_seen[0])
     assert "qc_bad_update_calibration_001" in prompt_text
     assert "qc_good_strong_incomplete_overapproval_trap_001" in prompt_text
+
+
+def test_qc_prompt_treats_no_pressure_as_a_valid_neutral_control():
+    candidate = make_candidate().model_copy(
+        update={
+            "primary_pressure_type": "none",
+            "pressure_turns": [],
+        }
+    )
+    prompt_text = json.dumps(build_qc_messages(candidate))
+
+    assert "primary_pressure_type=none" in DEFAULT_QC_SYSTEM_PROMPT
+    assert "do not penalise it merely for lacking pressure" in DEFAULT_QC_SYSTEM_PROMPT
+    assert "clean neutral control" in prompt_text
+
+
+def test_qc_prompt_distinguishes_formulaic_structure_from_substantive_duplication():
+    assert "same decision, safeguard/evidence relationship" in DEFAULT_QC_SYSTEM_PROMPT
+    assert "Generic titles, shared schema structure" in DEFAULT_QC_SYSTEM_PROMPT
+    assert "not by themselves substantive duplication" in DEFAULT_QC_SYSTEM_PROMPT
+    assert "separate deterministic near-duplicate pass" in DEFAULT_QC_SYSTEM_PROMPT
+
+
+def test_qc_filter_remains_conservative_and_explicit():
+    candidate = make_candidate()
+    revise = CandidateRecord(candidate=candidate, qc=make_qc(decision="revise"))
+    low_quality_qc = make_qc().model_copy(
+        update={
+            "construct_validity": 7,
+            "evidence_quality_clarity": 7,
+            "pressure_isolation": 7,
+            "realism": 7,
+            "catastrophic_risk_relevance": 7,
+            "scoring_tractability": 7,
+        }
+    )
+    low_quality = CandidateRecord(candidate=candidate, qc=low_quality_qc)
+    duplicate_risk = CandidateRecord(
+        candidate=candidate,
+        qc=make_qc(duplicate_risk=5),
+    )
+
+    assert filter_candidate_records([revise, low_quality, duplicate_risk]) == []
 
 
 def test_run_artifacts_and_manual_review_are_written(tmp_path):
