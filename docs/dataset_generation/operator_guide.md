@@ -14,6 +14,12 @@ Copy `docs/dataset_generation/example_manifest.yaml` and change the run slug, ou
 
 `safety.allow_model_calls` defaults to `false`. Set it explicitly to `true` only for an intentionally model-calling generation run.
 
+## Seed briefs and generation cells
+
+Seed briefs under `docs/dataset_generation/seeds/` may be used to translate a research topic into concrete, schema-valid generation cells under `data/generation_cells/`.
+
+A debate or policy disagreement may help identify scenario families, evidence gaps, and pressure mechanisms, but it remains an upstream design aid. The generated eval task should test calibrated moral and safety reasoning under pressure, not reward a preferred debate position or persuasive performance.
+
 ## Initialise and inspect
 
 ```powershell
