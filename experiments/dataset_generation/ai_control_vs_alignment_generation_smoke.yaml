@@ -1,9 +1,9 @@
 schema_version: dataset_generation_control_v1
 
 run:
-  slug: ai_control_vs_alignment_generation_smoke_v3
+  slug: ai_control_vs_alignment_generation_smoke_v4
   name: AI control vs alignment one-cell model generation smoke
-  output_dir: tmp/dataset_generation/ai_control_vs_alignment_generation_smoke_v3
+  output_dir: tmp/dataset_generation/ai_control_vs_alignment_generation_smoke_v4
 
 cells:
   file: data/generation_cells/phase3_ai_control_vs_alignment_cells.jsonl
@@ -39,6 +39,6 @@ safety:
 
 export:
   inspect_jsonl: true
-  dataset_version: phase3_ai_control_vs_alignment_generation_smoke_v3
-  output_path: tmp/dataset_generation/ai_control_vs_alignment_generation_smoke_v3/phase3_ai_control_vs_alignment_generation_smoke_v3.jsonl
+  dataset_version: phase3_ai_control_vs_alignment_generation_smoke_v4
+  output_path: tmp/dataset_generation/ai_control_vs_alignment_generation_smoke_v4/phase3_ai_control_vs_alignment_generation_smoke_v4.jsonl
   allow_reviewed_validation_errors: false
