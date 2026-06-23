@@ -1111,3 +1111,118 @@ def test_apply_manual_review_executor_uses_ready_input_and_refuses_conflicts(
 
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
         runner.execute_apply_manual_review(manifest, tmp_path, completed)
+
+
+def export_execution_state() -> dict:
+    state = execution_state("export_inspect_jsonl")
+    snapshot = state["run"]["manifest_snapshot"]
+    snapshot["workflow"]["manual_review"] = True
+    snapshot["export"] = {
+        "inspect_jsonl": True,
+        "dataset_version": "runner_export_v1",
+        "output_path": "data/generated/runner_test/inspect_dataset.jsonl",
+        "allow_reviewed_validation_errors": False,
+    }
+    return state
+
+
+def test_export_inspect_skips_when_reviewed_candidates_are_absent(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    events: list[tuple] = []
+    patch_db(monkeypatch, export_execution_state(), events)
+
+    result = advance_one(FakeConnection(), "runner_test", repo_root=tmp_path)
+
+    assert result.outcome == "skipped"
+    assert "reviewed_candidates.jsonl is absent" in result.message
+    assert ("skipped", 20) in events
+    assert not any(event[0] == "artifact" for event in events)
+
+
+@pytest.mark.parametrize("reviewed_rows", [0, 1])
+def test_export_inspect_records_dataset_and_summary_for_explicit_row_count(
+    tmp_path: Path, monkeypatch, reviewed_rows: int
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    reviewed = output / "reviewed_candidates.jsonl"
+    reviewed.write_text(
+        "".join('{"case_id":"reviewed-1"}\n' for _ in range(reviewed_rows)),
+        encoding="utf-8",
+    )
+    events: list[tuple] = []
+    patch_db(monkeypatch, export_execution_state(), events)
+
+    def export(manifest, repo_root: Path):
+        target = repo_root / str(manifest.export.output_path)
+        summary = repo_root / manifest.run.output_dir / "inspect_export_summary.json"
+        target.write_text(
+            "".join('{"id":"reviewed-1"}\n' for _ in range(reviewed_rows)),
+            encoding="utf-8",
+        )
+        summary.write_text(
+            f'{{"exported_items":{reviewed_rows}}}\n', encoding="utf-8"
+        )
+        return target, summary, {
+            "dataset_version": "runner_export_v1",
+            "reviewed_candidates": reviewed_rows,
+            "exported_items": reviewed_rows,
+        }
+
+    result = advance_one(
+        FakeConnection(),
+        "runner_test",
+        repo_root=tmp_path,
+        export_inspect_jsonl_executor=export,
+    )
+
+    assert result.outcome == "completed"
+    assert f"Exported {reviewed_rows} reviewed candidate(s)" in result.message
+    assert [event[1] for event in events if event[0] == "artifact"] == [
+        "inspect_dataset",
+        "inspect_export_summary",
+    ]
+    assert len([event for event in events if event[0] == "completed"]) == 1
+
+
+def test_export_inspect_executor_uses_only_reviewed_candidates_and_refuses_conflicts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manifest = runner.manifest_from_snapshot(
+        export_execution_state()["run"]["manifest_snapshot"]
+    )
+    output = tmp_path / manifest.run.output_dir
+    output.mkdir(parents=True)
+    reviewed = output / "reviewed_candidates.jsonl"
+    reviewed.write_text('{"candidate":{"case_id":"reviewed-1"}}\n', encoding="utf-8")
+    seen: dict[str, object] = {}
+
+    def read(path):
+        seen["input"] = Path(path)
+        return [object()]
+
+    def write(path, records, *, dataset_version, allow_reviewed_validation_errors):
+        seen["output"] = Path(path)
+        seen["records"] = records
+        seen["dataset_version"] = dataset_version
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text('{"id":"reviewed-1"}\n', encoding="utf-8")
+
+    monkeypatch.setattr(runner, "read_jsonl", read)
+    monkeypatch.setattr(runner, "write_behaviour_dataset_jsonl", write)
+    exported, summary, counts = runner.execute_export_inspect_jsonl(
+        manifest, tmp_path
+    )
+
+    assert seen["input"] == reviewed
+    assert seen["output"] == tmp_path / str(manifest.export.output_path)
+    assert seen["dataset_version"] == "runner_export_v1"
+    assert counts["exported_items"] == 1
+    assert exported.is_file()
+    assert summary.is_file()
+
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        runner.execute_export_inspect_jsonl(manifest, tmp_path)

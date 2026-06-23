@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from .adjudication import apply_adjudication as apply_adjudication_file
 from .adjudication import write_adjudication_template
+from .export_jsonl import read_jsonl, write_behaviour_dataset_jsonl
 from .control_db import (
     acquire_run_lock,
     artifact_id,
@@ -48,6 +49,7 @@ SUPPORTED_STAGES = {
     "apply_revised_adjudication",
     "prepare_manual_review",
     "apply_manual_review",
+    "export_inspect_jsonl",
 }
 GENERATION_ARTIFACTS = (
     ("raw_candidates", "raw_candidates.jsonl", "jsonl", "generated_candidates"),
@@ -310,6 +312,41 @@ def execute_apply_manual_review(
     return reviewed_jsonl, summary_json, summary
 
 
+def execute_export_inspect_jsonl(
+    manifest: DatasetGenerationManifest,
+    repo_root: Path,
+) -> tuple[Path, Path, dict[str, int | str]]:
+    input_jsonl = repo_root / manifest.run.output_dir / "reviewed_candidates.jsonl"
+    output_jsonl = repo_root / str(manifest.export.output_path)
+    summary_json = (
+        repo_root / manifest.run.output_dir / "inspect_export_summary.json"
+    )
+    conflicts = [path for path in (output_jsonl, summary_json) if path.exists()]
+    if conflicts:
+        rendered = ", ".join(str(path) for path in conflicts)
+        raise FileExistsError(f"refusing to overwrite Inspect export output(s): {rendered}")
+    records = read_jsonl(input_jsonl)
+    write_behaviour_dataset_jsonl(
+        output_jsonl,
+        records,
+        dataset_version=str(manifest.export.dataset_version),
+        allow_reviewed_validation_errors=(
+            manifest.export.allow_reviewed_validation_errors
+        ),
+    )
+    summary: dict[str, int | str] = {
+        "dataset_version": str(manifest.export.dataset_version),
+        "reviewed_candidates": len(records),
+        "exported_items": len(records),
+    }
+    summary_json.parent.mkdir(parents=True, exist_ok=True)
+    summary_json.write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return output_jsonl, summary_json, summary
+
+
 def _revised_candidate_count(output_dir: Path) -> int | None:
     revised = output_dir / "revised_candidates.jsonl"
     if revised.is_file():
@@ -380,6 +417,16 @@ def _stage_config(manifest: DatasetGenerationManifest, stage_key: str) -> dict[s
                 "reviewed_candidates",
                 "manual_review_summary",
             ],
+        }
+    if stage_key == "export_inspect_jsonl":
+        return {
+            "input_artifacts": ["reviewed_candidates"],
+            "output_artifacts": [
+                "inspect_dataset",
+                "inspect_export_summary",
+            ],
+            "dataset_version": manifest.export.dataset_version,
+            "output_path": manifest.export.output_path,
         }
     return {"input_artifact": "kept_candidates", "output": "adjudication_template.csv"}
 
@@ -473,6 +520,10 @@ def advance_one(
         [DatasetGenerationManifest, Path, Path],
         tuple[Path, Path, dict[str, int]],
     ] = execute_apply_manual_review,
+    export_inspect_jsonl_executor: Callable[
+        [DatasetGenerationManifest, Path],
+        tuple[Path, Path, dict[str, int | str]],
+    ] = execute_export_inspect_jsonl,
 ) -> NextResult:
     """Advance at most one supported stage for a run."""
     root = Path(repo_root).resolve()
@@ -667,6 +718,32 @@ def advance_one(
                         stage_key=stage_key,
                         template_path=gate.get("template_path"),
                         completed_path=completed_path,
+                    )
+            if stage_key == "export_inspect_jsonl":
+                reviewed_jsonl = (
+                    root / str(run["output_dir"]) / "reviewed_candidates.jsonl"
+                )
+                if not reviewed_jsonl.is_file():
+                    run_id = int(run["dataset_generation_run_id"])
+                    stage_id = int(stage["dataset_generation_stage_id"])
+                    mark_stage_skipped(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        result={
+                            "reason": (
+                                "reviewed_candidates.jsonl is absent; "
+                                "manual review produced no exportable candidates"
+                            )
+                        },
+                    )
+                    connection.commit()
+                    return NextResult(
+                        "skipped",
+                        "Skipped stage: export_inspect_jsonl; "
+                        "reviewed_candidates.jsonl is absent because manual review "
+                        "produced no exportable candidates.",
+                        stage_key=stage_key,
                     )
             if stage_key not in SUPPORTED_STAGES:
                 return NextResult(
@@ -1291,6 +1368,56 @@ def advance_one(
                         completed_path=_repo_relative(
                             completed_manual_review_file, root
                         ),
+                    )
+                if stage_key == "export_inspect_jsonl":
+                    output_jsonl, summary_json, summary = (
+                        export_inspect_jsonl_executor(manifest, root)
+                    )
+                    for path in (output_jsonl, summary_json):
+                        if not path.is_file():
+                            raise RuntimeError(
+                                "Inspect export did not produce expected artefact: "
+                                f"{path}"
+                            )
+                    outputs = (
+                        (
+                            "inspect_dataset",
+                            output_jsonl,
+                            "jsonl",
+                            "inspect_dataset",
+                        ),
+                        (
+                            "inspect_export_summary",
+                            summary_json,
+                            "json",
+                            "inspect_export_summary",
+                        ),
+                    )
+                    for artifact_key, path, artifact_type, artifact_role in outputs:
+                        record_artifact(
+                            cur,
+                            run_id=run_id,
+                            artifact_key=artifact_key,
+                            artifact_path=_repo_relative(path, root),
+                            artifact_type=artifact_type,
+                            artifact_role=artifact_role,
+                            observation=observe_file(path),
+                            producing_stage_id=stage_id,
+                        )
+                    artifact_keys = [item[0] for item in outputs]
+                    mark_stage_completed(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        result={"artifact_keys": artifact_keys, **summary},
+                    )
+                    connection.commit()
+                    return NextResult(
+                        "completed",
+                        "Completed stage: export_inspect_jsonl. "
+                        f"Exported {summary['exported_items']} reviewed candidate(s).",
+                        stage_key=stage_key,
+                        completed_path=_repo_relative(output_jsonl, root),
                     )
                 template_path = adjudication_executor(manifest, root)
                 if not template_path.is_file():
