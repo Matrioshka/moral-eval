@@ -1,14 +1,81 @@
 # Dataset generation lifecycle
 
-This document is the operational map for producing Phase 3 dataset candidates and promoting a small reviewed pilot into the runnable `behaviour.py` dataset shape.
+This document is the operational map for producing dataset candidates and promoting a small reviewed pilot into the JSONL shape used by the evaluation code.
 
-The importable package is now `src/moral_eval/`. Dataset-generation library code lives under `src/moral_eval/dataset_generation/`. The main command-line entry point is still a thin script:
+The importable package is `src/moral_eval/`. Dataset-generation library code lives under `src/moral_eval/dataset_generation/`.
+
+The authoritative resumable workflow is:
 
 ```powershell
-scripts/generate_phase3_dataset_candidates.py
+.\.venv\Scripts\python.exe .\scripts\moral_gen.py
 ```
 
-The script should orchestrate library functions from `moral_eval.dataset_generation`; it should not become the main home of dataset-generation logic.
+`moral_gen.py` uses PostgreSQL as a control and provenance layer. Candidate payloads remain files; the database records the manifest snapshot, stage state, human gates, artefact paths, hashes, row counts, and drift. It does not store API credentials or replace the payload files.
+
+The older `scripts/generate_phase3_dataset_candidates.py` command remains available for direct library operations, but it is not the DB-controlled workflow described below.
+
+## DB-controlled stage sequence
+
+```text
+generate_candidates
+prepare_adjudication
+apply_adjudication
+prepare_revision
+apply_revision
+prepare_revised_adjudication
+apply_revised_adjudication
+prepare_manual_review
+apply_manual_review
+export_inspect_jsonl
+```
+
+Each invocation of:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\moral_gen.py next <run-slug>
+```
+
+advances at most one stage. Run `next` again only after inspecting its output and, where required, completing the named human CSV.
+
+Human gates are review tasks, not global run blockers. Opening a gate does not set the run to `waiting_human`. A consuming stage waits only when its own required completed CSV is absent.
+
+| Stage | Inputs | Outputs / action |
+| --- | --- | --- |
+| `generate_candidates` | manifest and generation cells | Raw, scored, filtered, kept, diagnostic, and preview artefacts. This is the only model-calling stage and requires `safety.allow_model_calls: true`. |
+| `prepare_adjudication` | `kept_candidates.jsonl` | `adjudication_template.csv`; opens the `adjudication` gate. |
+| `apply_adjudication` | `adjudication_completed.csv` | `adjudicated_candidates.jsonl`, `adjudication_summary.json`; satisfies the adjudication gate. |
+| `prepare_revision` | original adjudication outputs | `revise_candidates.jsonl`, `revision_notes.csv`; opens the `revision` gate when revise candidates exist. |
+| `apply_revision` | `revision_notes_completed.csv` | `revised_candidates.jsonl`; satisfies the revision gate. |
+| `prepare_revised_adjudication` | `revised_candidates.jsonl` | `revised_adjudication_template.csv`; opens the distinct `revised_adjudication` gate. |
+| `apply_revised_adjudication` | `revised_adjudication_completed.csv` | `adjudicated_revised_candidates.jsonl`, `revised_adjudication_summary.json`; satisfies the revised-adjudication gate. |
+| `prepare_manual_review` | original and revised adjudication results | `ready_for_manual_review.jsonl`, `manual_review_gate_template.csv`, `unresolved_for_manual_review.jsonl`, `manual_review_preparation_summary.json`; opens the `manual_review` gate when candidates are ready. |
+| `apply_manual_review` | `manual_review_completed.csv` | `reviewed_candidates.jsonl`, `manual_review_summary.json`; satisfies the manual-review gate. |
+| `export_inspect_jsonl` | **`reviewed_candidates.jsonl` only** | Manifest-configured final JSONL plus `inspect_export_summary.json`. It does not invoke Inspect. |
+
+## Human-edited CSVs
+
+The runner prints the exact template, completed-file path, and resume command whenever it opens a gate.
+
+| Gate | Template | Human-completed file |
+| --- | --- | --- |
+| Original adjudication | `adjudication_template.csv` | `adjudication_completed.csv` |
+| Revision | `revision_notes.csv` | `revision_notes_completed.csv` |
+| Revised adjudication | `revised_adjudication_template.csv` | `revised_adjudication_completed.csv` |
+| Final manual review | `manual_review_gate_template.csv` | `manual_review_completed.csv` |
+
+Revised candidates must be adjudicated again. The original adjudication remains revision provenance but is not the active decision for the changed candidate.
+
+The workflow permits one bounded revision cycle:
+
+- second-pass `keep` proceeds to manual review;
+- second-pass `reject` is excluded;
+- second-pass `revise` is written to `unresolved_for_manual_review.jsonl` for escalation and does not enter another automatic revision loop.
+
+Final export consumes `reviewed_candidates.jsonl` only. It must not export directly from adjudicated, revised, ready-for-review, or unresolved artefacts.
+
+Dataset registration remains a separate explicit operation. Exporting JSONL does not modify `src/moral_eval/behaviour.py`, register a dataset version, invoke Inspect, or ingest logs.
+
+For concise commands, see [operator_guide.md](operator_guide.md). A safe-by-default manifest is provided at [example_manifest.yaml](example_manifest.yaml).
 
 ## Boundary between generated data and released data
 
@@ -66,7 +133,11 @@ from moral_eval.dataset_generation.adjudication import apply_adjudication
 
 Do not reintroduce `moral_sycophancy_eval` as an active import namespace.
 
-## End-to-end order
+## Legacy direct-library workflow reference
+
+The remainder of this document describes lower-level file commands retained for direct library use. New resumable runs should use `moral_gen.py` and the manifest-driven workflow above.
+
+## Direct-library order
 
 ### 0. Set local environment
 
@@ -429,10 +500,19 @@ Verify that `public.inspect_log_sample` links to `eval_case_id` and `response_id
 | `revise_candidates.jsonl` | revision extract | no | Candidate records whose adjudication verdict was revise. |
 | `revision_notes.csv` | revision extract / human | yes | Editable worksheet for actual candidate revisions. |
 | `revised_candidates.jsonl` | revision apply | no | Revised records ready for re-adjudication. |
-| `ready_for_manual_review.jsonl` | local filtering/curation | yes | Keep/readiness subset passed to final manual review. |
+| `revised_adjudication_template.csv` | revised-adjudication preparation | yes | Separate worksheet for changed candidates. |
+| `revised_adjudication_completed.csv` | human | yes | Completed second adjudication. |
+| `adjudicated_revised_candidates.jsonl` | revised-adjudication apply | no | Revised records retained after second adjudication. |
+| `revised_adjudication_summary.json` | revised-adjudication apply | no | Second-pass keep/revise/reject counts. |
+| `ready_for_manual_review.jsonl` | manual-review preparation | no | Original keeps plus revised second-pass keeps. |
+| `manual_review_gate_template.csv` | manual-review preparation | yes | Final pilot-selection worksheet template. |
+| `unresolved_for_manual_review.jsonl` | manual-review preparation | no | Second-pass revise cases requiring escalation. |
+| `manual_review_preparation_summary.json` | manual-review preparation | no | Ready, unresolved, and excluded counts. |
 | `manual_review_completed.csv` | human | yes | Final human pilot-selection worksheet. |
-| `phase3_pilot_candidates.jsonl` | manual review apply | no | Reviewed pilot candidate records; still not behaviour.py shape. |
-| `phase3_pilot.inspect.jsonl` | export | no | Generated-run Inspect-compatible preview/export. |
+| `reviewed_candidates.jsonl` | manual-review apply | no | Explicitly approved candidate records used by final export. |
+| `manual_review_summary.json` | manual-review apply | no | Ready, reviewed, and excluded counts. |
+| Manifest `export.output_path` | `export_inspect_jsonl` | no | Final Inspect-compatible dataset JSONL. |
+| `inspect_export_summary.json` | `export_inspect_jsonl` | no | Dataset version and export item counts. |
 | `data/datasets/phase3/*.jsonl` | final export/promotion | no | Durable registered dataset file consumed by `behaviour.py`. |
 | `*.metadata.json` | final promotion | no | Dataset-level provenance sidecar. |
 | `logs/*.eval` | Inspect | no | Eval execution log. |
@@ -440,7 +520,7 @@ Verify that `public.inspect_log_sample` links to `eval_case_id` and `response_id
 
 ## Human gates summary
 
-There are three explicit human gates:
+There are four explicit human gates:
 
 ```text
 A. Adjudication
@@ -448,6 +528,9 @@ A. Adjudication
 
 B. Revision
    Makes actual candidate-field changes for promising but not-ready cases.
+
+B2. Revised adjudication
+   Re-assesses changed candidates without reusing the stale original decision.
 
 C. Manual review
    Grants or denies final pilot inclusion.
