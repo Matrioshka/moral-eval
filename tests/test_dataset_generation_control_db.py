@@ -20,6 +20,7 @@ from moral_eval.dataset_generation.control_db import (
     open_adjudication_gate,
     sha256_file,
     satisfy_adjudication_gate,
+    satisfy_manual_review_gate,
     satisfy_revision_gate,
     satisfy_revised_adjudication_gate,
 )
@@ -357,3 +358,22 @@ def test_manual_review_gate_is_dedicated_and_non_global() -> None:
     )
     assert "'manual_review', 'human_csv_review', 'open'" in cursor.statements[0]
     assert "UPDATE public.dataset_generation_run" not in cursor.statements[0]
+
+
+def test_satisfy_manual_review_gate_requires_one_open_gate() -> None:
+    cursor = RecordingCursor()
+    satisfy_manual_review_gate(
+        cursor,
+        gate_id=10,
+        completed_artifact_id=11,
+        validation_summary={"reviewed_candidates": 1},
+    )
+    assert "gate_key = 'manual_review'" in cursor.statements[0]
+
+    with pytest.raises(RuntimeError, match="manual review gate 10 was not open"):
+        satisfy_manual_review_gate(
+            RecordingCursor(rowcount=0),
+            gate_id=10,
+            completed_artifact_id=11,
+            validation_summary={"reviewed_candidates": 1},
+        )

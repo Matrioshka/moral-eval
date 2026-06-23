@@ -179,6 +179,13 @@ def patch_db(monkeypatch, state: dict, events: list[tuple]) -> None:
             ("manual_review_gate", kwargs["expected_completed_path"])
         ),
     )
+    monkeypatch.setattr(
+        runner,
+        "satisfy_manual_review_gate",
+        lambda _cur, **kwargs: events.append(
+            ("manual_review_gate_satisfied", kwargs["completed_artifact_id"])
+        ),
+    )
 
 
 def write_generation_outputs(manifest, repo_root: Path) -> None:
@@ -924,3 +931,183 @@ def test_prepare_manual_review_executor_refuses_conflicting_outputs(
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
         runner.execute_prepare_manual_review(manifest, tmp_path)
     assert existing.read_text(encoding="utf-8") == "existing"
+
+
+def manual_review_gate() -> dict:
+    return {
+        "dataset_generation_gate_id": 40,
+        "gate_key": "manual_review",
+        "template_path": "data/generated/runner_test/manual_review_gate_template.csv",
+        "expected_completed_path": (
+            "data/generated/runner_test/manual_review_completed.csv"
+        ),
+        "instructions": "Complete every manual-review row.",
+    }
+
+
+def test_apply_manual_review_skips_when_ready_input_is_empty(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    (output / "ready_for_manual_review.jsonl").write_text("", encoding="utf-8")
+    events: list[tuple] = []
+    patch_db(monkeypatch, execution_state("apply_manual_review"), events)
+
+    result = advance_one(FakeConnection(), "runner_test", repo_root=tmp_path)
+
+    assert result.outcome == "skipped"
+    assert ("skipped", 20) in events
+    assert not any("gate" in event[0] for event in events)
+    assert not (output / "reviewed_candidates.jsonl").exists()
+
+
+def test_apply_manual_review_waits_for_completed_csv(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    (output / "ready_for_manual_review.jsonl").write_text(
+        '{"case_id":"ready-1"}\n', encoding="utf-8"
+    )
+    events: list[tuple] = []
+    patch_db(
+        monkeypatch,
+        execution_state("apply_manual_review", gate=manual_review_gate()),
+        events,
+    )
+
+    result = advance_one(FakeConnection(), "runner_test", repo_root=tmp_path)
+
+    assert result.outcome == "stage_waiting_human"
+    assert "manual_review_completed.csv" in result.message
+    assert events == [("lock", "runner_test"), ("unlock", "runner_test")]
+
+
+def test_apply_manual_review_records_outputs_and_satisfies_only_manual_gate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    (output / "ready_for_manual_review.jsonl").write_text(
+        '{"case_id":"ready-1"}\n', encoding="utf-8"
+    )
+    completed = output / "manual_review_completed.csv"
+    completed.write_text(
+        "case_id,manual_decision,manual_reason,required_edits,"
+        "phase3_pilot_candidate\nready-1,keep,Ready,,true\n",
+        encoding="utf-8",
+    )
+    events: list[tuple] = []
+    patch_db(
+        monkeypatch,
+        execution_state("apply_manual_review", gate=manual_review_gate()),
+        events,
+    )
+
+    def apply(manifest, repo_root: Path, completed_csv: Path):
+        assert completed_csv == completed
+        target = repo_root / manifest.run.output_dir
+        reviewed = target / "reviewed_candidates.jsonl"
+        summary = target / "manual_review_summary.json"
+        reviewed.write_text('{"case_id":"ready-1"}\n', encoding="utf-8")
+        summary.write_text('{"reviewed_candidates":1}\n', encoding="utf-8")
+        return reviewed, summary, {
+            "ready_candidates": 1,
+            "completed_review_rows": 1,
+            "reviewed_candidates": 1,
+            "excluded_candidates": 0,
+        }
+
+    result = advance_one(
+        FakeConnection(),
+        "runner_test",
+        repo_root=tmp_path,
+        apply_manual_review_executor=apply,
+    )
+
+    assert result.outcome == "completed"
+    assert [event[1] for event in events if event[0] == "artifact"] == [
+        "manual_review_completed",
+        "reviewed_candidates",
+        "manual_review_summary",
+    ]
+    assert ("manual_review_gate_satisfied", 30) in events
+    assert not any(
+        event[0]
+        in {
+            "gate_satisfied",
+            "revision_gate_satisfied",
+            "revised_adjudication_gate_satisfied",
+        }
+        for event in events
+    )
+    assert len([event for event in events if event[0] == "completed"]) == 1
+
+
+def test_invalid_manual_review_fails_stage_and_leaves_gate_open(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "data/generated/runner_test"
+    output.mkdir(parents=True)
+    (output / "ready_for_manual_review.jsonl").write_text(
+        '{"case_id":"ready-1"}\n', encoding="utf-8"
+    )
+    (output / "manual_review_completed.csv").write_text(
+        "invalid,data\n", encoding="utf-8"
+    )
+    events: list[tuple] = []
+    patch_db(
+        monkeypatch,
+        execution_state("apply_manual_review", gate=manual_review_gate()),
+        events,
+    )
+
+    def invalid(_manifest, _root: Path, _completed: Path):
+        raise ValueError("Manual-review CSV is missing required columns")
+
+    with pytest.raises(StageExecutionError, match="missing required columns"):
+        advance_one(
+            FakeConnection(),
+            "runner_test",
+            repo_root=tmp_path,
+            apply_manual_review_executor=invalid,
+        )
+
+    assert any(event[0] == "failed" for event in events)
+    assert not any(event[0] == "manual_review_gate_satisfied" for event in events)
+
+
+def test_apply_manual_review_executor_uses_ready_input_and_refuses_conflicts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    snapshot = manifest_snapshot(allow_model_calls=False)
+    snapshot["workflow"]["manual_review"] = True
+    manifest = runner.manifest_from_snapshot(snapshot)
+    output = tmp_path / manifest.run.output_dir
+    output.mkdir(parents=True)
+    ready = output / "ready_for_manual_review.jsonl"
+    completed = output / "manual_review_completed.csv"
+    ready.write_text('{"candidate":{"case_id":"ready-1"}}\n', encoding="utf-8")
+    completed.write_text("case_id\nready-1\n", encoding="utf-8")
+    seen: dict[str, Path] = {}
+
+    def apply_file(*, review_input_jsonl, manual_review_csv, pilot_output_jsonl,
+                   allow_reviewed_validation_errors):
+        seen["input"] = Path(review_input_jsonl)
+        seen["csv"] = Path(manual_review_csv)
+        seen["output"] = Path(pilot_output_jsonl)
+        Path(pilot_output_jsonl).write_text("", encoding="utf-8")
+        return []
+
+    monkeypatch.setattr(runner, "apply_manual_review_file", apply_file)
+    reviewed, summary, _counts = runner.execute_apply_manual_review(
+        manifest, tmp_path, completed
+    )
+    assert seen["input"] == ready
+    assert seen["csv"] == completed
+    assert reviewed.name == "reviewed_candidates.jsonl"
+    assert summary.name == "manual_review_summary.json"
+
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        runner.execute_apply_manual_review(manifest, tmp_path, completed)

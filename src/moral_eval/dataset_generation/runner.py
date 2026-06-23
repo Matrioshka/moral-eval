@@ -25,11 +25,13 @@ from .control_db import (
     record_artifact,
     release_run_lock,
     satisfy_adjudication_gate,
+    satisfy_manual_review_gate,
     satisfy_revision_gate,
     satisfy_revised_adjudication_gate,
 )
 from .llm_clients import OpenAICompatibleJSONClient, OpenAIParseClient
 from .manifest import DatasetGenerationManifest, manifest_from_snapshot
+from .manual_review import apply_manual_review as apply_manual_review_file
 from .manual_review import prepare_manual_review_inputs
 from .pipeline import generate_score_filter_export
 from .quota_generation import generate_until_quota
@@ -45,6 +47,7 @@ SUPPORTED_STAGES = {
     "prepare_revised_adjudication",
     "apply_revised_adjudication",
     "prepare_manual_review",
+    "apply_manual_review",
 }
 GENERATION_ARTIFACTS = (
     ("raw_candidates", "raw_candidates.jsonl", "jsonl", "generated_candidates"),
@@ -269,6 +272,44 @@ def execute_prepare_manual_review(
     return ready_jsonl, template_csv, unresolved_jsonl, summary_json, summary
 
 
+def execute_apply_manual_review(
+    manifest: DatasetGenerationManifest,
+    repo_root: Path,
+    completed_csv: Path,
+) -> tuple[Path, Path, dict[str, int]]:
+    output_dir = repo_root / manifest.run.output_dir
+    input_jsonl = output_dir / "ready_for_manual_review.jsonl"
+    reviewed_jsonl = output_dir / "reviewed_candidates.jsonl"
+    summary_json = output_dir / "manual_review_summary.json"
+    conflicts = [path for path in (reviewed_jsonl, summary_json) if path.exists()]
+    if conflicts:
+        rendered = ", ".join(str(path) for path in conflicts)
+        raise FileExistsError(
+            f"refusing to overwrite manual-review output(s): {rendered}"
+        )
+    selected = apply_manual_review_file(
+        review_input_jsonl=input_jsonl,
+        manual_review_csv=completed_csv,
+        pilot_output_jsonl=reviewed_jsonl,
+        allow_reviewed_validation_errors=(
+            manifest.export.allow_reviewed_validation_errors
+        ),
+    )
+    ready_count = observe_file(input_jsonl).row_count or 0
+    completed_count = observe_file(completed_csv).row_count or 0
+    summary = {
+        "ready_candidates": ready_count,
+        "completed_review_rows": completed_count,
+        "reviewed_candidates": len(selected),
+        "excluded_candidates": ready_count - len(selected),
+    }
+    summary_json.write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return reviewed_jsonl, summary_json, summary
+
+
 def _revised_candidate_count(output_dir: Path) -> int | None:
     revised = output_dir / "revised_candidates.jsonl"
     if revised.is_file():
@@ -327,6 +368,17 @@ def _stage_config(manifest: DatasetGenerationManifest, stage_key: str) -> dict[s
                 "manual_review_gate_template",
                 "unresolved_for_manual_review",
                 "manual_review_preparation_summary",
+            ],
+        }
+    if stage_key == "apply_manual_review":
+        return {
+            "input_artifacts": [
+                "ready_for_manual_review",
+                "manual_review_completed",
+            ],
+            "output_artifacts": [
+                "reviewed_candidates",
+                "manual_review_summary",
             ],
         }
     return {"input_artifact": "kept_candidates", "output": "adjudication_template.csv"}
@@ -417,6 +469,10 @@ def advance_one(
         [DatasetGenerationManifest, Path],
         tuple[Path, Path, Path, Path, dict[str, int]],
     ] = execute_prepare_manual_review,
+    apply_manual_review_executor: Callable[
+        [DatasetGenerationManifest, Path, Path],
+        tuple[Path, Path, dict[str, int]],
+    ] = execute_apply_manual_review,
 ) -> NextResult:
     """Advance at most one supported stage for a run."""
     root = Path(repo_root).resolve()
@@ -448,6 +504,7 @@ def advance_one(
             completed_adjudication_file: Path | None = None
             completed_revision_file: Path | None = None
             completed_revised_adjudication_file: Path | None = None
+            completed_manual_review_file: Path | None = None
             if stage_key == "apply_adjudication":
                 if gate is None or gate.get("gate_key") != "adjudication":
                     return NextResult(
@@ -552,6 +609,57 @@ def advance_one(
                 if (
                     completed_revised_adjudication_file is None
                     or not completed_revised_adjudication_file.is_file()
+                ):
+                    return NextResult(
+                        "stage_waiting_human",
+                        _stage_waiting_for_gate_message(stage_key, gate),
+                        stage_key=stage_key,
+                        template_path=gate.get("template_path"),
+                        completed_path=completed_path,
+                    )
+            if stage_key == "apply_manual_review":
+                ready_jsonl = (
+                    root / str(run["output_dir"]) / "ready_for_manual_review.jsonl"
+                )
+                if not ready_jsonl.is_file():
+                    return NextResult(
+                        "stage_waiting_input",
+                        f"Stage apply_manual_review requires "
+                        f"{ready_jsonl.relative_to(root).as_posix()}.",
+                        stage_key=stage_key,
+                    )
+                if (observe_file(ready_jsonl).row_count or 0) == 0:
+                    run_id = int(run["dataset_generation_run_id"])
+                    stage_id = int(stage["dataset_generation_stage_id"])
+                    mark_stage_skipped(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        result={
+                            "ready_candidates": 0,
+                            "reason": "no candidates ready for manual review",
+                        },
+                    )
+                    connection.commit()
+                    return NextResult(
+                        "skipped",
+                        "Skipped stage: apply_manual_review; no candidates are ready "
+                        "for manual review.",
+                        stage_key=stage_key,
+                    )
+                if gate is None or gate.get("gate_key") != "manual_review":
+                    return NextResult(
+                        "stage_waiting_gate",
+                        "Stage apply_manual_review requires an open manual_review gate.",
+                        stage_key=stage_key,
+                    )
+                completed_path = gate.get("expected_completed_path")
+                completed_manual_review_file = (
+                    root / completed_path if completed_path else None
+                )
+                if (
+                    completed_manual_review_file is None
+                    or not completed_manual_review_file.is_file()
                 ):
                     return NextResult(
                         "stage_waiting_human",
@@ -1087,6 +1195,102 @@ def advance_one(
                         "Completed stage: prepare_manual_review; no candidates are ready, "
                         "so no manual-review gate was opened.",
                         stage_key=stage_key,
+                    )
+                if stage_key == "apply_manual_review":
+                    if completed_manual_review_file is None or gate is None:
+                        raise RuntimeError("manual-review gate input was not resolved")
+                    reviewed_jsonl, summary_json, summary = (
+                        apply_manual_review_executor(
+                            manifest,
+                            root,
+                            completed_manual_review_file,
+                        )
+                    )
+                    for path in (reviewed_jsonl, summary_json):
+                        if not path.is_file():
+                            raise RuntimeError(
+                                "manual review did not produce expected artefact: "
+                                f"{path}"
+                            )
+                    completed_observation = observe_file(
+                        completed_manual_review_file
+                    )
+                    record_artifact(
+                        cur,
+                        run_id=run_id,
+                        artifact_key="manual_review_completed",
+                        artifact_path=_repo_relative(
+                            completed_manual_review_file, root
+                        ),
+                        artifact_type="csv",
+                        artifact_role="human_gate_completed",
+                        observation=completed_observation,
+                        human_edited=True,
+                        producing_stage_id=stage_id,
+                    )
+                    outputs = (
+                        (
+                            "reviewed_candidates",
+                            reviewed_jsonl,
+                            "jsonl",
+                            "reviewed_candidates",
+                        ),
+                        (
+                            "manual_review_summary",
+                            summary_json,
+                            "json",
+                            "manual_review_summary",
+                        ),
+                    )
+                    for artifact_key, path, artifact_type, artifact_role in outputs:
+                        record_artifact(
+                            cur,
+                            run_id=run_id,
+                            artifact_key=artifact_key,
+                            artifact_path=_repo_relative(path, root),
+                            artifact_type=artifact_type,
+                            artifact_role=artifact_role,
+                            observation=observe_file(path),
+                            producing_stage_id=stage_id,
+                        )
+                    completed_artifact_id = artifact_id(
+                        cur,
+                        run_id=run_id,
+                        artifact_key="manual_review_completed",
+                    )
+                    validation_summary = {
+                        "completed_csv_rows": completed_observation.row_count,
+                        **summary,
+                    }
+                    satisfy_manual_review_gate(
+                        cur,
+                        gate_id=int(gate["dataset_generation_gate_id"]),
+                        completed_artifact_id=completed_artifact_id,
+                        validation_summary=validation_summary,
+                    )
+                    artifact_keys = [
+                        "manual_review_completed",
+                        "reviewed_candidates",
+                        "manual_review_summary",
+                    ]
+                    mark_stage_completed(
+                        cur,
+                        run_id=run_id,
+                        stage_id=stage_id,
+                        result={
+                            "artifact_keys": artifact_keys,
+                            **validation_summary,
+                        },
+                    )
+                    connection.commit()
+                    return NextResult(
+                        "completed",
+                        "Completed stage: apply_manual_review. "
+                        "The manual_review gate is satisfied.",
+                        stage_key=stage_key,
+                        completed_path=_repo_relative(
+                            completed_manual_review_file, root
+                        ),
                     )
                 template_path = adjudication_executor(manifest, root)
                 if not template_path.is_file():

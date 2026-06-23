@@ -783,3 +783,34 @@ def open_manual_review_gate(
         """,
         (run_id, stage_id, template_artifact_id, expected_completed_path, instructions),
     )
+
+
+def satisfy_manual_review_gate(
+    cur,
+    *,
+    gate_id: int,
+    completed_artifact_id: int,
+    validation_summary: dict[str, Any],
+) -> None:
+    cur.execute(
+        """
+        UPDATE public.dataset_generation_gate
+        SET status = 'satisfied',
+            completed_artifact_id = %s,
+            validation_summary = %s::jsonb,
+            resolved_at = now(),
+            updated_at = now()
+        WHERE dataset_generation_gate_id = %s
+          AND gate_key = 'manual_review'
+          AND status = 'open'
+        """,
+        (
+            completed_artifact_id,
+            json.dumps(validation_summary, ensure_ascii=False, sort_keys=True),
+            gate_id,
+        ),
+    )
+    if cur.rowcount != 1:
+        raise RuntimeError(
+            f"manual review gate {gate_id} was not open or could not be satisfied"
+        )
