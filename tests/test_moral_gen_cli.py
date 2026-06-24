@@ -35,6 +35,9 @@ def test_cli_parser_exposes_only_initial_control_commands() -> None:
     assert parser.parse_args(["init", "run.yaml"]).command == "init"
     assert parser.parse_args(["status", "run_slug"]).command == "status"
     assert parser.parse_args(["artifacts", "run_slug"]).command == "artifacts"
+    important = parser.parse_args(["artifacts", "run_slug", "--important"])
+    assert important.command == "artifacts"
+    assert important.important is True
     assert parser.parse_args(["next", "run_slug"]).command == "next"
 
 
@@ -172,11 +175,140 @@ def test_artifacts_output(monkeypatch, capsys) -> None:
         ],
     )
 
-    assert moral_gen.command_artifacts(argparse.Namespace(run_slug="run_slug")) == 0
+    assert moral_gen.command_artifacts(
+        argparse.Namespace(run_slug="run_slug", important=False)
+    ) == 0
     output = capsys.readouterr().out
     assert "manifest" in output
     assert "experiments/run.yaml" in output
     assert "unchanged" in output
+
+
+def test_important_artifacts_filter_canonical_and_omits_stale_legacy_templates() -> None:
+    status = {
+        "run": {"run_slug": "run_slug", "status": "running", "current_stage": None, "last_error": None},
+        "next_stage": {"stage_key": "apply_manual_review"},
+        "open_gate": {
+            "gate_key": "manual_review",
+            "gate_type": "human_csv_review",
+            "status": "open",
+            "expected_completed_path": "data/generated/run/manual_review_completed.csv",
+        },
+    }
+    artifacts = [
+        {"artifact_key": "manifest", "artifact_path": "run.yaml"},
+        {"artifact_key": "summary", "artifact_path": "summary.json"},
+        {"artifact_key": "manual_review_template_csv", "artifact_path": "manual_review_template.csv"},
+        {"artifact_key": "manual_review_template_jsonl", "artifact_path": "manual_review_template.jsonl"},
+        {"artifact_key": "manual_review_gate_template", "artifact_path": "manual_review_gate_template.csv"},
+        {"artifact_key": "manual_review_completed", "artifact_path": "manual_review_completed.csv", "human_edited": True},
+        {"artifact_key": "reviewed_candidates", "artifact_path": "reviewed_candidates.jsonl"},
+        {"artifact_key": "raw_candidates", "artifact_path": "raw_candidates.jsonl", "row_count": 12},
+    ]
+
+    keys = [item["artifact_key"] for item in moral_gen.important_artifacts(artifacts, status)]
+
+    assert keys == [
+        "manifest",
+        "summary",
+        "manual_review_gate_template",
+        "manual_review_completed",
+        "reviewed_candidates",
+    ]
+
+
+def test_important_counts_uses_recorded_rows() -> None:
+    counts = moral_gen.important_counts(
+        [
+            {"artifact_key": "raw_candidates", "row_count": 12},
+            {"artifact_key": "scored_candidates", "row_count": 12},
+            {"artifact_key": "kept_candidates", "row_count": 2},
+            {"artifact_key": "reviewed_candidates", "row_count": 1},
+            {"artifact_key": "inspect_dataset", "row_count": 1},
+            {"artifact_key": "manual_review_template_csv", "row_count": 99},
+        ]
+    )
+
+    assert counts == [
+        ("generated", 12),
+        ("scored", 12),
+        ("kept", 2),
+        ("reviewed", 1),
+        ("exported inspect items", 1),
+    ]
+
+
+def test_important_artifacts_output_includes_status_counts_and_filtered_table(
+    monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(moral_gen, "connect_db", lambda **_kwargs: FakeConnection())
+    monkeypatch.setattr(
+        moral_gen,
+        "read_run_status",
+        lambda _cur, _slug: {
+            "run": {
+                "run_slug": "run_slug",
+                "status": "completed",
+                "current_stage": None,
+                "last_error": None,
+            },
+            "next_stage": None,
+            "open_gate": None,
+        },
+    )
+    monkeypatch.setattr(
+        moral_gen,
+        "list_artifacts",
+        lambda _cur, _slug, **_kwargs: [
+            {
+                "artifact_key": "manifest",
+                "artifact_path": "experiments/run.yaml",
+                "sha256": "a" * 64,
+                "row_count": None,
+                "byte_count": 42,
+                "human_edited": False,
+                "drift": "unchanged",
+            },
+            {
+                "artifact_key": "raw_candidates",
+                "artifact_path": "raw_candidates.jsonl",
+                "sha256": "b" * 64,
+                "row_count": 12,
+                "byte_count": 120,
+                "human_edited": False,
+                "drift": "unchanged",
+            },
+            {
+                "artifact_key": "manual_review_template_csv",
+                "artifact_path": "manual_review_template.csv",
+                "sha256": "c" * 64,
+                "row_count": 1,
+                "byte_count": 120,
+                "human_edited": False,
+                "drift": "unchanged",
+            },
+            {
+                "artifact_key": "inspect_dataset",
+                "artifact_path": "phase3.jsonl",
+                "sha256": "d" * 64,
+                "row_count": 1,
+                "byte_count": 100,
+                "human_edited": False,
+                "drift": "unchanged",
+            },
+        ],
+    )
+
+    assert moral_gen.command_artifacts(
+        argparse.Namespace(run_slug="run_slug", important=True)
+    ) == 0
+    output = capsys.readouterr().out
+    assert "Status: completed" in output
+    assert "generated: 12" in output
+    assert "exported inspect items: 1" in output
+    assert "manifest" in output
+    assert "inspect_dataset" in output
+    assert "manual_review_template_csv" not in output
 
 
 def test_init_output_and_transaction(monkeypatch, capsys) -> None:

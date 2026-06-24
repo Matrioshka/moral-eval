@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -41,6 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
         "artifacts", help="List recorded artefacts and filesystem drift."
     )
     artifacts_parser.add_argument("run_slug")
+    artifacts_parser.add_argument(
+        "--important",
+        action="store_true",
+        help="Show a compact operator-facing subset of status, counts, and canonical artefacts.",
+    )
 
     next_parser = subparsers.add_parser(
         "next", help="Advance at most one stage, stopping at an open human gate."
@@ -67,6 +73,11 @@ def command_init(args: argparse.Namespace) -> int:
 def command_status(args: argparse.Namespace) -> int:
     with connect_db(repo_root=ROOT) as connection, connection.cursor() as cur:
         status = read_run_status(cur, args.run_slug)
+    print_status(status)
+    return 0
+
+
+def print_status(status: dict[str, Any]) -> None:
     run = status["run"]
     print(f"Run: {run['run_slug']}")
     print(f"Status: {run['status']}")
@@ -84,16 +95,99 @@ def command_status(args: argparse.Namespace) -> int:
     else:
         print("Gate: -")
     print(f"Last error: {run.get('last_error') or '-'}")
-    return 0
 
 
-def command_artifacts(args: argparse.Namespace) -> int:
-    with connect_db(repo_root=ROOT) as connection, connection.cursor() as cur:
-        artifacts = list_artifacts(cur, args.run_slug, repo_root=ROOT)
+def _row_count(artifacts_by_key: dict[str, dict[str, Any]], key: str) -> int | None:
+    artifact = artifacts_by_key.get(key)
+    if not artifact:
+        return None
+    value = artifact.get("row_count")
+    return int(value) if value is not None else None
+
+
+def important_counts(artifacts: list[dict[str, Any]]) -> list[tuple[str, int]]:
+    artifacts_by_key = {str(item["artifact_key"]): item for item in artifacts}
+    keys = [
+        ("generated", "raw_candidates"),
+        ("scored", "scored_candidates"),
+        ("kept", "kept_candidates"),
+        ("revision candidates", "revise_candidates"),
+        ("revised", "revised_candidates"),
+        ("ready for manual review", "ready_for_manual_review"),
+        ("unresolved for manual review", "unresolved_for_manual_review"),
+        ("reviewed", "reviewed_candidates"),
+        ("exported inspect items", "inspect_dataset"),
+    ]
+    counts: list[tuple[str, int]] = []
+    for label, key in keys:
+        value = _row_count(artifacts_by_key, key)
+        if value is not None:
+            counts.append((label, value))
+    return counts
+
+
+def _is_non_empty_validation_errors(artifact: dict[str, Any]) -> bool:
+    if artifact.get("row_count"):
+        return True
+    if not artifact.get("byte_count"):
+        return False
+    path = ROOT / str(artifact["artifact_path"])
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return True
+    return content not in {"", "[]", "{}"}
+
+
+def important_artifacts(
+    artifacts: list[dict[str, Any]], status: dict[str, Any]
+) -> list[dict[str, Any]]:
+    always = {
+        "manifest",
+        "run_config",
+        "summary",
+        "cell_yield",
+        "ready_for_manual_review",
+        "unresolved_for_manual_review",
+        "reviewed_candidates",
+        "inspect_dataset",
+        "inspect_export_summary",
+    }
+    human_completed = {
+        "adjudication_completed",
+        "revision_notes_completed",
+        "revised_adjudication_completed",
+        "manual_review_completed",
+    }
+    gate_templates = {
+        "adjudication": "adjudication_template",
+        "revision": "revision_notes",
+        "revised_adjudication": "revised_adjudication_template",
+        "manual_review": "manual_review_gate_template",
+    }
+    open_gate = status.get("open_gate")
+    current_template = gate_templates.get(open_gate["gate_key"]) if open_gate else None
+
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for artifact in artifacts:
+        key = str(artifact["artifact_key"])
+        include = (
+            key in always
+            or key in human_completed
+            or key == current_template
+            or (key == "validation_errors" and _is_non_empty_validation_errors(artifact))
+        )
+        if include and key not in seen:
+            selected.append(artifact)
+            seen.add(key)
+    return selected
+
+
+def _print_artifact_table(artifacts: list[dict[str, Any]]) -> None:
     if not artifacts:
-        print(f"No artefacts recorded for {args.run_slug}.")
-        return 0
-
+        print("No artefacts to display.")
+        return
     headers = ("KEY", "PATH", "HASH", "ROWS", "BYTES", "HUMAN", "DRIFT")
     rows = [
         (
@@ -115,6 +209,36 @@ def command_artifacts(args: argparse.Namespace) -> int:
     print("  ".join("-" * width for width in widths))
     for row in rows:
         print("  ".join(value.ljust(widths[index]) for index, value in enumerate(row)))
+
+
+def _print_important_artifacts(
+    *, status: dict[str, Any], artifacts: list[dict[str, Any]]
+) -> None:
+    print_status(status)
+    counts = important_counts(artifacts)
+    if counts:
+        print("Counts:")
+        for label, value in counts:
+            print(f"  {label}: {value}")
+    else:
+        print("Counts: -")
+    print("Important artefacts:")
+    _print_artifact_table(important_artifacts(artifacts, status))
+
+
+def command_artifacts(args: argparse.Namespace) -> int:
+    with connect_db(repo_root=ROOT) as connection, connection.cursor() as cur:
+        artifacts = list_artifacts(cur, args.run_slug, repo_root=ROOT)
+        status = read_run_status(cur, args.run_slug) if args.important else None
+    if not artifacts:
+        print(f"No artefacts recorded for {args.run_slug}.")
+        return 0
+
+    if args.important:
+        assert status is not None
+        _print_important_artifacts(status=status, artifacts=artifacts)
+    else:
+        _print_artifact_table(artifacts)
     return 0
 
 
