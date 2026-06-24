@@ -763,7 +763,11 @@ def test_apply_revised_adjudication_records_distinct_outputs_and_satisfies_gate(
         output_jsonl = target / "adjudicated_revised_candidates.jsonl"
         summary = target / "revised_adjudication_summary.json"
         output_jsonl.write_text('{"case_id":"revised-1"}\n', encoding="utf-8")
-        summary.write_text('{"total":1}\n', encoding="utf-8")
+        summary.write_text(
+            '{"total":2,"ready_for_manual_review":1,'
+            '"not_ready_for_manual_review":1}\n',
+            encoding="utf-8",
+        )
         return output_jsonl, summary, 1
 
     result = advance_one(
@@ -780,7 +784,9 @@ def test_apply_revised_adjudication_records_distinct_outputs_and_satisfies_gate(
     ]
     assert ("revised_adjudication_gate_satisfied", 30) in events
     assert original_summary.read_text(encoding="utf-8") == '{"original":true}\n'
-    assert "not eligible for manual review or export" in result.message
+    assert "Revised candidates ready for manual review: 1" in result.message
+    assert "not ready after revised adjudication: 1" in result.message
+    assert "prepare_manual_review will route keep verdicts" in result.message
 
 
 def test_invalid_revised_adjudication_fails_stage_and_leaves_gate_open(

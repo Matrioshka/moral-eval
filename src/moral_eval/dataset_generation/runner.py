@@ -1192,11 +1192,23 @@ def advance_one(
                             **validation_summary,
                         },
                     )
+                    revised_summary = json.loads(
+                        summary_json.read_text(encoding="utf-8")
+                    )
+                    ready_count = int(
+                        revised_summary.get("ready_for_manual_review", 0)
+                    )
+                    not_ready_count = int(
+                        revised_summary.get("not_ready_for_manual_review", 0)
+                    )
                     connection.commit()
                     return NextResult(
                         "completed",
                         "Completed stage: apply_revised_adjudication. "
-                        "The revised outputs are not eligible for manual review or export.",
+                        f"Revised candidates ready for manual review: {ready_count}; "
+                        f"not ready after revised adjudication: {not_ready_count}. "
+                        "Next stage prepare_manual_review will route keep verdicts "
+                        "to manual review and keep unresolved revise verdicts out of export.",
                         stage_key=stage_key,
                         completed_path=_repo_relative(
                             completed_revised_adjudication_file, root
