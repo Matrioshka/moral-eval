@@ -310,14 +310,25 @@ def single_token_id(tokenizer: Any, label: str) -> int:
 
 
 def _token_id_list(value: Any) -> list[int]:
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         value = value.get("input_ids")
+    elif hasattr(value, "input_ids"):
+        value = value.input_ids
+
     if hasattr(value, "tolist"):
         value = value.tolist()
+
+    if isinstance(value, tuple):
+        value = list(value)
+
     if isinstance(value, list) and len(value) == 1 and isinstance(value[0], list):
         value = value[0]
+
     if not isinstance(value, list):
-        raise SmokeTestError("Chat template did not return a token ID list")
+        raise SmokeTestError(
+            f"Chat template did not return a token ID list; got {type(value).__name__}"
+        )
+
     return [int(token_id) for token_id in value]
 
 
@@ -339,6 +350,7 @@ def single_token_id_at_generation_boundary(tokenizer: Any, prompt: str, label: s
                 messages,
                 tokenize=True,
                 add_generation_prompt=True,
+                return_dict=True,
             )
         )
     except (TypeError, ValueError, KeyError) as exc:

@@ -60,7 +60,30 @@ class CharacterTokenizer:
         del skip_special_tokens, clean_up_tokenization_spaces
         return "".join(chr(token_id) for token_id in token_ids)
 
+class MappingReturningTokenizer(CharacterTokenizer):
+    def apply_chat_template(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        tokenize: bool,
+        add_generation_prompt: bool,
+        **kwargs: object,
+    ) -> str | dict[str, list[int]]:
+        result = super().apply_chat_template(
+            messages,
+            tokenize=tokenize,
+            add_generation_prompt=add_generation_prompt,
+            **kwargs,
+        )
 
+        if tokenize:
+            assert isinstance(result, list)
+            return {"input_ids": result}
+
+        assert isinstance(result, str)
+        return result
+
+    
 class BoundaryMergingTokenizer(CharacterTokenizer):
     def encode(self, text: str, *, add_special_tokens: bool) -> list[int]:
         if text.endswith(">A"):
@@ -175,6 +198,14 @@ class ActionLogprobTokenValidationTests(unittest.TestCase):
         )
         self.assertEqual(
             single_token_id_at_generation_boundary(tokenizer, "Prompt", "B"), ord("B")
+        )
+
+    def test_mapping_chat_template_output_is_accepted(self) -> None:
+        tokenizer = MappingReturningTokenizer()
+
+        self.assertEqual(
+            single_token_id_at_generation_boundary(tokenizer, "Prompt", "A"),
+            ord("A"),
         )
 
     def test_boundary_retokenisation_is_rejected(self) -> None:
