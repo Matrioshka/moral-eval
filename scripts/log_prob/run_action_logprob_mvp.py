@@ -19,7 +19,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2] # 1 if in scripts/ 2 if in scripts/log_prob/
 DEFAULT_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
-DEFAULT_DATA = ROOT / "data" / "datasets" / "action_logprob"/ "action_logprob_mvp_v0.jsonl"
+DEFAULT_DATA = ROOT / "data" / "datasets" / "action_logprob" / "action_logprob_mvp_v0.jsonl"
 DEFAULT_OUTPUT = ROOT / "tmp" / "action_logprob_mvp" / "smoke_result.json"
 
 
@@ -81,8 +81,7 @@ def choose_device(torch: Any, requested: str) -> tuple[Any, Any]:
             "CUDA was requested but is unavailable. Use --device cpu or a GPU-enabled Colab runtime."
         )
     if requested == "cuda" or (requested == "auto" and torch.cuda.is_available()):
-        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-        return torch.device("cuda"), dtype
+        return torch.device("cuda"), torch.float32
 
     if requested == "auto":
         print("Warning: CUDA unavailable; falling back to CPU.", file=sys.stderr)
