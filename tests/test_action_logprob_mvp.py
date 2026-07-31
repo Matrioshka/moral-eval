@@ -3,9 +3,12 @@ from __future__ import annotations
 import copy
 import io
 import sys
+import tempfile
 import unittest
-from contextlib import redirect_stdout
+from argparse import Namespace
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,18 +28,28 @@ from run_action_logprob_mvp import (  # noqa: E402
     POSITIVE_CONTROL_GATE_DATASET_VERSION,
     PRESERVED_V1_DATA,
     MISTRAL_REPLICATION_MODEL,
+    MISTRAL_SMOKE_RESULT_SCHEMA_VERSION,
+    SMOKE_CONDITION_ID,
+    SMOKE_MAPPING_ID,
     SmokeTestError,
     build_prompt,
     calculate_effects,
+    build_smoke_payload,
     expand_prompt_instances,
     load_case,
     mistral_token_id_at_generation_boundary,
+    parse_args,
+    run_smoke_only,
+    select_smoke_instance,
+    smoke_failure,
     choose_device,
     require_exact_mistral_revision,
     semantic_margin,
     single_token_id_at_generation_boundary,
     validate_selected_dataset_boundaries,
+    validate_mode_args,
     validate_case,
+    write_json_exclusive,
 )
 
 
@@ -740,6 +753,198 @@ class ActionLogprobModelPolicyTests(unittest.TestCase):
             choose_device(_FakeTorch(available=True, bf16=True), "cuda"),
             ("cuda", "float32"),
         )
+
+
+def _smoke_score(*, conforms: bool = True, bounded: float = 1.0, broader: float = 3.0) -> dict:
+    return {
+        "input_token_count": 10,
+        "bounded": {
+            "semantic_role": "bounded",
+            "label": "A",
+            "token_id": 1065,
+            "raw_logit": bounded,
+            "restricted_two_label_probability": 0.1192029,
+        },
+        "broader": {
+            "semantic_role": "broader",
+            "label": "B",
+            "token_id": 1066,
+            "raw_logit": broader,
+            "restricted_two_label_probability": 0.8807971,
+        },
+        "broad_action_logit_margin": broader - bounded,
+        "ordinary_greedy_generation": {
+            "text": "B" if conforms else "Explanation",
+            "conforms_to_nominated_labels": conforms,
+        },
+        "full_vocabulary_top_next_token": {
+            "token_id": 1066,
+            "text": "B",
+            "raw_logit": broader,
+        },
+    }
+
+
+class ActionLogprobMistralSmokeTests(unittest.TestCase):
+    REVISION = "95a6d26c4bfb886c58daf9d3f7332c857cb27b43"
+
+    def test_modes_are_mutually_exclusive(self) -> None:
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parse_args(["--tokenizer-only", "--smoke-only"])
+
+    def test_smoke_mode_is_mistral_only(self) -> None:
+        args = Namespace(
+            smoke_only=True,
+            model="Qwen/Qwen2.5-1.5B-Instruct",
+            output=Path("unused.json"),
+        )
+        with self.assertRaisesRegex(SmokeTestError, "only.*Mistral"):
+            validate_mode_args(args)
+
+    def test_smoke_selection_is_the_fixed_instance(self) -> None:
+        case = load_case(POSITIVE_CONTROL_GATE_DATA)
+        instances = expand_prompt_instances(case)
+        mappings = {mapping["mapping_id"]: mapping for mapping in case["mappings"]}
+        mapping, instance = select_smoke_instance(instances, mappings)
+
+        self.assertEqual(mapping["mapping_id"], SMOKE_MAPPING_ID)
+        self.assertEqual(instance["condition_id"], SMOKE_CONDITION_ID)
+
+    def test_smoke_validation_requires_all_success_conditions(self) -> None:
+        self.assertIsNone(smoke_failure(_smoke_score(), self.REVISION, self.REVISION))
+        self.assertEqual(
+            smoke_failure(_smoke_score(bounded=float("nan")), self.REVISION, self.REVISION)[0],
+            "logit_validation",
+        )
+        self.assertEqual(
+            smoke_failure(_smoke_score(), self.REVISION, "f" * 40)[0],
+            "revision_validation",
+        )
+        self.assertEqual(
+            smoke_failure(_smoke_score(conforms=False), self.REVISION, self.REVISION)[0],
+            "generation_conformance",
+        )
+
+    def test_smoke_payload_contains_required_provenance_and_status(self) -> None:
+        case = load_case(POSITIVE_CONTROL_GATE_DATA)
+        instance = expand_prompt_instances(case)[SMOKE_MAPPING_ID][SMOKE_CONDITION_ID]
+        torch = SimpleNamespace(
+            __version__="test-torch",
+            version=SimpleNamespace(cuda="test-cuda"),
+        )
+        transformers = SimpleNamespace(__version__="test-transformers")
+        payload, failure = build_smoke_payload(
+            case=case,
+            data_path=POSITIVE_CONTROL_GATE_DATA,
+            instance=instance,
+            boundary_token_ids={"A": 1065, "B": 1066},
+            result=_smoke_score(),
+            model_name=MISTRAL_REPLICATION_MODEL,
+            requested_revision=self.REVISION,
+            resolved_model_revision=self.REVISION,
+            torch=torch,
+            transformers=transformers,
+            device="cuda",
+            dtype="torch.bfloat16",
+        )
+
+        self.assertIsNone(failure)
+        self.assertEqual(payload["schema_version"], MISTRAL_SMOKE_RESULT_SCHEMA_VERSION)
+        self.assertEqual(payload["status"], "passed")
+        self.assertEqual(payload["mapping_id"], SMOKE_MAPPING_ID)
+        self.assertEqual(payload["condition_id"], SMOKE_CONDITION_ID)
+        self.assertEqual(payload["boundary_token_ids"], {"A": 1065, "B": 1066})
+        self.assertEqual(payload["model"]["requested_revision"], self.REVISION)
+        self.assertEqual(payload["model"]["resolved_model_revision"], self.REVISION)
+        self.assertEqual(payload["runtime"]["dtype"], "torch.bfloat16")
+        self.assertIn("sha256", payload["dataset"])
+        self.assertIn("prompt_sha256", payload)
+
+    def test_failed_payload_is_unambiguously_labelled(self) -> None:
+        case = load_case(POSITIVE_CONTROL_GATE_DATA)
+        instance = expand_prompt_instances(case)[SMOKE_MAPPING_ID][SMOKE_CONDITION_ID]
+        runtime = SimpleNamespace(
+            __version__="test",
+            version=SimpleNamespace(cuda=None),
+        )
+        payload, failure = build_smoke_payload(
+            case=case,
+            data_path=POSITIVE_CONTROL_GATE_DATA,
+            instance=instance,
+            boundary_token_ids={"A": 1065, "B": 1066},
+            result=_smoke_score(conforms=False),
+            model_name=MISTRAL_REPLICATION_MODEL,
+            requested_revision=self.REVISION,
+            resolved_model_revision=self.REVISION,
+            torch=runtime,
+            transformers=runtime,
+            device="cuda",
+            dtype="torch.bfloat16",
+        )
+
+        self.assertIsNotNone(failure)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["failure_stage"], "generation_conformance")
+        self.assertIn("failure_reason", payload)
+
+    def test_smoke_scores_once_and_never_calculates_effects(self) -> None:
+        case = load_case(POSITIVE_CONTROL_GATE_DATA)
+        instances = expand_prompt_instances(case)
+        mappings = {mapping["mapping_id"]: mapping for mapping in case["mappings"]}
+        boundary_ids = {
+            mapping_id: {
+                condition_id: {"A": 1065, "B": 1066}
+                for condition_id in EXPECTED_CONDITIONS
+            }
+            for mapping_id in EXPECTED_MAPPINGS
+        }
+        args = Namespace(
+            data=POSITIVE_CONTROL_GATE_DATA,
+            output=Path("unused-smoke.json"),
+            model=MISTRAL_REPLICATION_MODEL,
+            revision=self.REVISION,
+        )
+        model = SimpleNamespace(config=SimpleNamespace(_commit_hash=self.REVISION))
+        torch = SimpleNamespace(
+            __version__="test-torch",
+            version=SimpleNamespace(cuda="test-cuda"),
+        )
+        transformers = SimpleNamespace(__version__="test-transformers")
+
+        with (
+            patch("run_action_logprob_mvp.score_condition", return_value=_smoke_score()) as score,
+            patch("run_action_logprob_mvp.calculate_effects") as effects,
+            patch("run_action_logprob_mvp.write_json_exclusive") as write,
+            redirect_stdout(io.StringIO()),
+        ):
+            result = run_smoke_only(
+                args=args,
+                case=case,
+                instances=instances,
+                mappings=mappings,
+                boundary_token_ids=boundary_ids,
+                torch=torch,
+                transformers=transformers,
+                model=model,
+                tokenizer=object(),
+                device="cuda",
+                dtype="torch.bfloat16",
+            )
+
+        self.assertEqual(result, 0)
+        score.assert_called_once()
+        self.assertEqual(score.call_args.kwargs["prompt"], instances[SMOKE_MAPPING_ID][SMOKE_CONDITION_ID]["prompt"])
+        effects.assert_not_called()
+        write.assert_called_once()
+        self.assertEqual(write.call_args.args[1]["status"], "passed")
+
+    def test_smoke_output_is_not_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp") as directory:
+            output = Path(directory) / "smoke.json"
+            output.write_text("existing", encoding="utf-8")
+            with self.assertRaisesRegex(SmokeTestError, "Refusing to overwrite"):
+                write_json_exclusive(output, {"status": "passed"})
+            self.assertEqual(output.read_text(encoding="utf-8"), "existing")
 
 
 class ActionLogprobCalculationTests(unittest.TestCase):

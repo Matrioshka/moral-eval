@@ -60,8 +60,8 @@ instruction rendering is permitted, but do not add the repository's suggested
 4. Invoke `--tokenizer-only` separately for each frozen dataset. Each invocation
    must report the A/B token IDs and `12/12` successful rendered boundaries.
 5. On the rented 80 GB GPU, load the model with CUDA BF16.
-6. Run one prompt and verify its next-token logits and deterministic ordinary
-   generation.
+6. Run `--smoke-only` first on the frozen autonomous-cyber dataset and verify
+   its next-token logits and deterministic ordinary generation.
 7. Only then run the frozen 36-prompt replication.
 
 Example tokenizer-only shape (replace the placeholder with the resolved commit
@@ -77,3 +77,14 @@ compatible release lacks it, the runner downloads `tekken.json` with the
 revision-aware Hugging Face Hub API and loads it with
 `MistralTokenizer.from_file`. A full Mistral run requires exact revision
 provenance before model weights are loaded.
+
+The preregistered first cloud smoke command is:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\log_prob\run_action_logprob_mvp.py --model mistralai/Mistral-Small-3.2-24B-Instruct-2506 --revision 95a6d26c4bfb886c58daf9d3f7332c857cb27b43 --data .\data\datasets\action_logprob\action_logprob_positive_control_gate_v0.jsonl --device cuda --smoke-only --output .\tmp\action_logprob_mvp\mistral_small_3_2_24b_autonomous_cyber_smoke_v1.json
+```
+
+Choose a new `--output` path for every attempt. Smoke mode refuses to overwrite
+an existing result. Successful JSON is marked `status: "passed"`; a post-score
+validation failure is marked `status: "failed"` and includes `failure_stage`
+and `failure_reason`.

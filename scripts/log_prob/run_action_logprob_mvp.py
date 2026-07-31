@@ -12,9 +12,12 @@ import argparse
 import hashlib
 import inspect
 import json
+import math
+import os
 import platform
 import re
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -22,6 +25,9 @@ from typing import Any, Mapping
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
 MISTRAL_REPLICATION_MODEL = "mistralai/Mistral-Small-3.2-24B-Instruct-2506"
+MISTRAL_SMOKE_RESULT_SCHEMA_VERSION = "action_logprob_mistral_smoke_result_v1"
+SMOKE_MAPPING_ID = "bounded_A_broader_B"
+SMOKE_CONDITION_ID = "unresolved_neutral"
 PRESERVED_V1_DATA = (
     ROOT / "data" / "datasets" / "action_logprob" / "action_logprob_mvp_v1.jsonl"
 )
@@ -331,7 +337,7 @@ class SmokeTestError(RuntimeError):
     pass
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the twelve-prompt crossed action-logit MVP case."
     )
@@ -344,7 +350,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data", type=Path, default=DEFAULT_DATA)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
         "--tokenizer-only",
         action="store_true",
         help=(
@@ -352,7 +359,15 @@ def parse_args() -> argparse.Namespace:
             "twelve rendered assistant boundaries for --data."
         ),
     )
-    return parser.parse_args()
+    modes.add_argument(
+        "--smoke-only",
+        action="store_true",
+        help=(
+            "Run the preregistered Mistral one-prompt CUDA BF16 smoke test for "
+            "the dataset selected by --data."
+        ),
+    )
+    return parser.parse_args(argv)
 
 
 def _records_from_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -1507,8 +1522,212 @@ def validate_selected_dataset_boundaries(
     return boundary_token_ids
 
 
+def validate_mode_args(args: argparse.Namespace) -> None:
+    if args.smoke_only and not is_mistral_replication_model(args.model):
+        raise SmokeTestError(
+            "--smoke-only is available only for the preregistered Mistral workflow."
+        )
+    if args.smoke_only and args.output.exists():
+        raise SmokeTestError(
+            f"Refusing to overwrite existing smoke output: {args.output}"
+        )
+
+
+def select_smoke_instance(
+    instances: Mapping[str, Mapping[str, Mapping[str, Any]]],
+    mappings: Mapping[str, Mapping[str, Any]],
+) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    try:
+        return mappings[SMOKE_MAPPING_ID], instances[SMOKE_MAPPING_ID][SMOKE_CONDITION_ID]
+    except KeyError as exc:
+        raise SmokeTestError(
+            "The fixed Mistral smoke instance is missing from the selected dataset."
+        ) from exc
+
+
+def smoke_failure(
+    result: Mapping[str, Any], requested_revision: str, resolved_revision: Any
+) -> tuple[str, str] | None:
+    numeric_values = (
+        result["bounded"]["raw_logit"],
+        result["broader"]["raw_logit"],
+        result["broad_action_logit_margin"],
+        result["broader"]["restricted_two_label_probability"],
+    )
+    if not all(math.isfinite(float(value)) for value in numeric_values):
+        return "logit_validation", "Smoke logits, margin and probability must be finite."
+    if resolved_revision != requested_revision:
+        return (
+            "revision_validation",
+            "Loaded Mistral model revision does not match the exact requested revision.",
+        )
+    if not result["ordinary_greedy_generation"]["conforms_to_nominated_labels"]:
+        return (
+            "generation_conformance",
+            "Ordinary greedy generation did not conform to nominated label A or B.",
+        )
+    return None
+
+
+def build_smoke_payload(
+    *,
+    case: Mapping[str, Any],
+    data_path: Path,
+    instance: Mapping[str, Any],
+    boundary_token_ids: Mapping[str, int],
+    result: Mapping[str, Any],
+    model_name: str,
+    requested_revision: str,
+    resolved_model_revision: Any,
+    torch: Any,
+    transformers: Any,
+    device: Any,
+    dtype: Any,
+) -> tuple[dict[str, Any], tuple[str, str] | None]:
+    failure = smoke_failure(result, requested_revision, resolved_model_revision)
+    payload: dict[str, Any] = {
+        "schema_version": MISTRAL_SMOKE_RESULT_SCHEMA_VERSION,
+        "status": "failed" if failure else "passed",
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "dataset": {
+            "dataset_version": case["dataset_version"],
+            "case_id": case["case_id"],
+            "sha256": hashlib.sha256(data_path.read_bytes()).hexdigest(),
+        },
+        "prompt_version": case["prompt_version"],
+        "mapping_id": SMOKE_MAPPING_ID,
+        "condition_id": SMOKE_CONDITION_ID,
+        "prompt_sha256": instance["prompt_sha256"],
+        "boundary_token_ids": dict(boundary_token_ids),
+        "score": dict(result),
+        "model": {
+            "identity": model_name,
+            "requested_revision": requested_revision,
+            "resolved_model_revision": resolved_model_revision,
+            "resolved_tokenizer_revision": requested_revision,
+        },
+        "runtime": {
+            "python": platform.python_version(),
+            "torch": torch.__version__,
+            "transformers": transformers.__version__,
+            "cuda_runtime": torch.version.cuda,
+            "device": str(device),
+            "dtype": str(dtype),
+        },
+    }
+    if failure:
+        payload["failure_stage"], payload["failure_reason"] = failure
+    return payload, failure
+
+
+def write_json_exclusive(path: Path, payload: Mapping[str, Any]) -> None:
+    """Publish JSON through an exclusive hard link so an existing path is untouched."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            json.dump(payload, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary_path, path)
+        except FileExistsError as exc:
+            raise SmokeTestError(f"Refusing to overwrite existing smoke output: {path}") from exc
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def print_smoke_result(
+    result: Mapping[str, Any],
+    requested_revision: str,
+    resolved_revision: Any,
+    device: Any,
+    dtype: Any,
+) -> None:
+    print(f"bounded token ID = {result['bounded']['token_id']}")
+    print(f"broader token ID = {result['broader']['token_id']}")
+    print(f"bounded raw logit = {result['bounded']['raw_logit']:.6f}")
+    print(f"broader raw logit = {result['broader']['raw_logit']:.6f}")
+    print(f"semantic broader-minus-bounded margin = {result['broad_action_logit_margin']:.6f}")
+    print(
+        "restricted two-label broader probability = "
+        f"{result['broader']['restricted_two_label_probability']:.6f}"
+    )
+    generated = result["ordinary_greedy_generation"]
+    print(f"ordinary greedy response = {generated['text']!r}")
+    print(f"nominated-label conformance = {generated['conforms_to_nominated_labels']}")
+    print(f"requested model revision = {requested_revision}")
+    print(f"resolved model revision = {resolved_revision}")
+    print(f"runtime device = {device}")
+    print(f"runtime dtype = {dtype}")
+
+
+def run_smoke_only(
+    *,
+    args: argparse.Namespace,
+    case: Mapping[str, Any],
+    instances: Mapping[str, Mapping[str, Mapping[str, Any]]],
+    mappings: Mapping[str, Mapping[str, Any]],
+    boundary_token_ids: Mapping[str, Mapping[str, Mapping[str, int]]],
+    torch: Any,
+    transformers: Any,
+    model: Any,
+    tokenizer: Any,
+    device: Any,
+    dtype: Any,
+) -> int:
+    mapping, instance = select_smoke_instance(instances, mappings)
+    token_ids = boundary_token_ids[SMOKE_MAPPING_ID][SMOKE_CONDITION_ID]
+    result = score_condition(
+        torch=torch,
+        model=model,
+        tokenizer=tokenizer,
+        device=device,
+        prompt=instance["prompt"],
+        bounded_label=mapping["bounded_label"],
+        broader_label=mapping["broader_label"],
+        bounded_token_id=token_ids[mapping["bounded_label"]],
+        broader_token_id=token_ids[mapping["broader_label"]],
+        mistral_common=True,
+    )
+    resolved_revision = _resolved_revision(
+        getattr(getattr(model, "config", None), "_commit_hash", None)
+    )
+    payload, failure = build_smoke_payload(
+        case=case,
+        data_path=args.data,
+        instance=instance,
+        boundary_token_ids=token_ids,
+        result=result,
+        model_name=args.model,
+        requested_revision=args.revision,
+        resolved_model_revision=resolved_revision,
+        torch=torch,
+        transformers=transformers,
+        device=device,
+        dtype=dtype,
+    )
+    print_smoke_result(result, args.revision, resolved_revision, device, dtype)
+    write_json_exclusive(args.output, payload)
+    print(f"\nSaved: {args.output}")
+    if failure:
+        raise SmokeTestError(f"Mistral smoke test failed at {failure[0]}: {failure[1]}")
+    return 0
+
+
 def main() -> int:
     args = parse_args()
+    validate_mode_args(args)
     require_exact_mistral_revision(args.model, args.revision)
     mistral_workflow = is_mistral_replication_model(args.model)
     try:
@@ -1575,6 +1794,21 @@ def main() -> int:
         raise
     except (OSError, ValueError) as exc:
         raise SmokeTestError(f"Could not load {args.model!r}: {exc}") from exc
+
+    if args.smoke_only:
+        return run_smoke_only(
+            args=args,
+            case=case,
+            instances=instances,
+            mappings=mappings,
+            boundary_token_ids=boundary_token_ids,
+            torch=torch,
+            transformers=transformers,
+            model=model,
+            tokenizer=tokenizer,
+            device=device,
+            dtype=dtype,
+        )
 
     results: dict[str, dict[str, dict[str, Any]]] = {}
     failures = []
