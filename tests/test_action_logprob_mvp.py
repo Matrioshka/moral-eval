@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import copy
+import io
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "log_prob"))
@@ -21,13 +24,18 @@ from run_action_logprob_mvp import (  # noqa: E402
     POSITIVE_CONTROL_GATE_DATA,
     POSITIVE_CONTROL_GATE_DATASET_VERSION,
     PRESERVED_V1_DATA,
+    MISTRAL_REPLICATION_MODEL,
     SmokeTestError,
     build_prompt,
     calculate_effects,
     expand_prompt_instances,
     load_case,
+    mistral_token_id_at_generation_boundary,
+    choose_device,
+    require_exact_mistral_revision,
     semantic_margin,
     single_token_id_at_generation_boundary,
+    validate_selected_dataset_boundaries,
     validate_case,
 )
 
@@ -628,6 +636,110 @@ class ActionLogprobTokenValidationTests(unittest.TestCase):
             single_token_id_at_generation_boundary(
                 BoundaryMergingTokenizer(), "Prompt", "A"
             )
+
+    def test_selected_dataset_validation_reports_all_twelve_prompts(self) -> None:
+        instances = expand_prompt_instances(load_case(POSITIVE_CONTROL_GATE_DATA))
+        output = io.StringIO()
+        with redirect_stdout(output):
+            token_ids = validate_selected_dataset_boundaries(
+                CharacterTokenizer(), instances, mistral_common=False
+            )
+
+        self.assertEqual(sum(len(group) for group in token_ids.values()), 12)
+        self.assertTrue(
+            all(
+                labels == {"A": ord("A"), "B": ord("B")}
+                for group in token_ids.values()
+                for labels in group.values()
+            )
+        )
+        self.assertIn("Tokenizer boundary validation succeeded: 12/12 prompts.", output.getvalue())
+
+    def test_mistral_label_is_exact_at_native_assistant_boundary(self) -> None:
+        class BaseTokenizer:
+            @staticmethod
+            def encode(text: str, bos: bool, eos: bool) -> list[int]:
+                self.assertFalse(bos)
+                self.assertFalse(eos)
+                return [ord(character) for character in text]
+
+            @staticmethod
+            def decode(token_ids: list[int]) -> str:
+                return "".join(chr(token_id) for token_id in token_ids)
+
+        class InstructTokenizer:
+            tokenizer = BaseTokenizer()
+
+        class Tokenizer:
+            instruct_tokenizer = InstructTokenizer()
+
+        def fake_chat_tokens(_: object, prompt: str, label: str | None = None) -> list[int]:
+            prefix = [1, *[ord(character) for character in prompt], 2]
+            return prefix if label is None else [*prefix, *[ord(character) for character in label]]
+
+        with patch(
+            "run_action_logprob_mvp._mistral_chat_tokens",
+            side_effect=fake_chat_tokens,
+        ):
+            self.assertEqual(
+                mistral_token_id_at_generation_boundary(Tokenizer(), "Prompt", "A"),
+                ord("A"),
+            )
+
+
+class _FakeCuda:
+    def __init__(self, *, available: bool, bf16: bool) -> None:
+        self._available = available
+        self._bf16 = bf16
+
+    def is_available(self) -> bool:
+        return self._available
+
+    def is_bf16_supported(self) -> bool:
+        return self._bf16
+
+
+class _FakeTorch:
+    float32 = "float32"
+    bfloat16 = "bfloat16"
+
+    def __init__(self, *, available: bool, bf16: bool) -> None:
+        self.cuda = _FakeCuda(available=available, bf16=bf16)
+
+    @staticmethod
+    def device(value: str) -> str:
+        return value
+
+
+class ActionLogprobModelPolicyTests(unittest.TestCase):
+    def test_mistral_requires_exact_commit_revision(self) -> None:
+        with self.assertRaisesRegex(SmokeTestError, "40-character"):
+            require_exact_mistral_revision(MISTRAL_REPLICATION_MODEL, "main")
+        require_exact_mistral_revision(MISTRAL_REPLICATION_MODEL, "a" * 40)
+
+    def test_qwen_does_not_require_a_revision(self) -> None:
+        require_exact_mistral_revision("Qwen/Qwen2.5-1.5B-Instruct", None)
+
+    def test_mistral_requires_explicit_cuda_bf16(self) -> None:
+        torch = _FakeTorch(available=True, bf16=True)
+        self.assertEqual(
+            choose_device(torch, "cuda", MISTRAL_REPLICATION_MODEL),
+            ("cuda", "bfloat16"),
+        )
+        with self.assertRaisesRegex(SmokeTestError, "requires --device cuda"):
+            choose_device(torch, "auto", MISTRAL_REPLICATION_MODEL)
+        with self.assertRaisesRegex(SmokeTestError, "BF16"):
+            choose_device(
+                _FakeTorch(available=True, bf16=False),
+                "cuda",
+                MISTRAL_REPLICATION_MODEL,
+            )
+
+    def test_qwen_cuda_remains_float32(self) -> None:
+        self.assertEqual(
+            choose_device(_FakeTorch(available=True, bf16=True), "cuda"),
+            ("cuda", "float32"),
+        )
 
 
 class ActionLogprobCalculationTests(unittest.TestCase):

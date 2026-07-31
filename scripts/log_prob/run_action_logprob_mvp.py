@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import json
 import platform
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +21,7 @@ from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
+MISTRAL_REPLICATION_MODEL = "mistralai/Mistral-Small-3.2-24B-Instruct-2506"
 PRESERVED_V1_DATA = (
     ROOT / "data" / "datasets" / "action_logprob" / "action_logprob_mvp_v1.jsonl"
 )
@@ -341,6 +344,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data", type=Path, default=DEFAULT_DATA)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
+    parser.add_argument(
+        "--tokenizer-only",
+        action="store_true",
+        help=(
+            "Load only the selected model's tokenizer and validate A/B at all "
+            "twelve rendered assistant boundaries for --data."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -773,7 +784,35 @@ def load_case(path: Path) -> dict[str, Any]:
     return case
 
 
-def choose_device(torch: Any, requested: str) -> tuple[Any, Any]:
+def is_mistral_replication_model(model_name: str) -> bool:
+    return model_name == MISTRAL_REPLICATION_MODEL
+
+
+def require_exact_mistral_revision(model_name: str, revision: str | None) -> None:
+    if not is_mistral_replication_model(model_name):
+        return
+    if revision is None or re.fullmatch(r"[0-9a-fA-F]{40}", revision) is None:
+        raise SmokeTestError(
+            "The preregistered Mistral workflow requires --revision to be a full "
+            "40-character Hugging Face commit hash."
+        )
+
+
+def choose_device(torch: Any, requested: str, model_name: str = DEFAULT_MODEL) -> tuple[Any, Any]:
+    if is_mistral_replication_model(model_name):
+        if requested != "cuda":
+            raise SmokeTestError(
+                "The preregistered Mistral workflow requires --device cuda; CPU, auto "
+                "fallback, FP32 and FP16 inference are not permitted."
+            )
+        if not torch.cuda.is_available():
+            raise SmokeTestError("The preregistered Mistral workflow requires available CUDA.")
+        if not torch.cuda.is_bf16_supported():
+            raise SmokeTestError(
+                "The preregistered Mistral workflow requires CUDA BF16 support."
+            )
+        return torch.device("cuda"), torch.bfloat16
+
     if requested == "cuda" and not torch.cuda.is_available():
         raise SmokeTestError(
             "CUDA was requested but is unavailable. Use --device cpu or a GPU-enabled runtime."
@@ -892,6 +931,57 @@ def single_token_id_at_generation_boundary(tokenizer: Any, prompt: str, label: s
             f"isolated token {isolated_token_id}"
         )
     return contextual_token_id
+
+
+def _mistral_messages(prompt: str, assistant_prefix: str | None = None) -> list[Any]:
+    from mistral_common.protocol.instruct.messages import AssistantMessage, UserMessage
+
+    messages = [UserMessage(content=prompt)]
+    if assistant_prefix is not None:
+        messages.append(AssistantMessage(content=assistant_prefix, prefix=True))
+    return messages
+
+
+def _mistral_chat_tokens(
+    tokenizer: Any, prompt: str, assistant_prefix: str | None = None
+) -> list[int]:
+    from mistral_common.protocol.instruct.request import ChatCompletionRequest
+
+    encoded = tokenizer.encode_chat_completion(
+        ChatCompletionRequest(messages=_mistral_messages(prompt, assistant_prefix))
+    )
+    return [int(token_id) for token_id in encoded.tokens]
+
+
+def mistral_token_id_at_generation_boundary(
+    tokenizer: Any, prompt: str, label: str
+) -> int:
+    """Require one exact Mistral token after the native user-message boundary."""
+    base_tokenizer = tokenizer.instruct_tokenizer.tokenizer
+    isolated_ids = [int(token_id) for token_id in base_tokenizer.encode(label, False, False)]
+    if len(isolated_ids) != 1 or base_tokenizer.decode(isolated_ids) != label:
+        raise SmokeTestError(
+            f"Label {label!r} is not one exact isolated Mistral token; got {isolated_ids}"
+        )
+
+    prefix_ids = _mistral_chat_tokens(tokenizer, prompt)
+    extended_ids = _mistral_chat_tokens(tokenizer, prompt, label)
+    if extended_ids[: len(prefix_ids)] != prefix_ids:
+        raise SmokeTestError(
+            f"Label {label!r} retokenises the Mistral assistant-generation boundary"
+        )
+    continuation_ids = extended_ids[len(prefix_ids) :]
+    if len(continuation_ids) != 1:
+        raise SmokeTestError(
+            f"Label {label!r} is not one token at the Mistral assistant-generation "
+            f"boundary; continuation IDs are {continuation_ids}"
+        )
+    token_id = continuation_ids[0]
+    if token_id != isolated_ids[0] or base_tokenizer.decode([token_id]) != label:
+        raise SmokeTestError(
+            f"Boundary token for {label!r} is not the exact isolated label token"
+        )
+    return token_id
 
 
 def _evidence_text(case: dict[str, Any], evidence_state: str) -> str:
@@ -1025,7 +1115,14 @@ def expand_prompt_instances(
     return instances
 
 
-def encode_prompt(tokenizer: Any, prompt: str, device: Any) -> dict[str, Any]:
+def encode_prompt(
+    tokenizer: Any, prompt: str, device: Any, *, mistral_common: bool = False
+) -> dict[str, Any]:
+    if mistral_common:
+        import torch
+
+        input_ids = torch.tensor([_mistral_chat_tokens(tokenizer, prompt)], device=device)
+        return {"input_ids": input_ids, "attention_mask": torch.ones_like(input_ids)}
     if not getattr(tokenizer, "chat_template", None):
         raise SmokeTestError("Tokenizer has no chat template; use an instruction model")
     try:
@@ -1070,8 +1167,9 @@ def score_condition(
     broader_label: str,
     bounded_token_id: int,
     broader_token_id: int,
+    mistral_common: bool = False,
 ) -> dict[str, Any]:
-    encoded = encode_prompt(tokenizer, prompt, device)
+    encoded = encode_prompt(tokenizer, prompt, device, mistral_common=mistral_common)
 
     try:
         with torch.inference_mode():
@@ -1082,11 +1180,16 @@ def score_condition(
             generated = model.generate(
                 **encoded,
                 do_sample=False,
+                num_beams=1,
                 max_new_tokens=4,
                 pad_token_id=(
-                    tokenizer.pad_token_id
-                    if tokenizer.pad_token_id is not None
-                    else tokenizer.eos_token_id
+                    tokenizer.instruct_tokenizer.tokenizer.eos_id
+                    if mistral_common
+                    else (
+                        tokenizer.pad_token_id
+                        if tokenizer.pad_token_id is not None
+                        else tokenizer.eos_token_id
+                    )
                 ),
             )
     except torch.cuda.OutOfMemoryError as exc:
@@ -1112,11 +1215,16 @@ def score_condition(
         broader_label=broader_label,
     )
     prompt_length = encoded["input_ids"].shape[-1]
-    generated_text = tokenizer.decode(
-        generated[0, prompt_length:],
-        skip_special_tokens=True,
-        clean_up_tokenization_spaces=False,
-    ).strip()
+    generated_ids = generated[0, prompt_length:].tolist()
+    generated_text = (
+        tokenizer.decode(generated_ids).strip()
+        if mistral_common
+        else tokenizer.decode(
+            generated_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        ).strip()
+    )
 
     top_token_id = int(torch.argmax(logits).item())
     return {
@@ -1142,10 +1250,14 @@ def score_condition(
         },
         "full_vocabulary_top_next_token": {
             "token_id": top_token_id,
-            "text": tokenizer.decode(
-                [top_token_id],
-                skip_special_tokens=False,
-                clean_up_tokenization_spaces=False,
+            "text": (
+                tokenizer.decode([top_token_id])
+                if mistral_common
+                else tokenizer.decode(
+                    [top_token_id],
+                    skip_special_tokens=False,
+                    clean_up_tokenization_spaces=False,
+                )
             ),
             "raw_logit": float(logits[top_token_id].item()),
         },
@@ -1352,8 +1464,53 @@ def _resolved_revision(value: Any) -> Any:
     return str(value)
 
 
+def load_mistral_tokenizer(model_name: str, revision: str) -> Any:
+    """Load the official Mistral tokenizer from an exactly pinned Hub revision."""
+    from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
+
+    parameters = inspect.signature(MistralTokenizer.from_hf_hub).parameters
+    if "revision" in parameters:
+        return MistralTokenizer.from_hf_hub(model_name, revision=revision)
+
+    from huggingface_hub import hf_hub_download
+
+    tokenizer_path = hf_hub_download(
+        repo_id=model_name,
+        filename="tekken.json",
+        revision=revision,
+    )
+    return MistralTokenizer.from_file(tokenizer_path)
+
+
+def validate_selected_dataset_boundaries(
+    tokenizer: Any,
+    instances: Mapping[str, Mapping[str, Mapping[str, Any]]],
+    *,
+    mistral_common: bool,
+) -> dict[str, dict[str, dict[str, int]]]:
+    boundary_token_ids: dict[str, dict[str, dict[str, int]]] = {}
+    validated = 0
+    for mapping_id in EXPECTED_MAPPINGS:
+        boundary_token_ids[mapping_id] = {}
+        for condition_id in EXPECTED_CONDITIONS:
+            prompt = instances[mapping_id][condition_id]["prompt"]
+            validator = (
+                mistral_token_id_at_generation_boundary
+                if mistral_common
+                else single_token_id_at_generation_boundary
+            )
+            token_ids = {label: validator(tokenizer, prompt, label) for label in ("A", "B")}
+            boundary_token_ids[mapping_id][condition_id] = token_ids
+            validated += 1
+            print(f"{mapping_id}/{condition_id}: A={token_ids['A']} B={token_ids['B']}")
+    print(f"Tokenizer boundary validation succeeded: {validated}/12 prompts.")
+    return boundary_token_ids
+
+
 def main() -> int:
     args = parse_args()
+    require_exact_mistral_revision(args.model, args.revision)
+    mistral_workflow = is_mistral_replication_model(args.model)
     try:
         import torch
         import transformers
@@ -1364,14 +1521,38 @@ def main() -> int:
     case = load_case(args.data)
     instances = expand_prompt_instances(case)
     mappings = {item["mapping_id"]: item for item in case["mappings"]}
-    device, dtype = choose_device(torch, args.device)
+    if mistral_workflow:
+        try:
+            tokenizer = load_mistral_tokenizer(args.model, args.revision)
+        except (ImportError, OSError, TypeError, ValueError) as exc:
+            raise SmokeTestError(f"Could not load pinned Mistral tokenizer: {exc}") from exc
+        print(f"Model identity: {args.model}")
+        print(f"Resolved tokenizer revision: {args.revision}")
+    else:
+        load_kwargs: dict[str, Any] = {}
+        if args.revision is not None:
+            load_kwargs["revision"] = args.revision
+        tokenizer = AutoTokenizer.from_pretrained(args.model, **load_kwargs)
+
+    boundary_token_ids = validate_selected_dataset_boundaries(
+        tokenizer, instances, mistral_common=mistral_workflow
+    )
+    if args.tokenizer_only:
+        return 0
+
+    device, dtype = choose_device(torch, args.device, args.model)
 
     load_kwargs: dict[str, Any] = {}
     if args.revision is not None:
         load_kwargs["revision"] = args.revision
     try:
-        tokenizer = AutoTokenizer.from_pretrained(args.model, **load_kwargs)
-        model = AutoModelForCausalLM.from_pretrained(
+        if mistral_workflow:
+            from transformers import Mistral3ForConditionalGeneration
+
+            model_class = Mistral3ForConditionalGeneration
+        else:
+            model_class = AutoModelForCausalLM
+        model = model_class.from_pretrained(
             args.model,
             dtype=dtype,
             **load_kwargs,
@@ -1395,16 +1576,6 @@ def main() -> int:
     except (OSError, ValueError) as exc:
         raise SmokeTestError(f"Could not load {args.model!r}: {exc}") from exc
 
-    boundary_token_ids: dict[str, dict[str, dict[str, int]]] = {}
-    for mapping_id in EXPECTED_MAPPINGS:
-        boundary_token_ids[mapping_id] = {}
-        for condition_id in EXPECTED_CONDITIONS:
-            prompt = instances[mapping_id][condition_id]["prompt"]
-            boundary_token_ids[mapping_id][condition_id] = {
-                label: single_token_id_at_generation_boundary(tokenizer, prompt, label)
-                for label in ("A", "B")
-            }
-
     results: dict[str, dict[str, dict[str, Any]]] = {}
     failures = []
     for mapping_id in EXPECTED_MAPPINGS:
@@ -1423,6 +1594,7 @@ def main() -> int:
                 broader_label=mapping["broader_label"],
                 bounded_token_id=token_ids[mapping["bounded_label"]],
                 broader_token_id=token_ids[mapping["broader_label"]],
+                mistral_common=mistral_workflow,
             )
             evidence_state = case["evidence_states"][instance["evidence_state"]]
             result.update(
@@ -1451,12 +1623,19 @@ def main() -> int:
     resolved_model_revision = _resolved_revision(
         getattr(getattr(model, "config", None), "_commit_hash", None)
     )
-    tokenizer_init_kwargs = getattr(tokenizer, "init_kwargs", {})
-    resolved_tokenizer_revision = _resolved_revision(
-        tokenizer_init_kwargs.get("_commit_hash")
-        if isinstance(tokenizer_init_kwargs, dict)
-        else None
-    )
+    if mistral_workflow:
+        if resolved_model_revision != args.revision:
+            raise SmokeTestError(
+                "Loaded Mistral model revision does not match the exact requested revision."
+            )
+        resolved_tokenizer_revision = args.revision
+    else:
+        tokenizer_init_kwargs = getattr(tokenizer, "init_kwargs", {})
+        resolved_tokenizer_revision = _resolved_revision(
+            tokenizer_init_kwargs.get("_commit_hash")
+            if isinstance(tokenizer_init_kwargs, dict)
+            else None
+        )
     payload = {
         "schema_version": RESULT_SCHEMA_VERSION,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),

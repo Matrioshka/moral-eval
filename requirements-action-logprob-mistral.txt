@@ -1,0 +1,2 @@
+-r requirements-action-logprob.txt
+mistral-common>=1.6.2,<2

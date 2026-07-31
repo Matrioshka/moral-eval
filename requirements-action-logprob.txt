@@ -1,0 +1,6 @@
+# Curated portable dependencies for the action-logprob experiment; this is not
+# an indiscriminate pip-freeze snapshot.
+# Python 3.12 is the supported project environment for this experiment.
+# Install Torch separately because CPU and CUDA builds use different indexes.
+numpy==1.26.4
+transformers==5.14.1
