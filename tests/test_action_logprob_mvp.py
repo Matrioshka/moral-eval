@@ -29,6 +29,8 @@ from run_action_logprob_mvp import (  # noqa: E402
     PRESERVED_V1_DATA,
     MISTRAL_REPLICATION_MODEL,
     MISTRAL_SMOKE_RESULT_SCHEMA_VERSION,
+    QWEN_SCALE_EXTENSION_MODEL,
+    QWEN_SCALE_EXTENSION_REVISION_RESOLUTION_METHOD,
     SMOKE_CONDITION_ID,
     SMOKE_MAPPING_ID,
     SmokeTestError,
@@ -44,6 +46,8 @@ from run_action_logprob_mvp import (  # noqa: E402
     smoke_failure,
     choose_device,
     require_exact_mistral_revision,
+    resolve_qwen_scale_extension_revision,
+    revision_provenance,
     semantic_margin,
     single_token_id_at_generation_boundary,
     validate_selected_dataset_boundaries,
@@ -725,13 +729,116 @@ class _FakeTorch:
 
 
 class ActionLogprobModelPolicyTests(unittest.TestCase):
+    QWEN_REVISION = "cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8"
+
     def test_mistral_requires_exact_commit_revision(self) -> None:
         with self.assertRaisesRegex(SmokeTestError, "40-character"):
             require_exact_mistral_revision(MISTRAL_REPLICATION_MODEL, "main")
         require_exact_mistral_revision(MISTRAL_REPLICATION_MODEL, "a" * 40)
 
-    def test_qwen_does_not_require_a_revision(self) -> None:
+    def test_ordinary_qwen_does_not_require_a_revision(self) -> None:
         require_exact_mistral_revision("Qwen/Qwen2.5-1.5B-Instruct", None)
+
+    def test_qwen_scale_extension_accepts_matching_hub_revision(self) -> None:
+        api = SimpleNamespace(
+            model_info=lambda **_: SimpleNamespace(sha=self.QWEN_REVISION)
+        )
+        self.assertEqual(
+            resolve_qwen_scale_extension_revision(
+                QWEN_SCALE_EXTENSION_MODEL, self.QWEN_REVISION, api=api
+            ),
+            self.QWEN_REVISION,
+        )
+
+    def test_qwen_scale_extension_rejects_missing_revision(self) -> None:
+        with self.assertRaisesRegex(SmokeTestError, "40-character"):
+            resolve_qwen_scale_extension_revision(
+                QWEN_SCALE_EXTENSION_MODEL, None, api=SimpleNamespace()
+            )
+
+    def test_qwen_scale_extension_rejects_non_commit_revision(self) -> None:
+        with self.assertRaisesRegex(SmokeTestError, "40-character"):
+            resolve_qwen_scale_extension_revision(
+                QWEN_SCALE_EXTENSION_MODEL, "main", api=SimpleNamespace()
+            )
+
+    def test_qwen_scale_extension_rejects_differing_hub_revision(self) -> None:
+        api = SimpleNamespace(model_info=lambda **_: SimpleNamespace(sha="f" * 40))
+        with self.assertRaisesRegex(SmokeTestError, "does not match"):
+            resolve_qwen_scale_extension_revision(
+                QWEN_SCALE_EXTENSION_MODEL, self.QWEN_REVISION, api=api
+            )
+
+    def test_qwen_scale_extension_wraps_hub_api_failure(self) -> None:
+        def fail(**_: object) -> object:
+            raise OSError("offline")
+
+        with self.assertRaisesRegex(SmokeTestError, "huggingface_hub"):
+            resolve_qwen_scale_extension_revision(
+                QWEN_SCALE_EXTENSION_MODEL,
+                self.QWEN_REVISION,
+                api=SimpleNamespace(model_info=fail),
+            )
+
+    def test_qwen_scale_extension_provenance_does_not_use_private_fields(self) -> None:
+        provenance = revision_provenance(
+            model_name=QWEN_SCALE_EXTENSION_MODEL,
+            requested_revision=self.QWEN_REVISION,
+            hub_verified_revision=self.QWEN_REVISION,
+            model=SimpleNamespace(config=SimpleNamespace(_commit_hash=None)),
+            tokenizer=SimpleNamespace(init_kwargs={}),
+        )
+        self.assertEqual(provenance["requested_revision"], self.QWEN_REVISION)
+        self.assertEqual(provenance["resolved_model_revision"], self.QWEN_REVISION)
+        self.assertEqual(provenance["resolved_tokenizer_revision"], self.QWEN_REVISION)
+        self.assertEqual(
+            provenance["revision_resolution_method"],
+            QWEN_SCALE_EXTENSION_REVISION_RESOLUTION_METHOD,
+        )
+
+    def test_qwen_scale_extension_rechecks_revision_before_full_result(self) -> None:
+        with self.assertRaisesRegex(SmokeTestError, "before full-result writing"):
+            revision_provenance(
+                model_name=QWEN_SCALE_EXTENSION_MODEL,
+                requested_revision=self.QWEN_REVISION,
+                hub_verified_revision="f" * 40,
+                model=SimpleNamespace(),
+                tokenizer=SimpleNamespace(),
+            )
+
+    def test_mistral_revision_provenance_remains_unchanged(self) -> None:
+        revision = "a" * 40
+        self.assertEqual(
+            revision_provenance(
+                model_name=MISTRAL_REPLICATION_MODEL,
+                requested_revision=revision,
+                hub_verified_revision=None,
+                model=SimpleNamespace(config=SimpleNamespace(_commit_hash=revision)),
+                tokenizer=SimpleNamespace(init_kwargs={}),
+            ),
+            {
+                "requested_revision": revision,
+                "resolved_model_revision": revision,
+                "resolved_tokenizer_revision": revision,
+            },
+        )
+
+    def test_ordinary_qwen_revision_provenance_remains_unchanged(self) -> None:
+        revision = "b" * 40
+        self.assertEqual(
+            revision_provenance(
+                model_name="Qwen/Qwen2.5-1.5B-Instruct",
+                requested_revision=None,
+                hub_verified_revision=None,
+                model=SimpleNamespace(config=SimpleNamespace(_commit_hash=revision)),
+                tokenizer=SimpleNamespace(init_kwargs={"_commit_hash": revision}),
+            ),
+            {
+                "requested_revision": None,
+                "resolved_model_revision": revision,
+                "resolved_tokenizer_revision": revision,
+            },
+        )
 
     def test_mistral_requires_explicit_cuda_bf16(self) -> None:
         torch = _FakeTorch(available=True, bf16=True)

@@ -9,6 +9,22 @@ The exact pinned Hugging Face revision is:
 
 `cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8`
 
+## Amendment: revision provenance verification
+
+The initial pre-inference identity check found that Transformers 5.14.1 did
+not expose `_commit_hash` in `tokenizer.init_kwargs`. At that point, no
+prompt-boundary results, model weights, logits or generations had been
+observed.
+
+Revision verification was therefore operationalised using the SHA returned by
+the public Hugging Face Hub model-info API, together with passing the exact
+requested SHA to both tokenizer and model `from_pretrained` calls. The
+requested revision and both resolved revision fields will record that
+Hub-verified exact SHA, with the verification method recorded explicitly.
+This amendment changes provenance verification only; it does not change the
+frozen experiment, prompts, datasets, mappings, scoring, precision or
+generation behaviour.
+
 ## Research question
 
 Do the directive and genuine-resolution effects observed in the frozen

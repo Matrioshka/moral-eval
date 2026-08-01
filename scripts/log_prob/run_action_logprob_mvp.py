@@ -24,7 +24,11 @@ from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
+QWEN_SCALE_EXTENSION_MODEL = "Qwen/Qwen2.5-14B-Instruct"
 MISTRAL_REPLICATION_MODEL = "mistralai/Mistral-Small-3.2-24B-Instruct-2506"
+QWEN_SCALE_EXTENSION_REVISION_RESOLUTION_METHOD = (
+    "huggingface_hub.model_info_sha_and_exact_revision_passed_to_from_pretrained"
+)
 MISTRAL_SMOKE_RESULT_SCHEMA_VERSION = "action_logprob_mistral_smoke_result_v1"
 SMOKE_MAPPING_ID = "bounded_A_broader_B"
 SMOKE_CONDITION_ID = "unresolved_neutral"
@@ -803,6 +807,10 @@ def is_mistral_replication_model(model_name: str) -> bool:
     return model_name == MISTRAL_REPLICATION_MODEL
 
 
+def is_qwen_scale_extension_model(model_name: str) -> bool:
+    return model_name == QWEN_SCALE_EXTENSION_MODEL
+
+
 def require_exact_mistral_revision(model_name: str, revision: str | None) -> None:
     if not is_mistral_replication_model(model_name):
         return
@@ -811,6 +819,40 @@ def require_exact_mistral_revision(model_name: str, revision: str | None) -> Non
             "The preregistered Mistral workflow requires --revision to be a full "
             "40-character Hugging Face commit hash."
         )
+
+
+def resolve_qwen_scale_extension_revision(
+    model_name: str, revision: str | None, *, api: Any | None = None
+) -> str | None:
+    """Verify the preregistered Qwen revision through the public Hub API."""
+    if not is_qwen_scale_extension_model(model_name):
+        return None
+    if revision is None or re.fullmatch(r"[0-9a-fA-F]{40}", revision) is None:
+        raise SmokeTestError(
+            "The preregistered Qwen2.5-14B workflow requires --revision to be a full "
+            "40-character Hugging Face commit SHA."
+        )
+
+    try:
+        if api is None:
+            from huggingface_hub import HfApi
+
+            api = HfApi()
+        resolved_revision = _resolved_revision(
+            api.model_info(repo_id=model_name, revision=revision).sha
+        )
+    except Exception as exc:
+        raise SmokeTestError(
+            "Could not resolve the preregistered Qwen2.5-14B revision through "
+            "huggingface_hub."
+        ) from exc
+
+    if resolved_revision != revision:
+        raise SmokeTestError(
+            "The Hub-resolved Qwen2.5-14B revision does not match the exact "
+            "requested revision."
+        )
+    return revision
 
 
 def choose_device(torch: Any, requested: str, model_name: str = DEFAULT_MODEL) -> tuple[Any, Any]:
@@ -1479,6 +1521,57 @@ def _resolved_revision(value: Any) -> Any:
     return str(value)
 
 
+def revision_provenance(
+    *,
+    model_name: str,
+    requested_revision: str | None,
+    hub_verified_revision: str | None,
+    model: Any,
+    tokenizer: Any,
+) -> dict[str, Any]:
+    """Build revision metadata without private-field claims for the Qwen extension."""
+    if is_qwen_scale_extension_model(model_name):
+        if (
+            requested_revision is None
+            or re.fullmatch(r"[0-9a-fA-F]{40}", requested_revision) is None
+            or hub_verified_revision != requested_revision
+        ):
+            raise SmokeTestError(
+                "The Hub-resolved Qwen2.5-14B revision does not match the exact "
+                "requested revision before full-result writing."
+            )
+        return {
+            "requested_revision": requested_revision,
+            "resolved_model_revision": hub_verified_revision,
+            "resolved_tokenizer_revision": hub_verified_revision,
+            "revision_resolution_method": (
+                QWEN_SCALE_EXTENSION_REVISION_RESOLUTION_METHOD
+            ),
+        }
+
+    resolved_model_revision = _resolved_revision(
+        getattr(getattr(model, "config", None), "_commit_hash", None)
+    )
+    if is_mistral_replication_model(model_name):
+        if resolved_model_revision != requested_revision:
+            raise SmokeTestError(
+                "Loaded Mistral model revision does not match the exact requested revision."
+            )
+        resolved_tokenizer_revision = requested_revision
+    else:
+        tokenizer_init_kwargs = getattr(tokenizer, "init_kwargs", {})
+        resolved_tokenizer_revision = _resolved_revision(
+            tokenizer_init_kwargs.get("_commit_hash")
+            if isinstance(tokenizer_init_kwargs, dict)
+            else None
+        )
+    return {
+        "requested_revision": requested_revision,
+        "resolved_model_revision": resolved_model_revision,
+        "resolved_tokenizer_revision": resolved_tokenizer_revision,
+    }
+
+
 def load_mistral_tokenizer(model_name: str, revision: str) -> Any:
     """Load the official Mistral tokenizer from an exactly pinned Hub revision."""
     from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
@@ -1729,6 +1822,9 @@ def main() -> int:
     args = parse_args()
     validate_mode_args(args)
     require_exact_mistral_revision(args.model, args.revision)
+    hub_verified_revision = resolve_qwen_scale_extension_revision(
+        args.model, args.revision
+    )
     mistral_workflow = is_mistral_replication_model(args.model)
     try:
         import torch
@@ -1854,22 +1950,13 @@ def main() -> int:
                 failures.append(f"{mapping_id}/{condition_id}")
 
     effects = calculate_effects(results, mappings)
-    resolved_model_revision = _resolved_revision(
-        getattr(getattr(model, "config", None), "_commit_hash", None)
+    model_revision_provenance = revision_provenance(
+        model_name=args.model,
+        requested_revision=args.revision,
+        hub_verified_revision=hub_verified_revision,
+        model=model,
+        tokenizer=tokenizer,
     )
-    if mistral_workflow:
-        if resolved_model_revision != args.revision:
-            raise SmokeTestError(
-                "Loaded Mistral model revision does not match the exact requested revision."
-            )
-        resolved_tokenizer_revision = args.revision
-    else:
-        tokenizer_init_kwargs = getattr(tokenizer, "init_kwargs", {})
-        resolved_tokenizer_revision = _resolved_revision(
-            tokenizer_init_kwargs.get("_commit_hash")
-            if isinstance(tokenizer_init_kwargs, dict)
-            else None
-        )
     payload = {
         "schema_version": RESULT_SCHEMA_VERSION,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -1884,9 +1971,7 @@ def main() -> int:
         "prompt_version": case["prompt_version"],
         "model": {
             "identity": args.model,
-            "requested_revision": args.revision,
-            "resolved_model_revision": resolved_model_revision,
-            "resolved_tokenizer_revision": resolved_tokenizer_revision,
+            **model_revision_provenance,
         },
         "runtime": {
             "python": platform.python_version(),
