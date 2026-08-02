@@ -1,0 +1,206 @@
+{
+  "schema_version": "action_logprob_cross_model_analysis_manifest_v0",
+  "analysis_version": "action_logprob_cross_model_analysis_v0",
+  "analysis_script": "scripts/log_prob/analyse_action_logprob_cross_model.py",
+  "output_root": "tmp/action_logprob_mvp/analysis/cross_model_v0",
+  "result_schema_version": "action_logprob_crossed_result_v2",
+  "dataset_schema_version": "action_logprob_crossed_case_v3",
+  "prompt_version": "action_logprob_prompt_v1",
+  "numeric_absolute_tolerance": 1e-09,
+  "near_zero_resolution_effect_absolute_tolerance": 1e-12,
+  "conditions": [
+    "unresolved_neutral",
+    "unresolved_directive",
+    "resolved_neutral"
+  ],
+  "mappings": [
+    {
+      "mapping_id": "bounded_A_broader_B",
+      "bounded_label": "A",
+      "broader_label": "B",
+      "presentation_roles": ["bounded", "broader"]
+    },
+    {
+      "mapping_id": "broader_A_bounded_B",
+      "bounded_label": "B",
+      "broader_label": "A",
+      "presentation_roles": ["broader", "bounded"]
+    },
+    {
+      "mapping_id": "bounded_A_broader_B__B_then_A",
+      "bounded_label": "A",
+      "broader_label": "B",
+      "presentation_roles": ["broader", "bounded"]
+    },
+    {
+      "mapping_id": "broader_A_bounded_B__B_then_A",
+      "bounded_label": "B",
+      "broader_label": "A",
+      "presentation_roles": ["bounded", "broader"]
+    }
+  ],
+  "cases": [
+    {
+      "case_key": "autonomous_cyber",
+      "display_name": "Autonomous cyber",
+      "dataset_path": "data/datasets/action_logprob/action_logprob_positive_control_gate_v0.jsonl",
+      "dataset_sha256": "039c3424b66c710f45fcb41627d8e292d635ae82d0c0e83501d1646622d19b6e",
+      "dataset_version": "action_logprob_positive_control_gate_v0",
+      "case_id": "deployment_gate__autonomous_cyber_defence_pilot_001"
+    },
+    {
+      "case_key": "biosecurity",
+      "display_name": "AI-assisted biosecurity",
+      "dataset_path": "data/datasets/action_logprob/action_logprob_biosecurity_gate_v0.jsonl",
+      "dataset_sha256": "d6ef41c84f8196b06fa00844376e7e1275ee59cfc5793bb8cbf324d96e50a522",
+      "dataset_version": "action_logprob_biosecurity_gate_v0",
+      "case_id": "biosecurity_gate__controlled_external_workflow_001"
+    },
+    {
+      "case_key": "critical_infrastructure",
+      "display_name": "Critical infrastructure",
+      "dataset_path": "data/datasets/action_logprob/action_logprob_critical_infrastructure_gate_v0.jsonl",
+      "dataset_sha256": "0ed5f302326c727d53f573578f4d4a6442230b06971d63fa6bcefd474fdb0366",
+      "dataset_version": "action_logprob_critical_infrastructure_gate_v0",
+      "case_id": "critical_infrastructure_gate__water_system_assistant_001"
+    }
+  ],
+  "models": [
+    {
+      "model_key": "qwen2_5_1_5b",
+      "display_name": "Qwen2.5-1.5B",
+      "identity": "Qwen/Qwen2.5-1.5B-Instruct",
+      "revision": "989aa7980e4cf806f80c7fef2b1adb7bc71aa306",
+      "resolved_tokenizer_revision_policy": "legacy_null_only",
+      "runtime": {
+        "python": "3.12.10",
+        "torch": "2.13.0+cu130",
+        "transformers": "5.14.1",
+        "device": "cuda",
+        "dtype": "torch.float32",
+        "cuda_runtime": "13.0"
+      },
+      "results": {
+        "autonomous_cyber": {
+          "path": "tmp/action_logprob_mvp/qwen2_5_1_5b_simple_gate_v0_fp32.json",
+          "sha256": "0c0c73302bdad795969c5dcb441878bb09204bc16fe45526557464feaeb3ff6a"
+        },
+        "biosecurity": {
+          "path": "tmp/action_logprob_mvp/qwen2_5_1_5b_biosecurity_gate_v0_fp32.json",
+          "sha256": "4a3ca292bca7cad0a42f4dee824c0151d884e9899f20a642d0507c1c26183e8e"
+        },
+        "critical_infrastructure": {
+          "path": "tmp/action_logprob_mvp/qwen2_5_1_5b_critical_infrastructure_gate_v0_fp32.json",
+          "sha256": "c8814cf71d05e26dbbfb364c334b4312684c358f7fb1644eb1a42e2a106a8cc9"
+        }
+      },
+      "regression_expectations": {
+        "positive_directive_effects": 12,
+        "positive_resolution_effects": 12,
+        "conforming_generations": 36,
+        "mean_directive_effect": 3.7622135480244956,
+        "mean_resolution_effect": 3.2333361307779946
+      }
+    },
+    {
+      "model_key": "mistral_small_3_2_24b",
+      "display_name": "Mistral Small 3.2 24B",
+      "identity": "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+      "revision": "95a6d26c4bfb886c58daf9d3f7332c857cb27b43",
+      "resolved_tokenizer_revision_policy": "must_match_revision",
+      "runtime": {
+        "python": "3.12.3",
+        "torch": "2.11.0+cu128",
+        "transformers": "5.14.1",
+        "device": "cuda",
+        "dtype": "torch.bfloat16",
+        "cuda_runtime": "12.8"
+      },
+      "results": {
+        "autonomous_cyber": {
+          "path": "tmp/action_logprob_mvp/vast_20260801/tmp/action_logprob_mvp/mistral_small_3_2_24b_replication_bf16_v0/autonomous_cyber.json",
+          "sha256": "5c56fb9631199bbaaf633865ca2524f2776fba2253575dd414c2645f7debb266"
+        },
+        "biosecurity": {
+          "path": "tmp/action_logprob_mvp/vast_20260801/tmp/action_logprob_mvp/mistral_small_3_2_24b_replication_bf16_v0/biosecurity.json",
+          "sha256": "14e48b998c7bbc24b9e4e62b3c3a04ce64eced545f38580a9ed2e353d60fb920"
+        },
+        "critical_infrastructure": {
+          "path": "tmp/action_logprob_mvp/vast_20260801/tmp/action_logprob_mvp/mistral_small_3_2_24b_replication_bf16_v0/critical_infrastructure.json",
+          "sha256": "f7acf34dd0a8115cbfd6c06e1ea861939a602eccc6aa9047e02d62552868274a"
+        }
+      },
+      "regression_expectations": {
+        "positive_directive_effects": 12,
+        "positive_resolution_effects": 12,
+        "conforming_generations": 36,
+        "mean_directive_effect": 5.5,
+        "mean_resolution_effect": 15.354166666666666
+      }
+    },
+    {
+      "model_key": "qwen2_5_14b",
+      "display_name": "Qwen2.5-14B",
+      "identity": "Qwen/Qwen2.5-14B-Instruct",
+      "revision": "cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8",
+      "revision_resolution_method": "huggingface_hub.model_info_sha_and_exact_revision_passed_to_from_pretrained",
+      "resolved_tokenizer_revision_policy": "must_match_revision",
+      "runtime": {
+        "python": "3.12.3",
+        "torch": "2.11.0+cu128",
+        "transformers": "5.14.1",
+        "device": "cuda",
+        "dtype": "torch.float32",
+        "cuda_runtime": "12.8"
+      },
+      "results": {
+        "autonomous_cyber": {
+          "path": "tmp/action_logprob_mvp/vast_20260801/qwen_bundle_extracted_v1/tmp/action_logprob_mvp/qwen2_5_14b_scale_extension_fp32_v0/autonomous_cyber.json",
+          "sha256": "947581cc87f98b0a72b80acc6c1e92c4746f1e1e407144a6864b3e603080f91c"
+        },
+        "biosecurity": {
+          "path": "tmp/action_logprob_mvp/vast_20260801/qwen_bundle_extracted_v1/tmp/action_logprob_mvp/qwen2_5_14b_scale_extension_fp32_v0/biosecurity.json",
+          "sha256": "55ad18d4f1e29a0d4fa7bd9a1db98b00ceae42ea02a335c956563cd04233984e"
+        },
+        "critical_infrastructure": {
+          "path": "tmp/action_logprob_mvp/vast_20260801/qwen_bundle_extracted_v1/tmp/action_logprob_mvp/qwen2_5_14b_scale_extension_fp32_v0/critical_infrastructure.json",
+          "sha256": "dd596e887c3ff4d7620d9713b817fcb9e642ec16a779a24790e09bc9b51d14c4"
+        }
+      },
+      "regression_expectations": {
+        "positive_directive_effects": 12,
+        "positive_resolution_effects": 12,
+        "conforming_generations": 36,
+        "mean_directive_effect": 16.04705746968587,
+        "mean_resolution_effect": 54.69388357798258,
+        "directive_effect_minimum": 8.486934661865234,
+        "directive_effect_maximum": 25.1763916015625,
+        "resolution_effect_minimum": 49.772762298583984,
+        "resolution_effect_maximum": 62.013099670410156,
+        "condition_sign_counts": {
+          "unresolved_neutral": {"negative": 12, "zero": 0, "positive": 0},
+          "unresolved_directive": {"negative": 12, "zero": 0, "positive": 0},
+          "resolved_neutral": {"negative": 0, "zero": 0, "positive": 12}
+        }
+      }
+    }
+  ],
+  "bundle_checks": [
+    {
+      "path": "tmp/action_logprob_mvp/vast_20260801/qwen2_5_14b_scale_extension_fp32_v0_artifacts_20260801T054700Z.tar.gz",
+      "sha256": "79db83b8c1bab6f1ed9e852b5d638fef2bca64b3d65945f67ee03fa9f2e28039"
+    }
+  ],
+  "artifact_manifest_checks": [
+    {
+      "directory": "tmp/action_logprob_mvp/vast_20260801/tmp/action_logprob_mvp/mistral_small_3_2_24b_replication_bf16_v0",
+      "manifest": "artifact_sha256sums.txt",
+      "expected_entries": 9
+    },
+    {
+      "directory": "tmp/action_logprob_mvp/vast_20260801/qwen_bundle_extracted_v1/tmp/action_logprob_mvp/qwen2_5_14b_scale_extension_fp32_v0",
+      "manifest": "final_sha256sums.txt",
+      "expected_entries": 12
+    }
+  ]
+}

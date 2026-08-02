@@ -1,0 +1,3 @@
+# Model-free dependencies for deterministic action-logprob analysis and plots.
+numpy==1.26.4
+matplotlib==3.10.3
