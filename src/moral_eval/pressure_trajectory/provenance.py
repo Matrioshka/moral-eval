@@ -23,6 +23,7 @@ def build_experiment_configuration(
     requested_dtype: str,
     measurement_prompt_version: str,
     measurement_timing: str,
+    token_selection_policy: str,
     backend_implementation: Mapping[str, str],
 ) -> dict[str, Any]:
     """Return only stable values that define or materially affect the experiment."""
@@ -64,6 +65,7 @@ def build_experiment_configuration(
         "measurement": {
             "prompt_version": measurement_prompt_version,
             "timing": measurement_timing,
+            "token_selection_policy": token_selection_policy,
         },
         "mappings": [
             {
@@ -92,6 +94,7 @@ def validate_experiment_configuration(
     generation_settings: GenerationSettings,
     measurement_prompt_version: str,
     measurement_timing: str,
+    token_selection_policy: str,
 ) -> None:
     """Ensure recorded stable configuration agrees with the run being executed."""
     source = scenario.source_metadata
@@ -112,6 +115,7 @@ def validate_experiment_configuration(
         "measurement": {
             "prompt_version": measurement_prompt_version,
             "timing": measurement_timing,
+            "token_selection_policy": token_selection_policy,
         },
         "mappings": [
             {

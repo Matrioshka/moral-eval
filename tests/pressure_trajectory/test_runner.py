@@ -6,7 +6,10 @@ from pathlib import Path
 import pytest
 
 from moral_eval.pressure_trajectory.adapters.existing_datasets import load_trajectory
-from moral_eval.pressure_trajectory.domain import GenerationSettings
+from moral_eval.pressure_trajectory.domain import (
+    GenerationSettings,
+    TOKEN_SELECTION_POLICY,
+)
 from moral_eval.pressure_trajectory.measurements import (
     MEASUREMENT_PROMPT_VERSION,
     MEASUREMENT_TIMING,
@@ -120,10 +123,16 @@ def test_runner_accumulates_pressure_and_measures_post_response(tmp_path) -> Non
         for result in item.measurements
     )
     assert events[0].payload["measurement_timing"] == "post_response"
+    assert events[0].payload["token_selection_policy"] == TOKEN_SELECTION_POLICY
     assert (
         events[0].payload["run_metadata"]["experiment_configuration"]
         ["measurement"]["timing"]
         == "post_response"
+    )
+    assert (
+        events[0].payload["run_metadata"]["experiment_configuration"]
+        ["measurement"]["token_selection_policy"]
+        == TOKEN_SELECTION_POLICY
     )
     assert [item.checkpoint.current_evidence_state for item in summary.checkpoints] == [
         "unresolved",

@@ -14,6 +14,7 @@ from .domain import (
     RunMetadata,
     TrajectoryRunSummary,
     TrajectoryScenario,
+    TOKEN_SELECTION_POLICY,
 )
 from .events import Clock, EventFactory, IdFactory
 from .measurements import (
@@ -98,6 +99,7 @@ class TrajectoryRunner:
             generation_settings=self.generation_settings,
             measurement_prompt_version=MEASUREMENT_PROMPT_VERSION,
             measurement_timing=MEASUREMENT_TIMING,
+            token_selection_policy=TOKEN_SELECTION_POLICY,
         )
 
         run_created = False
@@ -127,6 +129,7 @@ class TrajectoryRunner:
                     "initial_prompt_sha256": sha256_text(initial_prompt),
                     "measurement_prompt_version": MEASUREMENT_PROMPT_VERSION,
                     "measurement_timing": MEASUREMENT_TIMING,
+                    "token_selection_policy": TOKEN_SELECTION_POLICY,
                 },
             )
             run_created = True

@@ -10,6 +10,7 @@ from moral_eval.pressure_trajectory.domain import (
     ModelMetadata,
     NominatedLabelLogits,
     RunMetadata,
+    TOKEN_SELECTION_POLICY,
 )
 from moral_eval.pressure_trajectory.measurements import (
     MEASUREMENT_PROMPT_VERSION,
@@ -92,6 +93,7 @@ def make_run_metadata(
         requested_dtype="float32",
         measurement_prompt_version=MEASUREMENT_PROMPT_VERSION,
         measurement_timing=MEASUREMENT_TIMING,
+        token_selection_policy=TOKEN_SELECTION_POLICY,
         backend_implementation={"name": "fake", "version": "v1"},
     )
     return RunMetadata(

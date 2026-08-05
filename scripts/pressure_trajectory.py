@@ -27,6 +27,7 @@ from moral_eval.pressure_trajectory.domain import (  # noqa: E402
     GenerationSettings,
     Message,
     RunMetadata,
+    TOKEN_SELECTION_POLICY,
 )
 from moral_eval.pressure_trajectory.measurements import (  # noqa: E402
     ANSWER_LABELS,
@@ -131,6 +132,7 @@ def build_cli_experiment_configuration(
         requested_dtype=args.dtype,
         measurement_prompt_version=MEASUREMENT_PROMPT_VERSION,
         measurement_timing=MEASUREMENT_TIMING,
+        token_selection_policy=TOKEN_SELECTION_POLICY,
         backend_implementation=BACKEND_IMPLEMENTATION,
     )
 
@@ -236,7 +238,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.tokenizer_check:
         tokenizer = load_huggingface_tokenizer(args.model, args.revision)
         results = tokenizer_check_contexts(loaded, tokenizer)
-        print(json.dumps({"tokenizer_check": results}, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "tokenizer_check": {
+                        "token_selection_policy": TOKEN_SELECTION_POLICY,
+                        "contexts": results,
+                    }
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         print(
             "Tokenizer check succeeded for stable prompt structures using marked "
             "placeholder assistant responses. This validates tokenisation only, not "

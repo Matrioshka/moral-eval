@@ -20,6 +20,7 @@ from moral_eval.pressure_trajectory.domain import (
     Message,
     OptionMapping,
     TrajectoryScenario,
+    TOKEN_SELECTION_POLICY,
 )
 from moral_eval.pressure_trajectory.measurements import (
     MEASUREMENT_PROMPT_VERSION,
@@ -83,6 +84,7 @@ def test_mapping_margin_softmax_boundary_and_timing() -> None:
     )
 
     assert result.measurement_timing == MEASUREMENT_TIMING == "post_response"
+    assert result.token_selection_policy == TOKEN_SELECTION_POLICY
     assert result.bounded_token_id == ord("A")
     assert result.broader_token_id == ord("B")
     assert result.mapped_margin == 3.0
@@ -248,18 +250,28 @@ class UnrelatedDecodedLabelTokenizer(CharacterTokenizer):
         return super().decode(ids, **kwargs)
 
 
-class AmbiguousLabelTokenizer(CharacterTokenizer):
+class QwenLikeLabelTokenizer(CharacterTokenizer):
     def encode(self, text: str, *, add_special_tokens: bool) -> list[int]:
         assert not add_special_tokens
         if text.endswith("<assistant> A"):
             prefix = text[:-2]
             return [ord(character) for character in prefix] + [9100]
+        if text.endswith("<assistant> B"):
+            prefix = text[:-2]
+            return [ord(character) for character in prefix] + [9200]
         return [ord(character) for character in text]
 
     def decode(self, ids: object, **kwargs: object) -> str:
         if list(ids) == [9100]:
             return " A"
+        if list(ids) == [9200]:
+            return " B"
         return super().decode(ids, **kwargs)
+
+
+class MissingJinjaTokenizer(CharacterTokenizer):
+    def apply_chat_template(self, *args: object, **kwargs: object):
+        raise ImportError("No module named 'jinja2'")
 
 
 class FakeScalar:
@@ -377,20 +389,30 @@ def make_hf_backend(
 def test_contextual_multi_token_label_fails_clearly() -> None:
     tokenizer = MultiTokenLabelTokenizer()
 
-    with pytest.raises(HuggingFaceBackendError, match="not exactly one"):
+    with pytest.raises(HuggingFaceBackendError, match="more than one continuation"):
         validate_contextual_label_token(
             tokenizer, (Message("user", "Choose."),), "A"
         )
 
 
-def test_contextual_whitespace_label_is_validated_without_stripping() -> None:
+def test_leading_space_token_does_not_replace_multi_token_exact_label() -> None:
+    with pytest.raises(HuggingFaceBackendError, match="more than one continuation"):
+        validate_contextual_label_token(
+            WhitespaceLabelTokenizer(), (Message("user", "Choose."),), "A"
+        )
+
+
+@pytest.mark.parametrize(("label", "token_id"), [("A", 65), ("B", 66)])
+def test_qwen_like_tokenizer_selects_only_canonical_exact_label(
+    label: str, token_id: int
+) -> None:
     token = validate_contextual_label_token(
-        WhitespaceLabelTokenizer(), (Message("user", "Choose."),), "A"
+        QwenLikeLabelTokenizer(), (Message("user", "Choose."),), label
     )
 
-    assert token.label == "A"
-    assert token.token_id == 9100
-    assert token.decoded_text == " A"
+    assert token.label == label
+    assert token.token_id == token_id
+    assert token.decoded_text == label
 
 
 @pytest.mark.parametrize(
@@ -398,7 +420,6 @@ def test_contextual_whitespace_label_is_validated_without_stripping() -> None:
     [
         (RetokenisingLabelTokenizer(), "retokenises prior context"),
         (UnrelatedDecodedLabelTokenizer(), "token decodes as 'X'"),
-        (AmbiguousLabelTokenizer(), "ambiguous contextual tokenisation"),
     ],
 )
 def test_contextual_validation_rejects_unsafe_label_boundaries(
@@ -407,6 +428,20 @@ def test_contextual_validation_rejects_unsafe_label_boundaries(
     with pytest.raises(HuggingFaceBackendError, match=message):
         validate_contextual_label_token(
             tokenizer, (Message("user", "Choose."),), "A"
+        )
+
+
+def test_missing_jinja_has_clear_runtime_dependency_error() -> None:
+    with pytest.raises(HuggingFaceBackendError, match="requires Jinja2"):
+        validate_contextual_label_token(
+            MissingJinjaTokenizer(), (Message("user", "Choose."),), "A"
+        )
+
+    backend, _, _ = make_hf_backend(MissingJinjaTokenizer())
+    with pytest.raises(HuggingFaceBackendError, match="requires Jinja2"):
+        backend.generate(
+            (Message("user", "Advise."),),
+            GenerationSettings(),
         )
 
 
@@ -426,6 +461,17 @@ def test_adapter_uses_chat_boundary_final_logits_and_nominated_tokens_only() -> 
         ("A", ord("A"), 1.25),
         ("B", ord("B"), -0.5),
     ]
+
+
+def test_leading_space_tokens_do_not_cross_backend_protocol() -> None:
+    backend, _, _ = make_hf_backend(QwenLikeLabelTokenizer())
+
+    result = backend.next_token_label_logits(
+        (Message("user", "Choose."),), ("A", "B")
+    )
+
+    assert {item.token_id for item in result.values} == {ord("A"), ord("B")}
+    assert {9100, 9200}.isdisjoint(item.token_id for item in result.values)
 
 
 def test_generation_slices_prompt_and_uses_deterministic_inference_settings() -> None:

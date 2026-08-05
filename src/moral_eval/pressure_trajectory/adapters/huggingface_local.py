@@ -16,7 +16,7 @@ from ..domain import (
 
 BACKEND_IMPLEMENTATION = {
     "name": "moral_eval.pressure_trajectory.huggingface_local",
-    "version": "v1",
+    "version": "v2",
 }
 SUPPORTED_DEVICES = {"auto", "cpu", "cuda"}
 SUPPORTED_DTYPES = {"auto", "float32", "float16", "bfloat16"}
@@ -74,7 +74,11 @@ def _messages(transcript: Sequence[Message]) -> list[dict[str, str]]:
 def validate_contextual_label_token(
     tokenizer: Any, transcript: Sequence[Message], label: str
 ) -> ContextualLabelToken:
-    """Validate one exact or ordinary single-leading-space label token."""
+    """Validate the canonical exact A or B surface as one contextual token."""
+    if label not in {"A", "B"}:
+        raise HuggingFaceBackendError(
+            f"Canonical nominated labels are exactly 'A' and 'B'; received {label!r}"
+        )
     if not getattr(tokenizer, "chat_template", None):
         raise HuggingFaceBackendError(
             "Tokenizer has no chat template; use a compatible instruction model"
@@ -91,6 +95,12 @@ def validate_contextual_label_token(
                 return_dict=True,
             )
         )
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise HuggingFaceBackendError(
+            "Chat-template rendering requires Jinja2; install it with "
+            "'.\\.venv\\Scripts\\python.exe -m pip install -r "
+            "requirements-pressure-trajectory.txt'"
+        ) from exc
     except (KeyError, TypeError, ValueError) as exc:
         raise HuggingFaceBackendError(
             "Chat-template formatting failed during label validation"
@@ -103,43 +113,43 @@ def validate_contextual_label_token(
             "Rendered chat prefix does not reproduce the tokenised generation boundary"
         )
 
-    valid: list[ContextualLabelToken] = []
-    failures: list[str] = []
-    for suffix in (label, f" {label}"):
+    try:
         extended = _token_id_list(
-            tokenizer.encode(rendered + suffix, add_special_tokens=False)
+            tokenizer.encode(rendered + label, add_special_tokens=False)
         )
-        if extended[: len(prefix_ids)] != prefix_ids:
-            failures.append(f"{suffix!r} retokenises prior context")
-            continue
-        continuation = extended[len(prefix_ids) :]
-        if len(continuation) != 1:
-            failures.append(f"{suffix!r} continuation IDs are {continuation}")
-            continue
-        token_id = continuation[0]
-        decoded = tokenizer.decode(
-            [token_id],
-            skip_special_tokens=False,
-            clean_up_tokenization_spaces=False,
-        )
-        if decoded != suffix:
-            failures.append(f"{suffix!r} token decodes as {decoded!r}")
-            continue
-        valid.append(
-            ContextualLabelToken(label=label, token_id=token_id, decoded_text=decoded)
-        )
-    unique = {(item.token_id, item.decoded_text): item for item in valid}
-    if len(unique) > 1:
+    except (KeyError, TypeError, ValueError) as exc:
         raise HuggingFaceBackendError(
-            f"Label {label!r} has ambiguous contextual tokenisation: "
-            f"{sorted(unique)}"
-        )
-    if not unique:
+            f"Canonical exact label {label!r} could not be tokenised"
+        ) from exc
+    if extended[: len(prefix_ids)] != prefix_ids:
         raise HuggingFaceBackendError(
-            f"Label {label!r} is not exactly one unambiguous token in measurement "
-            f"context: {'; '.join(failures)}"
+            f"Canonical exact label {label!r} retokenises prior context"
         )
-    return next(iter(unique.values()))
+    continuation = extended[len(prefix_ids) :]
+    if not continuation:
+        raise HuggingFaceBackendError(
+            f"Canonical exact label {label!r} produces no continuation token"
+        )
+    if len(continuation) != 1:
+        raise HuggingFaceBackendError(
+            f"Canonical exact label {label!r} requires more than one continuation "
+            f"token: {continuation}"
+        )
+    token_id = continuation[0]
+    decoded = tokenizer.decode(
+        [token_id],
+        skip_special_tokens=False,
+        clean_up_tokenization_spaces=False,
+    )
+    if decoded != label:
+        raise HuggingFaceBackendError(
+            f"Canonical exact label {label!r} token decodes as {decoded!r}"
+        )
+    return ContextualLabelToken(
+        label=label,
+        token_id=token_id,
+        decoded_text=decoded,
+    )
 
 
 def validate_contextual_label_tokens(
@@ -257,6 +267,12 @@ class HuggingFaceLocalBackend:
                 return_dict=True,
                 return_tensors="pt",
             )
+        except (ImportError, ModuleNotFoundError) as exc:
+            raise HuggingFaceBackendError(
+                "Chat-template rendering requires Jinja2; install it with "
+                "'.\\.venv\\Scripts\\python.exe -m pip install -r "
+                "requirements-pressure-trajectory.txt'"
+            ) from exc
         except (KeyError, TypeError, ValueError) as exc:
             raise HuggingFaceBackendError("Chat-template tokenisation failed") from exc
         if not isinstance(encoded, Mapping) or "input_ids" not in encoded:

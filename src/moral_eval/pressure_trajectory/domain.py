@@ -8,6 +8,7 @@ from typing import Any, Literal, Mapping
 SemanticRole = Literal["bounded", "broader"]
 BoundaryClassification = Literal["bounded_side", "tied", "broader_side"]
 MessageRole = Literal["system", "user", "assistant"]
+TOKEN_SELECTION_POLICY = "canonical_exact_label_v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +100,7 @@ class NominatedLabelLogits:
 class MeasurementResult:
     measurement_version: str
     measurement_timing: Literal["post_response"]
+    token_selection_policy: str
     mapping_id: str
     bounded_token_id: int
     broader_token_id: int

@@ -53,9 +53,13 @@ causal intervention.
 For every checkpoint and mapping, the evaluator clones the cumulative
 transcript, appends an A/B prompt to the clone, and obtains the raw next-token
 logits for the nominated labels. The prompt version remains in structured
-metadata and is not shown to the model. The backend validates that each label is
-exactly one token at that rendered assistant-generation boundary. It does not
-expose or serialise the full vocabulary logit vector.
+metadata and is not shown to the model. Under the stable
+`canonical_exact_label_v1` policy, the nominated response surfaces are exactly
+`A` and `B`. The backend validates each exact surface as one token at the
+rendered assistant-generation boundary and records its token ID and decoded
+form. Leading-space alternatives such as ` A` and ` B` are neither selected nor
+aggregated. The backend does not expose or serialise the full vocabulary logit
+vector.
 
 Measurement timing is `post_response` only. Each margin is therefore conditioned
 on both the user pressure accumulated so far and the model's own preceding
@@ -71,6 +75,8 @@ The forced-choice message is discarded after measurement and never enters the
 natural-language trajectory. The reported probabilities are a conditional
 softmax restricted to the nominated A and B tokens. They are not the model's
 unconditional probabilities of choosing either action.
+They also exclude alternative textual realisations and are not the total
+semantic probability of choosing an action.
 
 A zero margin is the decision boundary between these two nominated output
 tokens in this prompt context. It is not a latent moral boundary or evidence of
@@ -93,10 +99,10 @@ and a JSON-compatible payload. Supported Stage 1 events are:
 
 The canonical experiment configuration records dataset version and content
 hash, case ID, trajectory ID, fixture version, fixture schema version and content
-hash, requested
-model and tokeniser identities and revisions, generation settings and seed,
-requested device and dtype, measurement prompt version and timing, mapping
-definitions, and inference-relevant backend implementation/version metadata.
+hash, requested model and tokeniser identities and revisions, generation
+settings and seed, requested device and dtype, measurement prompt version and
+timing, token-selection policy, mapping definitions, and inference-relevant
+backend implementation/version metadata.
 One `experiment_configuration_sha256` is computed from its canonical JSON.
 Run/event IDs, timestamps, output paths and their state, overwrite state,
 dry-run versus execution mode, machine-local paths, resolved runtime metadata
@@ -107,6 +113,18 @@ partial log. Stage 1 does not resume partial logs.
 Quantised execution is unsupported in Stage 1. The adapter accepts only the
 documented device and floating-point dtype choices and contains no quantisation
 loading path.
+
+## Runtime dependencies
+
+Install the non-PyTorch runtime dependencies with:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r .\requirements-pressure-trajectory.txt
+```
+
+This includes Transformers and Jinja2, which Transformers requires to render
+chat templates. Install the appropriate CPU or CUDA PyTorch build separately;
+the repository deliberately does not prescribe a generic PyTorch wheel.
 
 The recorder refuses an existing output. `--overwrite` explicitly replaces
 only the nominated file; it never appends a second run to an existing log.
@@ -129,7 +147,9 @@ tokeniser, builds all checkpoint prompt structures using clearly marked,
 deterministic placeholder assistant responses, validates A/B at every rendered
 assistant-generation boundary for every mapping, and prints token IDs and
 decoded forms. It performs no generation, loads no model weights and writes no
-event log. Because future real assistant responses do not yet exist, this mode
+event log. It reports the canonical exact-label token selected for each label;
+other one-token spellings are irrelevant to this measurement. Because future
+real assistant responses do not yet exist, this mode
 validates tokenisation of stable prompt structures only; it does not validate
 model behaviour or guarantee tokenisation for the exact future generated
 contexts.

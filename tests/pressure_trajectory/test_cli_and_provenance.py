@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from moral_eval.pressure_trajectory.adapters.existing_datasets import load_trajectory
-from moral_eval.pressure_trajectory.domain import GenerationSettings, RunMetadata
+from moral_eval.pressure_trajectory.domain import (
+    GenerationSettings,
+    RunMetadata,
+    TOKEN_SELECTION_POLICY,
+)
 from moral_eval.pressure_trajectory.measurements import (
     MEASUREMENT_PROMPT_VERSION,
     MEASUREMENT_TIMING,
@@ -84,6 +88,7 @@ def configuration(
     revision: str = "revision-1",
     settings: GenerationSettings | None = None,
     prompt_version: str = MEASUREMENT_PROMPT_VERSION,
+    token_selection_policy: str = TOKEN_SELECTION_POLICY,
     mappings=None,
 ):
     return build_experiment_configuration(
@@ -98,6 +103,7 @@ def configuration(
         requested_dtype="float32",
         measurement_prompt_version=prompt_version,
         measurement_timing=MEASUREMENT_TIMING,
+        token_selection_policy=token_selection_policy,
         backend_implementation={"name": "fake", "version": "v1"},
     )
 
@@ -169,6 +175,7 @@ def test_experiment_hash_changes_for_material_inputs(tmp_path) -> None:
             loaded, settings=GenerationSettings(max_new_tokens=33, seed=7)
         ),
         configuration(loaded, prompt_version="shadow-prompt-v2"),
+        configuration(loaded, token_selection_policy="different-policy-v1"),
         configuration(loaded, mappings=changed_mappings),
     ]
 
@@ -274,6 +281,9 @@ def test_tokenizer_check_uses_all_placeholder_contexts_without_output(
     assert captured.count('"checkpoint_index"') == 16
     assert captured.count('"token_id": 65') == 16
     assert captured.count('"token_id": 66') == 16
+    assert captured.count('"decoded_text": "A"') == 16
+    assert captured.count('"decoded_text": "B"') == 16
+    assert '"token_selection_policy": "canonical_exact_label_v1"' in captured
     assert "validates tokenisation only, not model behaviour" in captured
 
 

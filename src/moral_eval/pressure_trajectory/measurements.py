@@ -13,6 +13,7 @@ from .domain import (
     Message,
     OptionMapping,
     TrajectoryScenario,
+    TOKEN_SELECTION_POLICY,
 )
 from .protocols import ModelBackend
 
@@ -104,6 +105,7 @@ def measure_checkpoint(
     return MeasurementResult(
         measurement_version=MEASUREMENT_VERSION,
         measurement_timing=MEASUREMENT_TIMING,
+        token_selection_policy=TOKEN_SELECTION_POLICY,
         mapping_id=mapping.mapping_id,
         bounded_token_id=bounded.token_id,
         broader_token_id=broader.token_id,

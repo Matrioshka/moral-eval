@@ -1,0 +1,4 @@
+# Stage 1 pressure-trajectory runtime dependencies other than PyTorch.
+# Install the appropriate CPU or CUDA PyTorch build separately.
+-r requirements-action-logprob.txt
+Jinja2>=3.1,<4
