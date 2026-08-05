@@ -8,18 +8,21 @@ from .domain import (
     CheckpointSummary,
     ConversationCheckpoint,
     GenerationSettings,
+    MEASUREMENT_TIMINGS,
     MeasurementResult,
+    MeasurementTiming,
     Message,
     OptionMapping,
     RunMetadata,
     TrajectoryRunSummary,
     TrajectoryScenario,
     TOKEN_SELECTION_POLICY,
+    RUNNER_VERSION,
 )
 from .events import Clock, EventFactory, IdFactory
 from .measurements import (
     INITIAL_PROMPT_VERSION,
-    MEASUREMENT_TIMING,
+    MEASUREMENT_VERSION,
     MEASUREMENT_PROMPT_VERSION,
     build_initial_user_prompt,
     measure_checkpoint,
@@ -66,7 +69,9 @@ class TrajectoryRunner:
         self.recorder.append(self.events.create(event_type, payload))
 
     def _measure(
-        self, checkpoint: ConversationCheckpoint
+        self,
+        checkpoint: ConversationCheckpoint,
+        measurement_timing: MeasurementTiming,
     ) -> tuple[MeasurementResult, ...]:
         results: list[MeasurementResult] = []
         for mapping in self.option_mappings:
@@ -75,6 +80,7 @@ class TrajectoryRunner:
                 scenario=self.scenario,
                 checkpoint=checkpoint,
                 mapping=mapping,
+                measurement_timing=measurement_timing,
             )
             results.append(result)
             self._record("measurement_recorded", {"measurement": result})
@@ -97,8 +103,11 @@ class TrajectoryRunner:
             scenario=self.scenario,
             option_mappings=self.option_mappings,
             generation_settings=self.generation_settings,
+            generation_prompt_version=INITIAL_PROMPT_VERSION,
+            runner_version=RUNNER_VERSION,
+            measurement_version=MEASUREMENT_VERSION,
             measurement_prompt_version=MEASUREMENT_PROMPT_VERSION,
-            measurement_timing=MEASUREMENT_TIMING,
+            measurement_timings=MEASUREMENT_TIMINGS,
             token_selection_policy=TOKEN_SELECTION_POLICY,
         )
 
@@ -127,8 +136,10 @@ class TrajectoryRunner:
                     "model_runtime": model_metadata,
                     "initial_prompt_version": INITIAL_PROMPT_VERSION,
                     "initial_prompt_sha256": sha256_text(initial_prompt),
+                    "runner_version": RUNNER_VERSION,
+                    "measurement_version": MEASUREMENT_VERSION,
                     "measurement_prompt_version": MEASUREMENT_PROMPT_VERSION,
-                    "measurement_timing": MEASUREMENT_TIMING,
+                    "measurement_timings": MEASUREMENT_TIMINGS,
                     "token_selection_policy": TOKEN_SELECTION_POLICY,
                 },
             )
@@ -144,10 +155,22 @@ class TrajectoryRunner:
             transcript: tuple[Message, ...] = (
                 Message(role="user", content=initial_prompt),
             )
-            response = self.backend.generate(transcript, self.generation_settings)
-            transcript = (*transcript, Message(role="assistant", content=response))
+            checkpoint_id = f"{self.run_metadata.run_id}:checkpoint:0"
+            pre_checkpoint = ConversationCheckpoint(
+                checkpoint_id=checkpoint_id,
+                parent_checkpoint_id=None,
+                round_index=0,
+                transcript=transcript,
+                current_evidence_state=self.scenario.initial_evidence_state,
+            )
+            pre_measurements = self._measure(pre_checkpoint, "pre_response")
+            generation = self.backend.generate(transcript, self.generation_settings)
+            transcript = (
+                *transcript,
+                Message(role="assistant", content=generation.response_text),
+            )
             checkpoint = ConversationCheckpoint(
-                checkpoint_id=f"{self.run_metadata.run_id}:checkpoint:0",
+                checkpoint_id=checkpoint_id,
                 parent_checkpoint_id=None,
                 round_index=0,
                 transcript=transcript,
@@ -155,11 +178,19 @@ class TrajectoryRunner:
             )
             self._record(
                 "baseline_response_generated",
-                {"response": response, "checkpoint": checkpoint},
+                {
+                    "response": generation.response_text,
+                    "generation": generation,
+                    "checkpoint": checkpoint,
+                },
             )
-            measurements = self._measure(checkpoint)
+            post_measurements = self._measure(checkpoint, "post_response")
             checkpoint_summaries.append(
-                CheckpointSummary(checkpoint, response, measurements)
+                CheckpointSummary(
+                    checkpoint,
+                    generation,
+                    (*pre_measurements, *post_measurements),
+                )
             )
 
             for turn in self.scenario.pressure_turns:
@@ -174,57 +205,115 @@ class TrajectoryRunner:
                     *checkpoint.transcript,
                     Message(role="user", content=turn.user_followup),
                 )
-                response = self.backend.generate(transcript, self.generation_settings)
-                transcript = (*transcript, Message(role="assistant", content=response))
-                checkpoint = ConversationCheckpoint(
-                    checkpoint_id=(
-                        f"{self.run_metadata.run_id}:checkpoint:{turn.turn_index}"
-                    ),
+                checkpoint_id = (
+                    f"{self.run_metadata.run_id}:checkpoint:{turn.turn_index}"
+                )
+                evidence_state = (
+                    turn.resulting_evidence_state
+                    or checkpoint.current_evidence_state
+                )
+                pre_checkpoint = ConversationCheckpoint(
+                    checkpoint_id=checkpoint_id,
                     parent_checkpoint_id=checkpoint.checkpoint_id,
                     round_index=turn.turn_index,
                     transcript=transcript,
-                    current_evidence_state=(
-                        turn.resulting_evidence_state
-                        or checkpoint.current_evidence_state
-                    ),
+                    current_evidence_state=evidence_state,
+                )
+                pre_measurements = self._measure(
+                    pre_checkpoint, "pre_response"
+                )
+                generation = self.backend.generate(
+                    transcript, self.generation_settings
+                )
+                transcript = (
+                    *transcript,
+                    Message(role="assistant", content=generation.response_text),
+                )
+                checkpoint = ConversationCheckpoint(
+                    checkpoint_id=checkpoint_id,
+                    parent_checkpoint_id=pre_checkpoint.parent_checkpoint_id,
+                    round_index=turn.turn_index,
+                    transcript=transcript,
+                    current_evidence_state=evidence_state,
                 )
                 self._record(
                     "model_response_generated",
-                    {"response": response, "checkpoint": checkpoint},
+                    {
+                        "response": generation.response_text,
+                        "generation": generation,
+                        "checkpoint": checkpoint,
+                    },
                 )
-                measurements = self._measure(checkpoint)
+                post_measurements = self._measure(
+                    checkpoint, "post_response"
+                )
                 checkpoint_summaries.append(
-                    CheckpointSummary(checkpoint, response, measurements)
+                    CheckpointSummary(
+                        checkpoint,
+                        generation,
+                        (*pre_measurements, *post_measurements),
+                    )
                 )
 
             expected_checkpoint_count = 1 + len(self.scenario.pressure_turns)
-            expected_measurement_count = expected_checkpoint_count * len(
-                self.option_mappings
+            expected_measurement_count = (
+                expected_checkpoint_count
+                * len(self.option_mappings)
+                * len(MEASUREMENT_TIMINGS)
             )
             actual_measurement_count = sum(
                 len(item.measurements) for item in checkpoint_summaries
             )
-            expected_mapping_ids = tuple(
-                mapping.mapping_id for mapping in self.option_mappings
+            expected_measurement_sequence = tuple(
+                (timing, mapping.mapping_id)
+                for timing in MEASUREMENT_TIMINGS
+                for mapping in self.option_mappings
             )
             if len(checkpoint_summaries) != expected_checkpoint_count:
                 raise RuntimeError("Final checkpoint count violates runner invariant")
             if actual_measurement_count != expected_measurement_count:
                 raise RuntimeError("Final measurement count violates runner invariant")
             if any(
-                tuple(result.mapping_id for result in item.measurements)
-                != expected_mapping_ids
+                tuple(
+                    (result.measurement_timing, result.mapping_id)
+                    for result in item.measurements
+                )
+                != expected_measurement_sequence
                 for item in checkpoint_summaries
             ):
-                raise RuntimeError("Final mapping sequence violates runner invariant")
+                raise RuntimeError(
+                    "Final timing/mapping sequence violates runner invariant"
+                )
 
-            final_event_count = self.events.sequence_number + 1
+            fixture_checkpoint_count = self.scenario.source_metadata.get(
+                "expected_checkpoint_count"
+            )
+            fixture_measurement_count = self.scenario.source_metadata.get(
+                "expected_measurement_count"
+            )
+            fixture_event_count = self.scenario.source_metadata.get(
+                "expected_event_count"
+            )
+            if fixture_checkpoint_count != expected_checkpoint_count:
+                raise RuntimeError(
+                    "Final checkpoint count differs from the fixture expectation"
+                )
+            if fixture_measurement_count != expected_measurement_count:
+                raise RuntimeError(
+                    "Final measurement count differs from the fixture expectation"
+                )
+            prospective_final_event_count = self.events.sequence_number + 1
+            if fixture_event_count != prospective_final_event_count:
+                raise RuntimeError(
+                    "Prospective final event count differs from the fixture "
+                    "expectation"
+                )
             self._record(
                 "run_completed",
                 {
                     "checkpoint_count": len(checkpoint_summaries),
                     "measurement_count": actual_measurement_count,
-                    "event_count": final_event_count,
+                    "event_count": prospective_final_event_count,
                 },
             )
             return TrajectoryRunSummary(

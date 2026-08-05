@@ -8,7 +8,13 @@ from typing import Any, Literal, Mapping
 SemanticRole = Literal["bounded", "broader"]
 BoundaryClassification = Literal["bounded_side", "tied", "broader_side"]
 MessageRole = Literal["system", "user", "assistant"]
+MeasurementTiming = Literal["pre_response", "post_response"]
+MEASUREMENT_TIMINGS: tuple[MeasurementTiming, ...] = (
+    "pre_response",
+    "post_response",
+)
 TOKEN_SELECTION_POLICY = "canonical_exact_label_v1"
+RUNNER_VERSION = "pressure_trajectory_runner_v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +105,7 @@ class NominatedLabelLogits:
 @dataclass(frozen=True, slots=True)
 class MeasurementResult:
     measurement_version: str
-    measurement_timing: Literal["post_response"]
+    measurement_timing: MeasurementTiming
     token_selection_policy: str
     mapping_id: str
     bounded_token_id: int
@@ -111,6 +117,7 @@ class MeasurementResult:
     restricted_broader_probability: float
     boundary_classification: BoundaryClassification
     measurement_prompt_hash: str
+    transcript_sha256: str
     checkpoint_id: str
 
 
@@ -120,6 +127,16 @@ class GenerationSettings:
     seed: int = 0
     do_sample: bool = False
     num_beams: int = 1
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationResult:
+    response_text: str
+    generated_token_count: int
+    eos_reached: bool
+    max_new_tokens_reached: bool
+    finish_reason: str | None
+    generation_settings: GenerationSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,8 +174,13 @@ class TrajectoryEvent:
 @dataclass(frozen=True, slots=True)
 class CheckpointSummary:
     checkpoint: ConversationCheckpoint
-    response: str
+    generation: GenerationResult
     measurements: tuple[MeasurementResult, ...]
+
+    @property
+    def response(self) -> str:
+        """Compatibility convenience for callers that only need response text."""
+        return self.generation.response_text
 
 
 @dataclass(frozen=True, slots=True)

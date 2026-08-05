@@ -7,6 +7,7 @@ from typing import Any
 
 from ..domain import (
     ContextualLabelToken,
+    GenerationResult,
     GenerationSettings,
     LabelTokenLogit,
     Message,
@@ -40,6 +41,14 @@ def _token_id_list(value: Any) -> list[int]:
     if not isinstance(value, list):
         raise HuggingFaceBackendError("Chat template did not return token IDs")
     return [int(token_id) for token_id in value]
+
+
+def _eos_token_ids(value: Any) -> set[int]:
+    if value is None:
+        return set()
+    if isinstance(value, (list, tuple, set)):
+        return {int(item) for item in value}
+    return {int(value)}
 
 
 def _resolve_device(torch: Any, requested: str) -> Any:
@@ -281,7 +290,7 @@ class HuggingFaceLocalBackend:
 
     def generate(
         self, transcript: Sequence[Message], settings: GenerationSettings
-    ) -> str:
+    ) -> GenerationResult:
         encoded = self._encoded_transcript(transcript)
         self.torch.manual_seed(settings.seed)
         if self.device.type == "cuda":
@@ -304,7 +313,32 @@ class HuggingFaceLocalBackend:
             raise HuggingFaceBackendError(f"Model generation failed: {exc}") from exc
         input_length = int(encoded["input_ids"].shape[-1])
         new_tokens = generated[0, input_length:]
-        return str(self.tokenizer.decode(new_tokens, skip_special_tokens=True)).strip()
+        new_token_ids = _token_id_list(new_tokens)
+        model_generation_config = getattr(self.model, "generation_config", None)
+        eos_value = getattr(model_generation_config, "eos_token_id", None)
+        if eos_value is None:
+            eos_value = getattr(self.tokenizer, "eos_token_id", None)
+        eos_token_ids = _eos_token_ids(eos_value)
+        eos_reached = any(token_id in eos_token_ids for token_id in new_token_ids)
+        max_new_tokens_reached = (
+            len(new_token_ids) == settings.max_new_tokens and not eos_reached
+        )
+        finish_reason = (
+            "eos_token"
+            if eos_reached
+            else "max_new_tokens" if max_new_tokens_reached else None
+        )
+        response_text = str(
+            self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+        ).strip()
+        return GenerationResult(
+            response_text=response_text,
+            generated_token_count=len(new_token_ids),
+            eos_reached=eos_reached,
+            max_new_tokens_reached=max_new_tokens_reached,
+            finish_reason=finish_reason,
+            generation_settings=settings,
+        )
 
     def next_token_label_logits(
         self, transcript: Sequence[Message], labels: Sequence[str]

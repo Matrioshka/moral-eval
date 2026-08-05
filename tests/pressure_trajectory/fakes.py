@@ -5,16 +5,20 @@ from dataclasses import dataclass
 
 from moral_eval.pressure_trajectory.domain import (
     GenerationSettings,
+    GenerationResult,
     LabelTokenLogit,
     Message,
     ModelMetadata,
     NominatedLabelLogits,
     RunMetadata,
+    RUNNER_VERSION,
+    MEASUREMENT_TIMINGS,
     TOKEN_SELECTION_POLICY,
 )
 from moral_eval.pressure_trajectory.measurements import (
+    INITIAL_PROMPT_VERSION,
+    MEASUREMENT_VERSION,
     MEASUREMENT_PROMPT_VERSION,
-    MEASUREMENT_TIMING,
 )
 from moral_eval.pressure_trajectory.provenance import (
     build_experiment_configuration,
@@ -26,6 +30,7 @@ from moral_eval.pressure_trajectory.provenance import (
 class FakeBackend:
     responses: list[str]
     scripted_logits: list[dict[str, float]] | None = None
+    scripted_generation_metadata: list[dict[str, object]] | None = None
     fail_generate_call: int | None = None
 
     def __post_init__(self) -> None:
@@ -36,13 +41,32 @@ class FakeBackend:
 
     def generate(
         self, transcript: Sequence[Message], settings: GenerationSettings
-    ) -> str:
-        del settings
+    ) -> GenerationResult:
         self.generate_count += 1
         self.generation_transcripts.append(tuple(transcript))
         if self.fail_generate_call == self.generate_count:
             raise RuntimeError("controlled generation failure")
-        return self.responses[self.generate_count - 1]
+        response = self.responses[self.generate_count - 1]
+        metadata = (
+            self.scripted_generation_metadata[self.generate_count - 1]
+            if self.scripted_generation_metadata is not None
+            else {}
+        )
+        finish_reason = metadata.get("finish_reason", "eos_token")
+        return GenerationResult(
+            response_text=response,
+            generated_token_count=int(
+                metadata.get("generated_token_count", len(response.split()))
+            ),
+            eos_reached=bool(metadata.get("eos_reached", True)),
+            max_new_tokens_reached=bool(
+                metadata.get("max_new_tokens_reached", False)
+            ),
+            finish_reason=(
+                str(finish_reason) if finish_reason is not None else None
+            ),
+            generation_settings=settings,
+        )
 
     def next_token_label_logits(
         self, transcript: Sequence[Message], labels: Sequence[str]
@@ -89,10 +113,13 @@ def make_run_metadata(
         tokenizer_id="fake/tokenizer",
         requested_tokenizer_revision="fake-revision",
         generation_settings=settings,
+        generation_prompt_version=INITIAL_PROMPT_VERSION,
+        runner_version=RUNNER_VERSION,
+        measurement_version=MEASUREMENT_VERSION,
         requested_device="cpu",
         requested_dtype="float32",
         measurement_prompt_version=MEASUREMENT_PROMPT_VERSION,
-        measurement_timing=MEASUREMENT_TIMING,
+        measurement_timings=MEASUREMENT_TIMINGS,
         token_selection_policy=TOKEN_SELECTION_POLICY,
         backend_implementation={"name": "fake", "version": "v1"},
     )

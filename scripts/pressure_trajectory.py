@@ -25,20 +25,24 @@ from moral_eval.pressure_trajectory.adapters.huggingface_local import (  # noqa:
 )
 from moral_eval.pressure_trajectory.domain import (  # noqa: E402
     GenerationSettings,
+    MEASUREMENT_TIMINGS,
     Message,
     RunMetadata,
+    RUNNER_VERSION,
     TOKEN_SELECTION_POLICY,
 )
 from moral_eval.pressure_trajectory.measurements import (  # noqa: E402
     ANSWER_LABELS,
+    INITIAL_PROMPT_VERSION,
+    MEASUREMENT_VERSION,
     MEASUREMENT_PROMPT_VERSION,
-    MEASUREMENT_TIMING,
     build_initial_user_prompt,
     build_shadow_measurement_prompt,
 )
 from moral_eval.pressure_trajectory.provenance import (  # noqa: E402
     build_experiment_configuration,
     experiment_configuration_sha256,
+    validate_experiment_configuration,
 )
 from moral_eval.pressure_trajectory.runner import TrajectoryRunner  # noqa: E402
 from moral_eval.pressure_trajectory.storage import JsonlEventRecorder  # noqa: E402
@@ -50,7 +54,7 @@ DEFAULT_DATASET = (
     / "action_logprob"
     / "action_logprob_positive_control_gate_v0.jsonl"
 )
-DEFAULT_FIXTURE = ROOT / "experiments" / "pressure_trajectory_mvp_v0.json"
+DEFAULT_FIXTURE = ROOT / "experiments" / "pressure_trajectory_mvp_v1.json"
 DEFAULT_CASE_ID = "deployment_gate__autonomous_cyber_defence_pilot_001"
 DEFAULT_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
 DEFAULT_OUTPUT = ROOT / "tmp" / "pressure_trajectory" / "stage1_mvp.jsonl"
@@ -120,7 +124,7 @@ def validate_output_path(path: Path, *, overwrite: bool) -> None:
 def build_cli_experiment_configuration(
     args: argparse.Namespace, loaded: object, settings: GenerationSettings
 ) -> dict[str, object]:
-    return build_experiment_configuration(
+    configuration = build_experiment_configuration(
         scenario=loaded.scenario,
         option_mappings=loaded.option_mappings,
         model_id=args.model,
@@ -128,13 +132,29 @@ def build_cli_experiment_configuration(
         tokenizer_id=args.model,
         requested_tokenizer_revision=args.revision,
         generation_settings=settings,
+        generation_prompt_version=INITIAL_PROMPT_VERSION,
+        runner_version=RUNNER_VERSION,
+        measurement_version=MEASUREMENT_VERSION,
         requested_device=args.device,
         requested_dtype=args.dtype,
         measurement_prompt_version=MEASUREMENT_PROMPT_VERSION,
-        measurement_timing=MEASUREMENT_TIMING,
+        measurement_timings=MEASUREMENT_TIMINGS,
         token_selection_policy=TOKEN_SELECTION_POLICY,
         backend_implementation=BACKEND_IMPLEMENTATION,
     )
+    validate_experiment_configuration(
+        configuration,
+        scenario=loaded.scenario,
+        option_mappings=loaded.option_mappings,
+        generation_settings=settings,
+        generation_prompt_version=INITIAL_PROMPT_VERSION,
+        runner_version=RUNNER_VERSION,
+        measurement_version=MEASUREMENT_VERSION,
+        measurement_prompt_version=MEASUREMENT_PROMPT_VERSION,
+        measurement_timings=MEASUREMENT_TIMINGS,
+        token_selection_policy=TOKEN_SELECTION_POLICY,
+    )
+    return configuration
 
 
 def planned_configuration(
@@ -166,52 +186,62 @@ def planned_configuration(
 def tokenizer_check_contexts(loaded: object, tokenizer: object) -> list[dict[str, object]]:
     """Validate stable prompt structures using marked non-experimental placeholders."""
     scenario = loaded.scenario
-    transcript: tuple[Message, ...] = (
+    pre_transcript: tuple[Message, ...] = (
         Message(role="user", content=build_initial_user_prompt(scenario)),
+    )
+    post_transcript = (
+        *pre_transcript,
         Message(
             role="assistant",
             content=TOKENIZER_CHECK_PLACEHOLDER.format(index=0),
         ),
     )
-    checkpoints = [transcript]
+    checkpoints = [(pre_transcript, post_transcript)]
     for turn in scenario.pressure_turns:
-        transcript = (
-            *transcript,
+        pre_transcript = (
+            *post_transcript,
             Message(role="user", content=turn.user_followup),
+        )
+        post_transcript = (
+            *pre_transcript,
             Message(
                 role="assistant",
                 content=TOKENIZER_CHECK_PLACEHOLDER.format(index=turn.turn_index),
             ),
         )
-        checkpoints.append(transcript)
+        checkpoints.append((pre_transcript, post_transcript))
 
     results: list[dict[str, object]] = []
-    for checkpoint_index, checkpoint_transcript in enumerate(checkpoints):
-        for mapping in loaded.option_mappings:
-            shadow = (
-                *checkpoint_transcript,
-                Message(
-                    role="user",
-                    content=build_shadow_measurement_prompt(scenario, mapping),
-                ),
-            )
-            tokens = validate_contextual_label_tokens(
-                tokenizer, shadow, ANSWER_LABELS
-            )
-            results.append(
-                {
-                    "checkpoint_index": checkpoint_index,
-                    "mapping_id": mapping.mapping_id,
-                    "labels": [
-                        {
-                            "label": token.label,
-                            "token_id": token.token_id,
-                            "decoded_text": token.decoded_text,
-                        }
-                        for token in tokens
-                    ],
-                }
-            )
+    for checkpoint_index, timing_transcripts in enumerate(checkpoints):
+        for measurement_timing, checkpoint_transcript in zip(
+            MEASUREMENT_TIMINGS, timing_transcripts, strict=True
+        ):
+            for mapping in loaded.option_mappings:
+                shadow = (
+                    *checkpoint_transcript,
+                    Message(
+                        role="user",
+                        content=build_shadow_measurement_prompt(scenario, mapping),
+                    ),
+                )
+                tokens = validate_contextual_label_tokens(
+                    tokenizer, shadow, ANSWER_LABELS
+                )
+                results.append(
+                    {
+                        "checkpoint_index": checkpoint_index,
+                        "measurement_timing": measurement_timing,
+                        "mapping_id": mapping.mapping_id,
+                        "labels": [
+                            {
+                                "label": token.label,
+                                "token_id": token.token_id,
+                                "decoded_text": token.decoded_text,
+                            }
+                            for token in tokens
+                        ],
+                    }
+                )
     return results
 
 

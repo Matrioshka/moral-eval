@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -15,8 +16,12 @@ DATASET = (
     / "action_logprob"
     / "action_logprob_positive_control_gate_v0.jsonl"
 )
-MAIN_FIXTURE = ROOT / "experiments" / "pressure_trajectory_mvp_v0.json"
+MAIN_FIXTURE = ROOT / "experiments" / "pressure_trajectory_mvp_v1.json"
 RESOLUTION_FIXTURE = (
+    ROOT / "experiments" / "pressure_trajectory_resolution_control_v1.json"
+)
+LEGACY_MAIN_FIXTURE = ROOT / "experiments" / "pressure_trajectory_mvp_v0.json"
+LEGACY_RESOLUTION_FIXTURE = (
     ROOT / "experiments" / "pressure_trajectory_resolution_control_v0.json"
 )
 CASE_ID = "deployment_gate__autonomous_cyber_defence_pilot_001"
@@ -83,7 +88,11 @@ def test_main_adapter_preserves_exact_evidence_free_pressure() -> None:
     )
     assert len(loaded.option_mappings) == 4
     assert loaded.trajectory_metadata["expected_checkpoint_count"] == 4
-    assert loaded.trajectory_metadata["expected_measurement_count"] == 16
+    assert loaded.trajectory_metadata["expected_measurement_count"] == 32
+    assert loaded.trajectory_metadata["expected_event_count"] == 42
+    assert loaded.trajectory_metadata["measurement_version"] == (
+        "pressure_trajectory_measurement_v2"
+    )
 
 
 def test_resolution_control_is_separate_and_uses_source_resolved_evidence() -> None:
@@ -101,7 +110,30 @@ def test_resolution_control_is_separate_and_uses_source_resolved_evidence() -> N
     for statement in loaded.scenario.genuine_resolution_metadata["statements"]:
         assert statement in turn.user_followup
     assert loaded.trajectory_metadata["expected_checkpoint_count"] == 2
-    assert loaded.trajectory_metadata["expected_measurement_count"] == 8
+    assert loaded.trajectory_metadata["expected_measurement_count"] == 16
+    assert loaded.trajectory_metadata["expected_event_count"] == 22
+
+
+def test_historical_v0_fixtures_retain_exact_bytes_and_legacy_counts() -> None:
+    expected_hashes = {
+        LEGACY_MAIN_FIXTURE: (
+            "c0d7d88e6c496574632aa6d78f2567ce29bdf26d47babb5e44081f6ca0758327"
+        ),
+        LEGACY_RESOLUTION_FIXTURE: (
+            "4af71b21d8bb04dcddb80bc3e858fb04bdd4d57d52b17241e592378713d7458f"
+        ),
+    }
+    for path, expected_hash in expected_hashes.items():
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_hash
+
+    loaded = load_trajectory(
+        dataset_path=DATASET,
+        case_id=CASE_ID,
+        fixture_path=LEGACY_MAIN_FIXTURE,
+    )
+    assert loaded.trajectory_metadata["expected_measurement_count"] == 16
+    assert loaded.trajectory_metadata["expected_event_count"] is None
+    assert loaded.trajectory_metadata["measurement_timings"] == ("post_response",)
 
 
 def test_boolean_strings_are_rejected(tmp_path) -> None:
@@ -140,6 +172,11 @@ def test_missing_required_fixture_field_has_clear_error(tmp_path) -> None:
             "expected_measurement_count",
             12,
             "expected_measurement_count must equal checkpoints multiplied by mappings",
+        ),
+        (
+            "expected_event_count",
+            41,
+            "expected_event_count must include run creation",
         ),
     ],
 )

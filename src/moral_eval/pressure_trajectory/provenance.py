@@ -7,7 +7,7 @@ from typing import Any, Mapping, Sequence
 from .domain import GenerationSettings, OptionMapping, TrajectoryScenario
 from .events import canonical_json_hash, json_compatible
 
-EXPERIMENT_CONFIGURATION_SCHEMA_VERSION = "pressure_trajectory_experiment_config_v1"
+EXPERIMENT_CONFIGURATION_SCHEMA_VERSION = "pressure_trajectory_experiment_config_v2"
 
 
 def build_experiment_configuration(
@@ -19,10 +19,13 @@ def build_experiment_configuration(
     tokenizer_id: str,
     requested_tokenizer_revision: str | None,
     generation_settings: GenerationSettings,
+    generation_prompt_version: str,
+    runner_version: str,
+    measurement_version: str,
     requested_device: str,
     requested_dtype: str,
     measurement_prompt_version: str,
-    measurement_timing: str,
+    measurement_timings: Sequence[str],
     token_selection_policy: str,
     backend_implementation: Mapping[str, str],
 ) -> dict[str, Any]:
@@ -36,6 +39,11 @@ def build_experiment_configuration(
         "fixture_version",
         "fixture_sha256",
         "trajectory_id",
+        "fixture_measurement_version",
+        "fixture_measurement_timings",
+        "expected_checkpoint_count",
+        "expected_measurement_count",
+        "expected_event_count",
     )
     missing = [field for field in required_source_fields if field not in source]
     if missing:
@@ -52,6 +60,9 @@ def build_experiment_configuration(
             "fixture_schema_version": source["fixture_schema_version"],
             "fixture_version": source["fixture_version"],
             "fixture_sha256": source["fixture_sha256"],
+            "expected_checkpoint_count": source["expected_checkpoint_count"],
+            "expected_measurement_count": source["expected_measurement_count"],
+            "expected_event_count": source["expected_event_count"],
         },
         "model": {
             "model_id": model_id,
@@ -62,9 +73,12 @@ def build_experiment_configuration(
             "requested_dtype": requested_dtype,
         },
         "generation": generation_settings,
+        "generation_prompt_version": generation_prompt_version,
+        "runner_version": runner_version,
         "measurement": {
+            "version": measurement_version,
             "prompt_version": measurement_prompt_version,
-            "timing": measurement_timing,
+            "timings": list(measurement_timings),
             "token_selection_policy": token_selection_policy,
         },
         "mappings": [
@@ -92,12 +106,29 @@ def validate_experiment_configuration(
     scenario: TrajectoryScenario,
     option_mappings: Sequence[OptionMapping],
     generation_settings: GenerationSettings,
+    generation_prompt_version: str,
+    runner_version: str,
+    measurement_version: str,
     measurement_prompt_version: str,
-    measurement_timing: str,
+    measurement_timings: Sequence[str],
     token_selection_policy: str,
 ) -> None:
     """Ensure recorded stable configuration agrees with the run being executed."""
     source = scenario.source_metadata
+    if source.get("fixture_measurement_version") != measurement_version:
+        raise ValueError(
+            "Trajectory fixture measurement version does not match the runner"
+        )
+    if tuple(source.get("fixture_measurement_timings", ())) != tuple(
+        measurement_timings
+    ):
+        raise ValueError(
+            "Trajectory fixture measurement timings do not match the runner"
+        )
+    if source.get("expected_event_count") is None:
+        raise ValueError(
+            "Trajectory fixture does not declare the v2 expected event count"
+        )
     expected_sections = {
         "schema_version": EXPERIMENT_CONFIGURATION_SCHEMA_VERSION,
         "dataset": {
@@ -110,11 +141,17 @@ def validate_experiment_configuration(
             "fixture_schema_version": source.get("fixture_schema_version"),
             "fixture_version": source.get("fixture_version"),
             "fixture_sha256": source.get("fixture_sha256"),
+            "expected_checkpoint_count": source.get("expected_checkpoint_count"),
+            "expected_measurement_count": source.get("expected_measurement_count"),
+            "expected_event_count": source.get("expected_event_count"),
         },
         "generation": json_compatible(generation_settings),
+        "generation_prompt_version": generation_prompt_version,
+        "runner_version": runner_version,
         "measurement": {
+            "version": measurement_version,
             "prompt_version": measurement_prompt_version,
-            "timing": measurement_timing,
+            "timings": list(measurement_timings),
             "token_selection_policy": token_selection_policy,
         },
         "mappings": [

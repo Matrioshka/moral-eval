@@ -17,14 +17,17 @@ from moral_eval.pressure_trajectory.domain import (
     ActionChoice,
     ConversationCheckpoint,
     GenerationSettings,
+    MEASUREMENT_TIMINGS,
     Message,
     OptionMapping,
     TrajectoryScenario,
     TOKEN_SELECTION_POLICY,
 )
 from moral_eval.pressure_trajectory.measurements import (
+    INITIAL_PROMPT_VERSION,
+    MEASUREMENT_VERSION,
     MEASUREMENT_PROMPT_VERSION,
-    MEASUREMENT_TIMING,
+    build_initial_user_prompt,
     build_shadow_measurement_prompt,
     measure_checkpoint,
     restricted_two_option_softmax,
@@ -81,9 +84,12 @@ def test_mapping_margin_softmax_boundary_and_timing() -> None:
         scenario=scenario(),
         checkpoint=checkpoint(),
         mapping=MAPPINGS[0],
+        measurement_timing="post_response",
     )
 
-    assert result.measurement_timing == MEASUREMENT_TIMING == "post_response"
+    assert result.measurement_version == MEASUREMENT_VERSION
+    assert result.measurement_timing == "post_response"
+    assert result.transcript_sha256
     assert result.token_selection_policy == TOKEN_SELECTION_POLICY
     assert result.bounded_token_id == ord("A")
     assert result.broader_token_id == ord("B")
@@ -120,6 +126,7 @@ def test_all_mapping_permutations_preserve_semantic_margin() -> None:
                 scenario=scenario(),
                 checkpoint=checkpoint(),
                 mapping=mapping,
+                measurement_timing="post_response",
             )
         )
 
@@ -134,6 +141,16 @@ def test_softmax_is_stable_for_large_logits() -> None:
     assert math.isfinite(bounded)
     assert math.isfinite(broader)
     assert broader > bounded
+
+
+def test_v2_initial_prompt_requests_a_concise_explicit_recommendation() -> None:
+    prompt = build_initial_user_prompt(scenario())
+
+    assert INITIAL_PROMPT_VERSION == "pressure_trajectory_initial_prompt_v2"
+    assert "approximately 120 words or fewer" in prompt
+    assert "Explicitly identify the recommended action" in prompt
+    assert "JSON" not in prompt
+    assert MEASUREMENT_TIMINGS == ("pre_response", "post_response")
 
 
 class FakeTensor:
@@ -207,6 +224,8 @@ class CharacterTokenizer:
     def decode(self, ids: object, **_: object) -> str:
         if hasattr(ids, "tolist"):
             ids = ids.tolist()
+        if _.get("skip_special_tokens"):
+            ids = [item for item in ids if item != self.eos_token_id]
         return "".join(chr(item) for item in ids)
 
 
@@ -308,9 +327,11 @@ class FakeModel:
 
     def __init__(self) -> None:
         self.eval_called = False
+        self.generation_config = SimpleNamespace(eos_token_id=None)
         self.generate_kwargs: dict[str, object] | None = None
         self.forward_kwargs: dict[str, object] | None = None
         self.logits = FakeLogitTensor({ord("A"): 1.25, ord("B"): -0.5})
+        self.generated_suffix = [ord("O"), ord("K")]
 
     def eval(self) -> None:
         self.eval_called = True
@@ -318,7 +339,7 @@ class FakeModel:
     def generate(self, **kwargs: object) -> FakeTensor:
         self.generate_kwargs = kwargs
         input_ids = kwargs["input_ids"].tolist()[0]
-        return FakeTensor([input_ids + [ord("O"), ord("K")]])
+        return FakeTensor([input_ids + self.generated_suffix])
 
     def __call__(self, **kwargs: object) -> SimpleNamespace:
         self.forward_kwargs = kwargs
@@ -481,9 +502,14 @@ def test_generation_slices_prompt_and_uses_deterministic_inference_settings() ->
         max_new_tokens=17, seed=42, do_sample=False, num_beams=1
     )
 
-    response = backend.generate((Message("user", "Advise."),), settings)
+    result = backend.generate((Message("user", "Advise."),), settings)
 
-    assert response == "OK"
+    assert result.response_text == "OK"
+    assert result.generated_token_count == 2
+    assert not result.eos_reached
+    assert not result.max_new_tokens_reached
+    assert result.finish_reason is None
+    assert result.generation_settings == settings
     assert torch.inference_entries == 1
     assert torch.seeds == [42]
     assert model.generate_kwargs is not None
@@ -492,6 +518,83 @@ def test_generation_slices_prompt_and_uses_deterministic_inference_settings() ->
     assert model.generate_kwargs["num_beams"] == 1
     assert model.generate_kwargs["pad_token_id"] == tokenizer.eos_token_id
     assert all(call["add_generation_prompt"] for call in tokenizer.template_calls)
+
+
+def test_generation_records_eos_and_max_token_completion_from_token_ids() -> None:
+    backend, model, _ = make_hf_backend()
+    model.generated_suffix = [ord("O"), 0]
+
+    eos_result = backend.generate(
+        (Message("user", "Advise."),),
+        GenerationSettings(max_new_tokens=2),
+    )
+
+    assert eos_result.response_text == "O"
+    assert eos_result.generated_token_count == 2
+    assert eos_result.eos_reached
+    assert not eos_result.max_new_tokens_reached
+    assert eos_result.finish_reason == "eos_token"
+
+    model.generated_suffix = [ord("O"), ord("K")]
+    max_result = backend.generate(
+        (Message("user", "Advise."),),
+        GenerationSettings(max_new_tokens=2),
+    )
+
+    assert not max_result.eos_reached
+    assert max_result.max_new_tokens_reached
+    assert max_result.finish_reason == "max_new_tokens"
+
+
+def test_generation_uses_model_eos_ids_before_tokenizer_fallback() -> None:
+    backend, model, _ = make_hf_backend()
+    model.generation_config.eos_token_id = [9001, 9002]
+    model.generated_suffix = [ord("O"), 9002, ord("K")]
+
+    result = backend.generate(
+        (Message("user", "Advise."),),
+        GenerationSettings(max_new_tokens=3),
+    )
+
+    assert result.generated_token_count == 3
+    assert result.eos_reached
+    assert not result.max_new_tokens_reached
+    assert result.finish_reason == "eos_token"
+
+
+def test_generation_does_not_infer_eos_from_decoded_prose() -> None:
+    class EosLookingTokenizer(CharacterTokenizer):
+        def decode(self, ids: object, **_: object) -> str:
+            return "</s>"
+
+    backend, model, _ = make_hf_backend(EosLookingTokenizer())
+    model.generated_suffix = [ord("O")]
+
+    result = backend.generate(
+        (Message("user", "Advise."),),
+        GenerationSettings(max_new_tokens=2),
+    )
+
+    assert result.response_text == "</s>"
+    assert not result.eos_reached
+    assert not result.max_new_tokens_reached
+    assert result.finish_reason is None
+
+
+def test_empty_generation_has_explicit_zero_and_unknown_finish() -> None:
+    backend, model, _ = make_hf_backend()
+    model.generated_suffix = []
+
+    result = backend.generate(
+        (Message("user", "Advise."),),
+        GenerationSettings(max_new_tokens=2),
+    )
+
+    assert result.response_text == ""
+    assert result.generated_token_count == 0
+    assert not result.eos_reached
+    assert not result.max_new_tokens_reached
+    assert result.finish_reason is None
 
 
 def test_model_and_tokenizer_metadata_are_recorded() -> None:

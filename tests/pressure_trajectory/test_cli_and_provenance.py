@@ -10,12 +10,15 @@ import pytest
 from moral_eval.pressure_trajectory.adapters.existing_datasets import load_trajectory
 from moral_eval.pressure_trajectory.domain import (
     GenerationSettings,
+    MEASUREMENT_TIMINGS,
     RunMetadata,
+    RUNNER_VERSION,
     TOKEN_SELECTION_POLICY,
 )
 from moral_eval.pressure_trajectory.measurements import (
+    INITIAL_PROMPT_VERSION,
+    MEASUREMENT_VERSION,
     MEASUREMENT_PROMPT_VERSION,
-    MEASUREMENT_TIMING,
 )
 from moral_eval.pressure_trajectory.provenance import (
     build_experiment_configuration,
@@ -31,7 +34,8 @@ DATASET = (
     / "action_logprob"
     / "action_logprob_positive_control_gate_v0.jsonl"
 )
-FIXTURE = ROOT / "experiments" / "pressure_trajectory_mvp_v0.json"
+FIXTURE = ROOT / "experiments" / "pressure_trajectory_mvp_v1.json"
+LEGACY_FIXTURE = ROOT / "experiments" / "pressure_trajectory_mvp_v0.json"
 CASE_ID = "deployment_gate__autonomous_cyber_defence_pilot_001"
 
 
@@ -88,6 +92,8 @@ def configuration(
     revision: str = "revision-1",
     settings: GenerationSettings | None = None,
     prompt_version: str = MEASUREMENT_PROMPT_VERSION,
+    measurement_version: str = MEASUREMENT_VERSION,
+    measurement_timings=MEASUREMENT_TIMINGS,
     token_selection_policy: str = TOKEN_SELECTION_POLICY,
     mappings=None,
 ):
@@ -99,10 +105,13 @@ def configuration(
         tokenizer_id="fake/tokenizer",
         requested_tokenizer_revision=revision,
         generation_settings=settings or GenerationSettings(max_new_tokens=32, seed=7),
+        generation_prompt_version=INITIAL_PROMPT_VERSION,
+        runner_version=RUNNER_VERSION,
+        measurement_version=measurement_version,
         requested_device="cpu",
         requested_dtype="float32",
         measurement_prompt_version=prompt_version,
-        measurement_timing=MEASUREMENT_TIMING,
+        measurement_timings=measurement_timings,
         token_selection_policy=token_selection_policy,
         backend_implementation={"name": "fake", "version": "v1"},
     )
@@ -144,6 +153,15 @@ def test_experiment_hash_ignores_output_mode_and_run_uuid(tmp_path) -> None:
     second_metadata = RunMetadata("run-two", "trajectory", stable, stable_hash)
 
     assert stable == second_configuration
+    assert stable["schema_version"] == "pressure_trajectory_experiment_config_v2"
+    assert stable["runner_version"] == RUNNER_VERSION
+    assert stable["generation_prompt_version"] == INITIAL_PROMPT_VERSION
+    assert stable["measurement"]["version"] == MEASUREMENT_VERSION
+    assert stable["measurement"]["timings"] == list(MEASUREMENT_TIMINGS)
+    assert stable["trajectory"]["fixture_version"] == "pressure_trajectory_mvp_v1"
+    assert stable["trajectory"]["expected_checkpoint_count"] == 4
+    assert stable["trajectory"]["expected_measurement_count"] == 32
+    assert stable["trajectory"]["expected_event_count"] == 42
     assert first_plan["experiment_configuration_sha256"] == stable_hash
     assert second_plan["experiment_configuration_sha256"] == stable_hash
     assert first_metadata.experiment_configuration_sha256 == stable_hash
@@ -175,6 +193,11 @@ def test_experiment_hash_changes_for_material_inputs(tmp_path) -> None:
             loaded, settings=GenerationSettings(max_new_tokens=33, seed=7)
         ),
         configuration(loaded, prompt_version="shadow-prompt-v2"),
+        configuration(loaded, measurement_version="measurement-v3"),
+        configuration(
+            loaded,
+            measurement_timings=("post_response", "pre_response"),
+        ),
         configuration(loaded, token_selection_policy="different-policy-v1"),
         configuration(loaded, mappings=changed_mappings),
     ]
@@ -212,6 +235,28 @@ def test_dry_run_never_imports_transformers_or_changes_output(
     assert result == 0
     assert output.read_text(encoding="utf-8") == "unchanged\n"
     assert "no model was loaded and no event log was written" in capsys.readouterr().out
+
+
+def test_cli_defaults_to_v1_fixture_and_rejects_legacy_execution(
+    tmp_path, monkeypatch
+) -> None:
+    assert cli.parse_args(["--dry-run"]).trajectory == FIXTURE
+    monkeypatch.setattr(
+        cli.HuggingFaceLocalBackend,
+        "from_pretrained",
+        lambda **kwargs: pytest.fail("backend was loaded"),
+    )
+
+    with pytest.raises(ValueError, match="measurement version does not match"):
+        cli.main(
+            [
+                "--dry-run",
+                "--trajectory",
+                str(LEGACY_FIXTURE),
+                "--output",
+                str(tmp_path / "unused.jsonl"),
+            ]
+        )
 
 
 def test_malformed_fixture_fails_in_dry_run_before_backend_loading(
@@ -278,11 +323,11 @@ def test_tokenizer_check_uses_all_placeholder_contexts_without_output(
 
     assert result == 0
     assert output.read_text(encoding="utf-8") == "existing\n"
-    assert captured.count('"checkpoint_index"') == 16
-    assert captured.count('"token_id": 65') == 16
-    assert captured.count('"token_id": 66') == 16
-    assert captured.count('"decoded_text": "A"') == 16
-    assert captured.count('"decoded_text": "B"') == 16
+    assert captured.count('"checkpoint_index"') == 32
+    assert captured.count('"token_id": 65') == 32
+    assert captured.count('"token_id": 66') == 32
+    assert captured.count('"decoded_text": "A"') == 32
+    assert captured.count('"decoded_text": "B"') == 32
     assert '"token_selection_policy": "canonical_exact_label_v1"' in captured
     assert "validates tokenisation only, not model behaviour" in captured
 
@@ -293,7 +338,7 @@ def test_tokenizer_check_contexts_include_marked_assistant_placeholders() -> Non
 
     results = cli.tokenizer_check_contexts(loaded, tokenizer)
 
-    assert len(results) == 16
+    assert len(results) == 32
     for checkpoint in range(4):
         expected = cli.TOKENIZER_CHECK_PLACEHOLDER.format(index=checkpoint)
         assert any(

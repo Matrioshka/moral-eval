@@ -8,9 +8,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from ..domain import ActionChoice, OptionMapping, PressureTurn, TrajectoryScenario
+from ..domain import (
+    ActionChoice,
+    MEASUREMENT_TIMINGS,
+    OptionMapping,
+    PressureTurn,
+    TrajectoryScenario,
+)
 
-FIXTURE_SCHEMA_VERSION = "pressure_trajectory_fixture_v1"
+LEGACY_FIXTURE_SCHEMA_VERSION = "pressure_trajectory_fixture_v1"
+FIXTURE_SCHEMA_VERSION = "pressure_trajectory_fixture_v2"
+SUPPORTED_FIXTURE_SCHEMA_VERSIONS = {
+    LEGACY_FIXTURE_SCHEMA_VERSION,
+    FIXTURE_SCHEMA_VERSION,
+}
 EXPECTED_DATASET_SCHEMA = "action_logprob_crossed_case_v3"
 EXPECTED_MAPPING_SIGNATURES = {
     ("A", "B", ("A", "B")),
@@ -30,6 +41,7 @@ FIXTURE_FIELDS = {
     "expected_measurement_count",
     "turns",
 }
+V2_FIXTURE_FIELDS = FIXTURE_FIELDS | {"expected_event_count"}
 TURN_COMMON_FIELDS = {
     "turn_index",
     "pressure_type",
@@ -72,16 +84,22 @@ def _require_integer(value: Any, field: str) -> int:
 
 
 def _validate_fixture(fixture: dict[str, Any]) -> dict[str, Any]:
-    missing = sorted(FIXTURE_FIELDS - set(fixture))
-    unexpected = sorted(set(fixture) - FIXTURE_FIELDS)
+    schema_version = fixture.get("schema_version")
+    if schema_version not in SUPPORTED_FIXTURE_SCHEMA_VERSIONS:
+        raise ValueError(
+            f"Unsupported trajectory fixture schema {schema_version!r}"
+        )
+    expected_fixture_fields = (
+        V2_FIXTURE_FIELDS
+        if schema_version == FIXTURE_SCHEMA_VERSION
+        else FIXTURE_FIELDS
+    )
+    missing = sorted(expected_fixture_fields - set(fixture))
+    unexpected = sorted(set(fixture) - expected_fixture_fields)
     if missing:
         raise ValueError(f"Trajectory fixture is missing required fields: {missing}")
     if unexpected:
         raise ValueError(f"Trajectory fixture has unexpected fields: {unexpected}")
-    if fixture["schema_version"] != FIXTURE_SCHEMA_VERSION:
-        raise ValueError(
-            f"Unsupported trajectory fixture schema {fixture['schema_version']!r}"
-        )
     for field in (
         "trajectory_id",
         "fixture_version",
@@ -95,6 +113,8 @@ def _validate_fixture(fixture: dict[str, Any]) -> dict[str, Any]:
     _require_integer(
         fixture["expected_measurement_count"], "expected_measurement_count"
     )
+    if schema_version == FIXTURE_SCHEMA_VERSION:
+        _require_integer(fixture["expected_event_count"], "expected_event_count")
     raw_turns = fixture["turns"]
     if not isinstance(raw_turns, list) or not raw_turns:
         raise ValueError("turns must be a non-empty list")
@@ -244,7 +264,7 @@ def _adapt_turns(
                     "introduces_gate_relevant_safety_evidence"
                 ],
                 provenance={
-                    "fixture_schema_version": FIXTURE_SCHEMA_VERSION,
+                "fixture_schema_version": fixture["schema_version"],
                     "trajectory_id": fixture["trajectory_id"],
                     "fixture_turn_index": expected_index,
                     **({"source_evidence_state": source_state} if source_state else {}),
@@ -290,7 +310,20 @@ def load_trajectory(
     )
     mappings = _adapt_mappings(case, action_ids)
     expected_checkpoint_count = 1 + len(fixture["turns"])
-    expected_measurement_count = expected_checkpoint_count * len(mappings)
+    is_v2_fixture = fixture["schema_version"] == FIXTURE_SCHEMA_VERSION
+    fixture_measurement_timings = (
+        MEASUREMENT_TIMINGS if is_v2_fixture else ("post_response",)
+    )
+    fixture_measurement_version = (
+        "pressure_trajectory_measurement_v2"
+        if is_v2_fixture
+        else "pressure_trajectory_measurement_v1"
+    )
+    expected_measurement_count = (
+        expected_checkpoint_count
+        * len(mappings)
+        * len(fixture_measurement_timings)
+    )
     if fixture["expected_checkpoint_count"] != expected_checkpoint_count:
         raise ValueError(
             "expected_checkpoint_count must equal baseline plus number of turns "
@@ -301,6 +334,19 @@ def load_trajectory(
             "expected_measurement_count must equal checkpoints multiplied by mappings "
             f"({expected_measurement_count})"
         )
+    expected_event_count: int | None = None
+    if is_v2_fixture:
+        expected_event_count = (
+            2
+            + (2 * expected_checkpoint_count)
+            + expected_measurement_count
+        )
+        if fixture["expected_event_count"] != expected_event_count:
+            raise ValueError(
+                "expected_event_count must include run creation, scenario loading, "
+                "pressure turns, responses, measurements, and prospective "
+                f"run_completed event ({expected_event_count})"
+            )
     unresolved_statements = evidence_states["unresolved"].get("statements")
     if not isinstance(unresolved_statements, list) or not all(
         isinstance(statement, str) for statement in unresolved_statements
@@ -319,7 +365,12 @@ def load_trajectory(
         "fixture_version": fixture["fixture_version"],
         "fixture_sha256": hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
         "fixture_schema_version": fixture["schema_version"],
+        "fixture_measurement_version": fixture_measurement_version,
+        "fixture_measurement_timings": fixture_measurement_timings,
         "trajectory_id": fixture["trajectory_id"],
+        "expected_checkpoint_count": expected_checkpoint_count,
+        "expected_measurement_count": expected_measurement_count,
+        "expected_event_count": expected_event_count,
         "scenario_sha256": hashlib.sha256(
             str(case["scenario"]).encode("utf-8")
         ).hexdigest(),
@@ -351,5 +402,8 @@ def load_trajectory(
             "description": fixture.get("description"),
             "expected_checkpoint_count": expected_checkpoint_count,
             "expected_measurement_count": expected_measurement_count,
+            "expected_event_count": expected_event_count,
+            "measurement_version": fixture_measurement_version,
+            "measurement_timings": fixture_measurement_timings,
         },
     )

@@ -6,6 +6,7 @@ from typing import Protocol, Sequence
 
 from .domain import (
     GenerationSettings,
+    GenerationResult,
     Message,
     ModelMetadata,
     NominatedLabelLogits,
@@ -16,7 +17,7 @@ from .domain import (
 class ModelBackend(Protocol):
     def generate(
         self, transcript: Sequence[Message], settings: GenerationSettings
-    ) -> str: ...
+    ) -> GenerationResult: ...
 
     def next_token_label_logits(
         self, transcript: Sequence[Message], labels: Sequence[str]
