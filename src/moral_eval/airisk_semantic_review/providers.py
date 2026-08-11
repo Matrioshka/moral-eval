@@ -87,6 +87,8 @@ class ProviderResponseError(ProviderAdapterError):
         provider_generation_id: str | None = None,
         actual_routed_provider: str | None = None,
         provider_usage: dict[str, Any] | None = None,
+        output_termination: dict[str, Any] | None = None,
+        provider_reasoning: Any = None,
     ):
         super().__init__(message)
         self.raw_response = raw_response
@@ -96,6 +98,8 @@ class ProviderResponseError(ProviderAdapterError):
         self.provider_generation_id = provider_generation_id
         self.actual_routed_provider = actual_routed_provider
         self.provider_usage = provider_usage
+        self.output_termination = output_termination
+        self.provider_reasoning = provider_reasoning
 
 
 @dataclass(frozen=True)
@@ -109,6 +113,8 @@ class ProviderResult:
     provider_generation_id: str | None = None
     actual_routed_provider: str | None = None
     provider_usage: dict[str, Any] | None = None
+    output_termination: dict[str, Any] | None = None
+    provider_reasoning: Any = None
 
 
 class ReviewerProvider(Protocol):
@@ -456,6 +462,42 @@ def _openrouter_terminal_signal(body: Any) -> tuple[str, str, str] | None:
     return None
 
 
+def _openrouter_output_termination(choice: Any) -> dict[str, Any]:
+    finish_reason = choice.get("finish_reason") if isinstance(choice, Mapping) else None
+    native_finish_reason = (
+        choice.get("native_finish_reason") if isinstance(choice, Mapping) else None
+    )
+    if not isinstance(finish_reason, str):
+        finish_reason = None
+    if not isinstance(native_finish_reason, str):
+        native_finish_reason = None
+    output_limit_codes = {"length", "max_tokens", "max_output_tokens"}
+    output_limit_reached = any(
+        value.casefold() in output_limit_codes
+        for value in (finish_reason, native_finish_reason)
+        if value is not None
+    )
+    return {
+        "finish_reason": finish_reason,
+        "native_finish_reason": native_finish_reason,
+        "output_limit_reached": output_limit_reached,
+        "valid_complete_response_recovered": False,
+    }
+
+
+def _openrouter_reasoning(message: Any) -> dict[str, Any] | None:
+    if not isinstance(message, Mapping):
+        return None
+    if "reasoning" not in message and "reasoning_details" not in message:
+        return None
+    return {
+        "reasoning": serialise_provider_object(message.get("reasoning")),
+        "reasoning_details": serialise_provider_object(
+            message.get("reasoning_details")
+        ),
+    }
+
+
 def _first_string_attribute(value: Any, names: tuple[str, ...]) -> str | None:
     for name in names:
         candidate = getattr(value, name, None)
@@ -783,6 +825,8 @@ class OpenRouterReviewerAdapter:
         message = choice.get("message") if isinstance(choice, Mapping) else None
         content = message.get("content") if isinstance(message, Mapping) else None
         raw_text = content if isinstance(content, str) else None
+        output_termination = _openrouter_output_termination(choice)
+        provider_reasoning = _openrouter_reasoning(message)
         terminal_signal = _openrouter_terminal_signal(body)
         if terminal_signal is not None:
             terminal_status, signal_path, native_code = terminal_signal
@@ -803,6 +847,8 @@ class OpenRouterReviewerAdapter:
                 provider_generation_id=generation_id,
                 actual_routed_provider=actual_provider,
                 provider_usage=usage,
+                output_termination=output_termination,
+                provider_reasoning=provider_reasoning,
             )
 
         status_code = getattr(response, "status_code", None)
@@ -824,8 +870,13 @@ class OpenRouterReviewerAdapter:
                 provider_generation_id=generation_id,
                 actual_routed_provider=actual_provider,
                 provider_usage=usage,
+                output_termination=output_termination,
+                provider_reasoning=provider_reasoning,
             )
-        if raw_text is None or not raw_text:
+        if (
+            (raw_text is None or not raw_text)
+            and not output_termination["output_limit_reached"]
+        ):
             raise ProviderResponseError(
                 "OpenRouter returned no assistant message content",
                 raw_response=raw_response,
@@ -835,6 +886,8 @@ class OpenRouterReviewerAdapter:
                 provider_generation_id=generation_id,
                 actual_routed_provider=actual_provider,
                 provider_usage=usage,
+                output_termination=output_termination,
+                provider_reasoning=provider_reasoning,
             )
         return ProviderResult(
             raw_response=raw_response,
@@ -844,6 +897,8 @@ class OpenRouterReviewerAdapter:
             provider_generation_id=generation_id,
             actual_routed_provider=actual_provider,
             provider_usage=usage,
+            output_termination=output_termination,
+            provider_reasoning=provider_reasoning,
         )
 
 

@@ -252,6 +252,116 @@ def completed_group_ids(
     return completed
 
 
+def _integer_usage_value(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
+def _number_usage_value(value: Any) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value
+
+
+def _normalised_provider_usage(
+    provider_usage: Mapping[str, Any] | None,
+) -> dict[str, int | float | None]:
+    usage = provider_usage or {}
+    prompt_details = usage.get("prompt_tokens_details")
+    if not isinstance(prompt_details, Mapping):
+        prompt_details = {}
+    completion_details = usage.get("completion_tokens_details")
+    if not isinstance(completion_details, Mapping):
+        completion_details = {}
+    return {
+        "prompt_tokens": _integer_usage_value(usage.get("prompt_tokens")),
+        "completion_tokens": _integer_usage_value(usage.get("completion_tokens")),
+        "reasoning_tokens": _integer_usage_value(
+            completion_details.get("reasoning_tokens", usage.get("reasoning_tokens"))
+        ),
+        "cached_tokens": _integer_usage_value(
+            prompt_details.get("cached_tokens", usage.get("cached_tokens"))
+        ),
+        "total_tokens": _integer_usage_value(usage.get("total_tokens")),
+        "cost": _number_usage_value(usage.get("cost")),
+    }
+
+
+def _aggregate_attempt_usage(attempts: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    fields = (
+        "prompt_tokens",
+        "completion_tokens",
+        "reasoning_tokens",
+        "cached_tokens",
+        "total_tokens",
+        "cost",
+    )
+    aggregate: dict[str, Any] = {}
+    reported_attempt_counts: dict[str, int] = {}
+    for field in fields:
+        values = []
+        for attempt in attempts:
+            usage = attempt.get("normalised_usage")
+            value = usage.get(field) if isinstance(usage, Mapping) else None
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            values.append(value)
+        aggregate[field] = sum(values) if values else None
+        reported_attempt_counts[field] = len(values)
+    aggregate["reported_attempt_counts"] = reported_attempt_counts
+    return aggregate
+
+
+def _attempt_record(
+    *,
+    attempt_number: int,
+    timestamp_utc: str,
+    status: str,
+    resolved_reported_model: str | None,
+    provider_request_id: str | None,
+    provider_generation_id: str | None,
+    actual_routed_provider: str | None,
+    provider_usage: Mapping[str, Any] | None,
+    output_termination: Mapping[str, Any] | None,
+    provider_block_metadata: Mapping[str, Any] | None,
+    validation_errors: Sequence[str],
+    error_type: str | None,
+    error_message: str | None,
+    retry_delay_seconds: float | None,
+) -> dict[str, Any]:
+    usage = dict(provider_usage) if isinstance(provider_usage, Mapping) else None
+    return {
+        "attempt_number": attempt_number,
+        "timestamp_utc": timestamp_utc,
+        "status": status,
+        "resolved_reported_model": resolved_reported_model,
+        "provider_request_id": provider_request_id,
+        "provider_generation_id": provider_generation_id,
+        "actual_routed_provider": actual_routed_provider,
+        "provider_usage": usage,
+        "normalised_usage": _normalised_provider_usage(usage),
+        "output_termination": (
+            dict(output_termination)
+            if isinstance(output_termination, Mapping)
+            else None
+        ),
+        "provider_block_metadata": (
+            dict(provider_block_metadata)
+            if isinstance(provider_block_metadata, Mapping)
+            else None
+        ),
+        "validation_errors": list(validation_errors),
+        "error_type": error_type,
+        "error_message": error_message,
+        "retry_delay_seconds": retry_delay_seconds,
+    }
+
+
 def _attempt_review(
     *,
     adapter: ReviewerProvider,
@@ -264,7 +374,7 @@ def _attempt_review(
     run_record_schema: Mapping[str, Any],
     sleep_fn: Callable[[float], None],
 ) -> dict[str, Any]:
-    attempts = []
+    attempts: list[dict[str, Any]] = []
     final_raw: Any = None
     final_text: str | None = None
     parsed: dict[str, Any] | None = None
@@ -273,6 +383,8 @@ def _attempt_review(
     provider_generation_id: str | None = None
     actual_routed_provider: str | None = None
     provider_usage: dict[str, Any] | None = None
+    final_output_termination: dict[str, Any] | None = None
+    final_provider_reasoning: Any = None
     final_provider_block_metadata: dict[str, Any] | None = None
     final_validation_errors: list[str] = []
     status = "provider_error"
@@ -295,6 +407,13 @@ def _attempt_review(
             provider_generation_id = provider_result.provider_generation_id
             actual_routed_provider = provider_result.actual_routed_provider
             provider_usage = redact_secrets(provider_result.provider_usage)
+            final_output_termination = redact_secrets(
+                provider_result.output_termination
+            )
+            final_provider_reasoning = redact_secrets(
+                provider_result.provider_reasoning
+            )
+            final_provider_block_metadata = None
             if provider_result.terminal_status is not None:
                 if provider_result.terminal_status not in {"refused", "blocked"}:
                     raise SemanticReviewError(
@@ -312,19 +431,22 @@ def _attempt_review(
                 parsed = None
                 final_validation_errors = []
                 attempts.append(
-                    {
-                        "attempt_number": attempt_number,
-                        "timestamp_utc": attempt_timestamp,
-                        "status": status,
-                        "provider_request_id": provider_result.provider_request_id,
-                        "provider_generation_id": provider_result.provider_generation_id,
-                        "actual_routed_provider": provider_result.actual_routed_provider,
-                        "provider_block_metadata": final_provider_block_metadata,
-                        "validation_errors": [],
-                        "error_type": None,
-                        "error_message": None,
-                        "retry_delay_seconds": None,
-                    }
+                    _attempt_record(
+                        attempt_number=attempt_number,
+                        timestamp_utc=attempt_timestamp,
+                        status=status,
+                        resolved_reported_model=resolved_model,
+                        provider_request_id=provider_request_id,
+                        provider_generation_id=provider_generation_id,
+                        actual_routed_provider=actual_routed_provider,
+                        provider_usage=provider_usage,
+                        output_termination=final_output_termination,
+                        provider_block_metadata=final_provider_block_metadata,
+                        validation_errors=[],
+                        error_type=None,
+                        error_message=None,
+                        retry_delay_seconds=None,
+                    )
                 )
                 break
             try:
@@ -339,20 +461,61 @@ def _attempt_review(
                 parsed = candidate
                 final_validation_errors = []
                 status = "completed"
-                attempts.append(
-                    {
-                        "attempt_number": attempt_number,
-                        "timestamp_utc": attempt_timestamp,
-                        "status": "completed",
-                        "provider_request_id": provider_result.provider_request_id,
-                        "validation_errors": [],
-                        "error_type": None,
-                        "error_message": None,
-                        "retry_delay_seconds": None,
+                if (
+                    isinstance(final_output_termination, Mapping)
+                    and final_output_termination.get("output_limit_reached") is True
+                ):
+                    final_output_termination = {
+                        **final_output_termination,
+                        "valid_complete_response_recovered": True,
                     }
+                attempts.append(
+                    _attempt_record(
+                        attempt_number=attempt_number,
+                        timestamp_utc=attempt_timestamp,
+                        status="completed",
+                        resolved_reported_model=resolved_model,
+                        provider_request_id=provider_request_id,
+                        provider_generation_id=provider_generation_id,
+                        actual_routed_provider=actual_routed_provider,
+                        provider_usage=provider_usage,
+                        output_termination=final_output_termination,
+                        provider_block_metadata=None,
+                        validation_errors=[],
+                        error_type=None,
+                        error_message=None,
+                        retry_delay_seconds=None,
+                    )
                 )
                 break
+            parsed = None
             final_validation_errors = candidate_errors
+            if (
+                isinstance(final_output_termination, Mapping)
+                and final_output_termination.get("output_limit_reached") is True
+            ):
+                status = "truncated"
+                attempts.append(
+                    _attempt_record(
+                        attempt_number=attempt_number,
+                        timestamp_utc=attempt_timestamp,
+                        status="truncated",
+                        resolved_reported_model=resolved_model,
+                        provider_request_id=provider_request_id,
+                        provider_generation_id=provider_generation_id,
+                        actual_routed_provider=actual_routed_provider,
+                        provider_usage=provider_usage,
+                        output_termination=final_output_termination,
+                        provider_block_metadata=None,
+                        validation_errors=candidate_errors,
+                        error_type="OutputLimitTermination",
+                        error_message=(
+                            "Output-limit termination prevented a complete valid response"
+                        ),
+                        retry_delay_seconds=None,
+                    )
+                )
+                break
             status = "validation_failed"
             retry_delay = (
                 config.initial_retry_delay_seconds * (2**attempt_index)
@@ -360,60 +523,121 @@ def _attempt_review(
                 else None
             )
             attempts.append(
-                {
-                    "attempt_number": attempt_number,
-                    "timestamp_utc": attempt_timestamp,
-                    "status": "validation_failed",
-                    "provider_request_id": provider_result.provider_request_id,
-                    "validation_errors": candidate_errors,
-                    "error_type": "LocalResponseValidationError",
-                    "error_message": "Provider response failed canonical local validation",
-                    "retry_delay_seconds": retry_delay,
-                }
+                _attempt_record(
+                    attempt_number=attempt_number,
+                    timestamp_utc=attempt_timestamp,
+                    status="validation_failed",
+                    resolved_reported_model=resolved_model,
+                    provider_request_id=provider_request_id,
+                    provider_generation_id=provider_generation_id,
+                    actual_routed_provider=actual_routed_provider,
+                    provider_usage=provider_usage,
+                    output_termination=final_output_termination,
+                    provider_block_metadata=None,
+                    validation_errors=candidate_errors,
+                    error_type="LocalResponseValidationError",
+                    error_message="Provider response failed canonical local validation",
+                    retry_delay_seconds=retry_delay,
+                )
             )
         except Exception as exc:
             message = redact_secrets(str(exc))
             error_raw_response = getattr(exc, "raw_response", None)
-            if error_raw_response is not None:
-                final_raw = redact_secrets(error_raw_response)
+            final_raw = (
+                redact_secrets(error_raw_response)
+                if error_raw_response is not None
+                else None
+            )
             error_raw_text = getattr(exc, "raw_response_text", None)
-            if isinstance(error_raw_text, str):
-                final_text = redact_secrets(error_raw_text)
+            final_text = (
+                redact_secrets(error_raw_text)
+                if isinstance(error_raw_text, str)
+                else None
+            )
             error_resolved_model = getattr(exc, "resolved_reported_model", None)
-            if isinstance(error_resolved_model, str):
-                resolved_model = error_resolved_model
+            resolved_model = (
+                error_resolved_model
+                if isinstance(error_resolved_model, str)
+                else None
+            )
             error_request_id = getattr(exc, "provider_request_id", None)
-            if isinstance(error_request_id, str):
-                provider_request_id = error_request_id
+            provider_request_id = (
+                error_request_id if isinstance(error_request_id, str) else None
+            )
             error_generation_id = getattr(exc, "provider_generation_id", None)
-            if isinstance(error_generation_id, str):
-                provider_generation_id = error_generation_id
+            provider_generation_id = (
+                error_generation_id if isinstance(error_generation_id, str) else None
+            )
             error_routed_provider = getattr(exc, "actual_routed_provider", None)
-            if isinstance(error_routed_provider, str):
-                actual_routed_provider = error_routed_provider
+            actual_routed_provider = (
+                error_routed_provider
+                if isinstance(error_routed_provider, str)
+                else None
+            )
             error_usage = getattr(exc, "provider_usage", None)
-            if isinstance(error_usage, Mapping):
-                provider_usage = redact_secrets(dict(error_usage))
+            provider_usage = (
+                redact_secrets(dict(error_usage))
+                if isinstance(error_usage, Mapping)
+                else None
+            )
+            error_output_termination = getattr(exc, "output_termination", None)
+            final_output_termination = (
+                redact_secrets(dict(error_output_termination))
+                if isinstance(error_output_termination, Mapping)
+                else None
+            )
+            final_provider_reasoning = redact_secrets(
+                getattr(exc, "provider_reasoning", None)
+            )
+            final_provider_block_metadata = None
+            final_validation_errors = []
+            if (
+                isinstance(final_output_termination, Mapping)
+                and final_output_termination.get("output_limit_reached") is True
+            ):
+                status = "truncated"
+                attempts.append(
+                    _attempt_record(
+                        attempt_number=attempt_number,
+                        timestamp_utc=attempt_timestamp,
+                        status="truncated",
+                        resolved_reported_model=resolved_model,
+                        provider_request_id=provider_request_id,
+                        provider_generation_id=provider_generation_id,
+                        actual_routed_provider=actual_routed_provider,
+                        provider_usage=provider_usage,
+                        output_termination=final_output_termination,
+                        provider_block_metadata=None,
+                        validation_errors=[],
+                        error_type=type(exc).__name__,
+                        error_message=message,
+                        retry_delay_seconds=None,
+                    )
+                )
+                break
             retry_delay = (
                 config.initial_retry_delay_seconds * (2**attempt_index)
                 if attempt_index < config.max_retries
                 else None
             )
             status = "provider_error"
-            final_validation_errors = []
             attempts.append(
-                {
-                    "attempt_number": attempt_number,
-                    "timestamp_utc": attempt_timestamp,
-                    "status": "provider_error",
-                    "provider_request_id": provider_request_id,
-                    "provider_generation_id": provider_generation_id,
-                    "actual_routed_provider": actual_routed_provider,
-                    "validation_errors": [],
-                    "error_type": type(exc).__name__,
-                    "error_message": message,
-                    "retry_delay_seconds": retry_delay,
-                }
+                _attempt_record(
+                    attempt_number=attempt_number,
+                    timestamp_utc=attempt_timestamp,
+                    status="provider_error",
+                    resolved_reported_model=resolved_model,
+                    provider_request_id=provider_request_id,
+                    provider_generation_id=provider_generation_id,
+                    actual_routed_provider=actual_routed_provider,
+                    provider_usage=provider_usage,
+                    output_termination=final_output_termination,
+                    provider_block_metadata=None,
+                    validation_errors=[],
+                    error_type=type(exc).__name__,
+                    error_message=message,
+                    retry_delay_seconds=retry_delay,
+                )
             )
         if attempt_index < config.max_retries:
             sleep_fn(config.initial_retry_delay_seconds * (2**attempt_index))
@@ -429,6 +653,9 @@ def _attempt_review(
         "provider_generation_id": provider_generation_id,
         "actual_routed_provider": actual_routed_provider,
         "provider_usage": provider_usage,
+        "aggregate_usage": _aggregate_attempt_usage(attempts),
+        "output_termination": final_output_termination,
+        "provider_reasoning": final_provider_reasoning,
         "prompt_version": PROMPT_VERSION,
         "prompt_sha256": prompt_sha256,
         "response_schema_sha256": response_schema_sha256,

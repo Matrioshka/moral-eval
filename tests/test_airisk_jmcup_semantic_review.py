@@ -29,6 +29,7 @@ from moral_eval.airisk_semantic_review.providers import (
     anthropic_transport_schema,
     gemini_transport_schema,
 )
+from scripts.log_prob.run_airisk_jmcup_semantic_review import build_parser
 
 
 def action(row_index: int, number: int) -> dict:
@@ -172,6 +173,24 @@ def review_record(
         "provider_generation_id": None,
         "actual_routed_provider": None,
         "provider_usage": None,
+        "aggregate_usage": {
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "reasoning_tokens": None,
+            "cached_tokens": None,
+            "total_tokens": None,
+            "cost": None,
+            "reported_attempt_counts": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "reasoning_tokens": 0,
+                "cached_tokens": 0,
+                "total_tokens": 0,
+                "cost": 0,
+            },
+        },
+        "output_termination": None,
+        "provider_reasoning": None,
         "prompt_version": core.PROMPT_VERSION,
         "prompt_sha256": "1" * 64,
         "response_schema_sha256": "2" * 64,
@@ -242,22 +261,37 @@ def openrouter_success(
     *,
     model: str,
     upstream_provider: str,
+    finish_reason: str = "stop",
+    native_finish_reason: str | None = None,
+    content: object = Ellipsis,
+    reasoning: object = Ellipsis,
+    reasoning_details: object = Ellipsis,
+    usage: dict | None = None,
+    request_id: str = "openrouter-request-1",
+    generation_id: str = "openrouter-generation-1",
 ) -> FakeOpenRouterResponse:
+    message = {
+        "role": "assistant",
+        "content": json.dumps(parsed) if content is Ellipsis else content,
+    }
+    if reasoning is not Ellipsis:
+        message["reasoning"] = reasoning
+    if reasoning_details is not Ellipsis:
+        message["reasoning_details"] = reasoning_details
+    choice = {
+        "index": 0,
+        "finish_reason": finish_reason,
+        "message": message,
+    }
+    if native_finish_reason is not None:
+        choice["native_finish_reason"] = native_finish_reason
     return FakeOpenRouterResponse(
         {
-            "id": "openrouter-request-1",
+            "id": request_id,
             "model": model,
-            "choices": [
-                {
-                    "index": 0,
-                    "finish_reason": "stop",
-                    "message": {
-                        "role": "assistant",
-                        "content": json.dumps(parsed),
-                    },
-                }
-            ],
-            "usage": {
+            "choices": [choice],
+            "usage": usage
+            or {
                 "prompt_tokens": 100,
                 "completion_tokens": 50,
                 "total_tokens": 150,
@@ -275,7 +309,7 @@ def openrouter_success(
                 },
             },
         },
-        headers={"X-Generation-Id": "openrouter-generation-1"},
+        headers={"X-Generation-Id": generation_id},
     )
 
 
@@ -322,6 +356,15 @@ def test_canonical_response_schema_bytes_and_sha_are_unchanged_by_transport() ->
 
     assert canonical == original_object
     assert path.read_bytes() == original_bytes
+
+
+def test_other_frozen_reviewer_inputs_retain_their_sha() -> None:
+    assert core.sha256_path(core.DEFAULT_PROMPT_PATH) == (
+        "80d898c68d7fef92155584f6fcea09f2264ec5bdc2f9162346b325f73a10480d"
+    )
+    assert core.sha256_path(core.DEFAULT_INPUT_SCHEMA_PATH) == (
+        "dc311c92347f148ffc4f917728430a19948af478a0ac06905d6f8b3b38ce10c6"
+    )
 
 
 def _schema_keys(value: object) -> set[str]:
@@ -742,6 +785,22 @@ def test_openrouter_request_is_strict_and_selects_model_family_transport(
     }
 
 
+def test_cli_max_output_tokens_accepts_8192() -> None:
+    args = build_parser().parse_args(
+        [
+            "--provider",
+            "openrouter",
+            "--model",
+            "anthropic/claude-sonnet-5",
+            "--run-id",
+            "openrouter-cli-token-limit",
+            "--max-output-tokens",
+            "8192",
+        ]
+    )
+    assert args.max_output_tokens == 8192
+
+
 def test_openrouter_no_execute_makes_no_request_and_needs_no_credential(
     tmp_path: Path,
 ) -> None:
@@ -865,6 +924,19 @@ def test_openrouter_run_record_preserves_routing_and_usage_without_key(
     assert record["provider_generation_id"] == "openrouter-generation-1"
     assert record["actual_routed_provider"] == "Google AI Studio"
     assert record["provider_usage"]["total_tokens"] == 150
+    assert record["output_termination"] == {
+        "finish_reason": "stop",
+        "native_finish_reason": None,
+        "output_limit_reached": False,
+        "valid_complete_response_recovered": False,
+    }
+    assert record["retry_information"]["attempts"][0][
+        "output_termination"
+    ] == record["output_termination"]
+    assert record["aggregate_usage"]["total_tokens"] == 150
+    assert record["aggregate_usage"]["reported_attempt_counts"][
+        "total_tokens"
+    ] == 1
     assert record["prompt_sha256"] == core.sha256_path(core.DEFAULT_PROMPT_PATH)
     assert record["response_schema_sha256"] == core.sha256_path(
         core.DEFAULT_RESPONSE_SCHEMA_PATH
@@ -882,6 +954,318 @@ def test_openrouter_run_record_preserves_routing_and_usage_without_key(
         "OPENROUTER_API_KEY2",
         "OPENROUTER_API_KEY",
     ]
+
+
+def test_openrouter_valid_length_terminated_response_completes_with_warning(
+    tmp_path: Path,
+) -> None:
+    source = queue_record()
+    payload = core.build_blinded_payload(source)
+    queue = tmp_path / "queue.jsonl"
+    write_queue(queue, [source])
+    reasoning_details = [{"type": "reasoning.text", "text": "Final check."}]
+    usage = {
+        "prompt_tokens": 120,
+        "completion_tokens": 4096,
+        "total_tokens": 4216,
+        "cost": 0.061,
+        "prompt_tokens_details": {"cached_tokens": 20},
+        "completion_tokens_details": {"reasoning_tokens": 1000},
+        "cost_details": {"upstream_inference_cost": 0.057},
+    }
+    session = FakeOpenRouterSession(
+        [
+            openrouter_success(
+                response(),
+                model="google/gemini-3.1-pro-preview",
+                upstream_provider="Google",
+                finish_reason="length",
+                native_finish_reason="MAX_TOKENS",
+                reasoning="The complete JSON was emitted before the limit.",
+                reasoning_details=reasoning_details,
+                usage=usage,
+            )
+        ]
+    )
+
+    result = run_reviews(
+        config=ReviewRunConfig(
+            "openrouter",
+            "google/gemini-3.1-pro-preview",
+            "openrouter-valid-length",
+            max_output_tokens=8192,
+            max_retries=2,
+        ),
+        payloads=[payload],
+        queue_path=queue,
+        output_root=tmp_path / "runs",
+        execute=True,
+        resume=False,
+        adapter=OpenRouterReviewerAdapter(
+            session=session, api_key="valid-length-secret"
+        ),
+        sleep_fn=lambda _: pytest.fail("A valid length-terminated response must not retry"),
+    )
+
+    record = json.loads(Path(result["reviews_path"]).read_text(encoding="utf-8"))
+    warning = {
+        "finish_reason": "length",
+        "native_finish_reason": "MAX_TOKENS",
+        "output_limit_reached": True,
+        "valid_complete_response_recovered": True,
+    }
+    assert len(session.calls) == 1
+    assert session.calls[0]["json"]["max_tokens"] == 8192
+    assert record["status"] == "completed"
+    assert record["parsed_structured_response"] == response()
+    assert record["output_termination"] == warning
+    assert record["retry_information"]["attempts"][0][
+        "output_termination"
+    ] == warning
+    assert record["provider_reasoning"] == {
+        "reasoning": "The complete JSON was emitted before the limit.",
+        "reasoning_details": reasoning_details,
+    }
+    assert record["provider_usage"] == usage
+
+
+def test_openrouter_invalid_partial_length_output_is_truncated_without_retry(
+    tmp_path: Path,
+) -> None:
+    source = queue_record()
+    payload = core.build_blinded_payload(source)
+    queue = tmp_path / "queue.jsonl"
+    write_queue(queue, [source])
+    partial_content = '{"schema_version":"airisk_jmcup_group_semantic_review_v1"'
+    usage = {
+        "prompt_tokens": 200,
+        "completion_tokens": 4082,
+        "total_tokens": 4282,
+        "cost": 0.07,
+        "prompt_tokens_details": {"cached_tokens": 30},
+        "completion_tokens_details": {"reasoning_tokens": 3000},
+        "cost_details": {"upstream_inference_cost": 0.066},
+    }
+    session = FakeOpenRouterSession(
+        [
+            openrouter_success(
+                response(),
+                model="google/gemini-3.1-pro-preview",
+                upstream_provider="Google",
+                finish_reason="length",
+                native_finish_reason="MAX_TOKENS",
+                content=partial_content,
+                reasoning="Reasoning reached the output ceiling.",
+                reasoning_details=[{"type": "reasoning.text", "text": "Partial"}],
+                usage=usage,
+            )
+        ]
+    )
+
+    result = run_reviews(
+        config=ReviewRunConfig(
+            "openrouter",
+            "google/gemini-3.1-pro-preview",
+            "openrouter-partial-length",
+            max_retries=2,
+        ),
+        payloads=[payload],
+        queue_path=queue,
+        output_root=tmp_path / "runs",
+        execute=True,
+        resume=False,
+        adapter=OpenRouterReviewerAdapter(
+            session=session, api_key="partial-length-secret"
+        ),
+        sleep_fn=lambda _: pytest.fail("Explicit output truncation must not retry"),
+    )
+
+    record = json.loads(Path(result["reviews_path"]).read_text(encoding="utf-8"))
+    assert len(session.calls) == 1
+    assert record["status"] == "truncated"
+    assert record["parsed_structured_response"] is None
+    assert record["raw_response_text"] == partial_content
+    assert record["raw_response"]["body"]["choices"][0]["message"][
+        "content"
+    ] == partial_content
+    assert record["provider_reasoning"]["reasoning"] == (
+        "Reasoning reached the output ceiling."
+    )
+    assert record["output_termination"]["output_limit_reached"] is True
+    assert record["output_termination"][
+        "valid_complete_response_recovered"
+    ] is False
+    assert record["retry_information"]["attempts"][0][
+        "output_termination"
+    ] == record["output_termination"]
+    assert record["retry_information"]["attempts"][0]["provider_usage"] == usage
+    assert record["aggregate_usage"]["cost"] == pytest.approx(0.07)
+    assert record["validation_errors"]
+
+
+def test_openrouter_null_content_length_output_preserves_reasoning_without_retry(
+    tmp_path: Path,
+) -> None:
+    source = queue_record()
+    payload = core.build_blinded_payload(source)
+    queue = tmp_path / "queue.jsonl"
+    write_queue(queue, [source])
+    session = FakeOpenRouterSession(
+        [
+            openrouter_success(
+                response(),
+                model="anthropic/claude-sonnet-5",
+                upstream_provider="Amazon Bedrock",
+                finish_reason="length",
+                native_finish_reason="max_tokens",
+                content=None,
+                reasoning="Reasoning was returned without assistant content.",
+                reasoning_details=[],
+                usage={
+                    "prompt_tokens": 12745,
+                    "completion_tokens": 4096,
+                    "total_tokens": 16841,
+                    "cost": 0.06645,
+                    "prompt_tokens_details": {"cached_tokens": 0},
+                    "completion_tokens_details": {"reasoning_tokens": 1484},
+                },
+            )
+        ]
+    )
+
+    result = run_reviews(
+        config=ReviewRunConfig(
+            "openrouter",
+            "anthropic/claude-sonnet-5",
+            "openrouter-null-length",
+            max_retries=2,
+        ),
+        payloads=[payload],
+        queue_path=queue,
+        output_root=tmp_path / "runs",
+        execute=True,
+        resume=False,
+        adapter=OpenRouterReviewerAdapter(
+            session=session, api_key="null-length-secret"
+        ),
+        sleep_fn=lambda _: pytest.fail("Explicit output truncation must not retry"),
+    )
+
+    record = json.loads(Path(result["reviews_path"]).read_text(encoding="utf-8"))
+    assert len(session.calls) == 1
+    assert record["status"] == "truncated"
+    assert record["raw_response_text"] is None
+    assert record["provider_reasoning"] == {
+        "reasoning": "Reasoning was returned without assistant content.",
+        "reasoning_details": [],
+    }
+    assert record["output_termination"]["finish_reason"] == "length"
+    assert record["output_termination"]["native_finish_reason"] == "max_tokens"
+
+
+def test_openrouter_transient_retry_preserves_and_aggregates_attempt_costs(
+    tmp_path: Path,
+) -> None:
+    source = queue_record()
+    payload = core.build_blinded_payload(source)
+    queue = tmp_path / "queue.jsonl"
+    write_queue(queue, [source])
+    first_usage = {
+        "prompt_tokens": 10,
+        "completion_tokens": 5,
+        "total_tokens": 15,
+        "cost": 0.02,
+        "prompt_tokens_details": {"cached_tokens": 3},
+        "completion_tokens_details": {"reasoning_tokens": 2},
+        "cost_details": {"upstream_inference_cost": 0.018},
+    }
+    second_usage = {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "cost": 0.05,
+        "prompt_tokens_details": {"cached_tokens": 20},
+        "completion_tokens_details": {"reasoning_tokens": 10},
+        "cost_details": {"upstream_inference_cost": 0.045},
+    }
+    first_body = {
+        "id": "openrouter-error-request",
+        "model": "anthropic/claude-sonnet-5",
+        "provider": "Provider A",
+        "error": {"code": 500, "message": "Temporary upstream failure"},
+        "usage": first_usage,
+    }
+    session = FakeOpenRouterSession(
+        [
+            FakeOpenRouterResponse(
+                first_body,
+                status_code=500,
+                headers={"X-Generation-Id": "generation-error"},
+            ),
+            openrouter_success(
+                response(),
+                model="anthropic/claude-sonnet-5",
+                upstream_provider="Provider B",
+                usage=second_usage,
+                request_id="openrouter-success-request",
+                generation_id="generation-success",
+            ),
+        ]
+    )
+    sleeps = []
+
+    result = run_reviews(
+        config=ReviewRunConfig(
+            "openrouter",
+            "anthropic/claude-sonnet-5",
+            "openrouter-retry-costs",
+            max_retries=1,
+        ),
+        payloads=[payload],
+        queue_path=queue,
+        output_root=tmp_path / "runs",
+        execute=True,
+        resume=False,
+        adapter=OpenRouterReviewerAdapter(
+            session=session, api_key="retry-cost-secret"
+        ),
+        sleep_fn=sleeps.append,
+    )
+
+    record = json.loads(Path(result["reviews_path"]).read_text(encoding="utf-8"))
+    attempts = record["retry_information"]["attempts"]
+    assert len(session.calls) == 2
+    assert sleeps == [2.0]
+    assert record["status"] == "completed"
+    assert [attempt["status"] for attempt in attempts] == [
+        "provider_error",
+        "completed",
+    ]
+    assert attempts[0]["provider_request_id"] == "openrouter-error-request"
+    assert attempts[0]["provider_generation_id"] == "generation-error"
+    assert attempts[0]["actual_routed_provider"] == "Provider A"
+    assert attempts[0]["provider_usage"] == first_usage
+    assert attempts[1]["provider_request_id"] == "openrouter-success-request"
+    assert attempts[1]["provider_generation_id"] == "generation-success"
+    assert attempts[1]["actual_routed_provider"] == "Provider B"
+    assert attempts[1]["provider_usage"] == second_usage
+    assert record["provider_usage"] == second_usage
+    assert record["aggregate_usage"] == {
+        "prompt_tokens": 110,
+        "completion_tokens": 55,
+        "reasoning_tokens": 12,
+        "cached_tokens": 23,
+        "total_tokens": 165,
+        "cost": pytest.approx(0.07),
+        "reported_attempt_counts": {
+            "prompt_tokens": 2,
+            "completion_tokens": 2,
+            "reasoning_tokens": 2,
+            "cached_tokens": 2,
+            "total_tokens": 2,
+            "cost": 2,
+        },
+    }
 
 
 def test_openrouter_explicit_content_policy_block_is_not_retried(
