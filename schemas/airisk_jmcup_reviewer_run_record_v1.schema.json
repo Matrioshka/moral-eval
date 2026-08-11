@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_reviewer_run_record_v1.schema.json",
+  "title": "airisk_jmcup_reviewer_run_record_v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_schema_version",
+    "reviewer_run_id",
+    "generation_group_id",
+    "provider",
+    "requested_model",
+    "resolved_reported_model",
+    "prompt_version",
+    "prompt_sha256",
+    "response_schema_sha256",
+    "input_payload_sha256",
+    "status",
+    "raw_response",
+    "raw_response_text",
+    "parsed_structured_response",
+    "provider_block_metadata",
+    "timestamp_utc",
+    "model_settings",
+    "retry_information",
+    "validation_errors"
+  ],
+  "properties": {
+    "record_schema_version": {"const": "airisk_jmcup_reviewer_run_record_v1"},
+    "reviewer_run_id": {"type": "string", "minLength": 1},
+    "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
+    "provider": {"type": "string", "enum": ["anthropic", "gemini"]},
+    "requested_model": {"type": "string", "minLength": 1},
+    "resolved_reported_model": {"type": ["string", "null"]},
+    "prompt_version": {"const": "airisk_jmcup_group_semantic_review_v1"},
+    "prompt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "response_schema_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "input_payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "status": {"type": "string", "enum": ["completed", "validation_failed", "provider_error", "refused", "blocked"]},
+    "raw_response": {},
+    "raw_response_text": {"type": ["string", "null"]},
+    "parsed_structured_response": {
+      "anyOf": [
+        {"type": "object"},
+        {"type": "null"}
+      ]
+    },
+    "provider_block_metadata": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "provider_signal",
+            "native_code",
+            "category",
+            "explanation",
+            "details"
+          ],
+          "properties": {
+            "provider": {"type": "string", "enum": ["anthropic", "gemini"]},
+            "provider_signal": {"type": "string", "minLength": 1},
+            "native_code": {"type": "string", "minLength": 1},
+            "category": {"type": ["string", "null"]},
+            "explanation": {"type": ["string", "null"]},
+            "details": {}
+          }
+        },
+        {"type": "null"}
+      ]
+    },
+    "timestamp_utc": {"type": "string", "format": "date-time"},
+    "model_settings": {"type": "object"},
+    "retry_information": {
+      "type": "object",
+      "required": ["max_retries", "attempt_count", "attempts"],
+      "properties": {
+        "max_retries": {"type": "integer", "minimum": 0},
+        "attempt_count": {"type": "integer", "minimum": 1},
+        "attempts": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "validation_errors": {"type": "array", "items": {"type": "string"}}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"enum": ["refused", "blocked"]}},
+        "required": ["status"]
+      },
+      "then": {"properties": {"provider_block_metadata": {"type": "object"}}}
+    },
+    {
+      "if": {
+        "properties": {"status": {"const": "refused"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "provider": {"const": "anthropic"},
+          "parsed_structured_response": {"type": "null"},
+          "provider_block_metadata": {
+            "type": "object",
+            "properties": {
+              "provider": {"const": "anthropic"},
+              "native_code": {"const": "refusal"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"status": {"const": "blocked"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "provider": {"const": "gemini"},
+          "parsed_structured_response": {"type": "null"},
+          "provider_block_metadata": {
+            "type": "object",
+            "properties": {"provider": {"const": "gemini"}}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": ["completed", "validation_failed", "provider_error"]
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {"properties": {"provider_block_metadata": {"type": "null"}}}
+    }
+  ]
+}

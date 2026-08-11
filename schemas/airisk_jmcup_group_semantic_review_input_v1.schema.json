@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_group_semantic_review_input_v1.schema.json",
+  "title": "airisk_jmcup_group_semantic_review_input_v1",
+  "description": "Blinded model-visible input for one AIRiskDilemmas generation-group semantic review.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generation_group_id",
+    "lineage",
+    "source_seed_lineage",
+    "contextualisations"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_group_semantic_review_input_v1"},
+    "generation_group_id": {
+      "type": "string",
+      "pattern": "^airisk_generation_group_[0-9]{4}$"
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "method",
+        "confidence",
+        "occurrence_count",
+        "unique_dilemma_count",
+        "pair_index_start",
+        "pair_index_end",
+        "primary_hypothesis_clearly_preferred"
+      ],
+      "properties": {
+        "status": {"const": "reconstructed_contiguous_generation_group"},
+        "method": {"type": "string", "minLength": 1},
+        "confidence": {"type": "string", "enum": ["highly_likely", "partially_inferred"]},
+        "occurrence_count": {"type": "integer", "minimum": 1},
+        "unique_dilemma_count": {"type": "integer", "minimum": 1},
+        "pair_index_start": {"type": "integer", "minimum": 0},
+        "pair_index_end": {"type": "integer", "minimum": 0},
+        "primary_hypothesis_clearly_preferred": {"type": "boolean"}
+      }
+    },
+    "source_seed_lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "confidence", "provenance", "exact_source_seed"],
+      "properties": {
+        "status": {"type": "string", "enum": ["exact_publication_anchor", "candidate_matches_only", "unavailable"]},
+        "confidence": {"type": "string", "enum": ["exact", "unavailable"]},
+        "provenance": {"type": "string", "minLength": 1},
+        "exact_source_seed": {
+          "anyOf": [
+            {"$ref": "#/$defs/source_seed"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "contextualisations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/contextualisation"}
+    }
+  },
+  "$defs": {
+    "nullable_string": {"type": ["string", "null"]},
+    "nullable_integer": {"type": ["integer", "null"]},
+    "nullable_string_array": {
+      "anyOf": [
+        {"type": "array", "items": {"type": "string"}},
+        {"type": "null"}
+      ]
+    },
+    "source_seed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_record_id",
+        "source_path",
+        "source_row_index",
+        "source_dataset_layer",
+        "question",
+        "question_sha256"
+      ],
+      "properties": {
+        "source_record_id": {"type": "string"},
+        "source_path": {"type": "string"},
+        "source_row_index": {"type": "integer", "minimum": 0},
+        "source_dataset_layer": {"type": "string"},
+        "question": {"type": "string"},
+        "question_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_row_index",
+        "action",
+        "action_body",
+        "values",
+        "risky_behaviors",
+        "context",
+        "targets",
+        "targets_available",
+        "targets_source_configuration",
+        "targets_source_row_index",
+        "targets_join_method",
+        "targets_source_dilemma_sha256"
+      ],
+      "properties": {
+        "source_row_index": {"type": "integer", "minimum": 0},
+        "action": {"type": "string"},
+        "action_body": {"type": "string"},
+        "values": {"type": "array", "items": {"type": "string"}},
+        "risky_behaviors": {"type": "array", "items": {"type": "string"}},
+        "context": {"type": "string"},
+        "targets": {"$ref": "#/$defs/nullable_string_array"},
+        "targets_available": {"type": "boolean"},
+        "targets_source_configuration": {"$ref": "#/$defs/nullable_string"},
+        "targets_source_row_index": {"$ref": "#/$defs/nullable_integer"},
+        "targets_join_method": {"$ref": "#/$defs/nullable_string"},
+        "targets_source_dilemma_sha256": {
+          "anyOf": [
+            {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "contextualisation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "group_occurrence_ordinal",
+        "occurrence_id",
+        "pair_index",
+        "dilemma_id",
+        "dilemma_sha256",
+        "dilemma",
+        "actions",
+        "risky_behaviors",
+        "contexts"
+      ],
+      "properties": {
+        "group_occurrence_ordinal": {"type": "integer", "minimum": 0},
+        "occurrence_id": {"type": "string", "pattern": "^airisk_pair_[0-9]{5}$"},
+        "pair_index": {"type": "integer", "minimum": 0},
+        "dilemma_id": {"type": "string"},
+        "dilemma_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "dilemma": {"type": "string"},
+        "actions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action_1", "action_2"],
+          "properties": {
+            "action_1": {"$ref": "#/$defs/action"},
+            "action_2": {"$ref": "#/$defs/action"}
+          }
+        },
+        "risky_behaviors": {"type": "array", "items": {"type": "string"}},
+        "contexts": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}
