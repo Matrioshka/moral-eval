@@ -1,0 +1,5 @@
+# Model-blind AIRiskDilemmas source discovery only.
+# No model-inference dependency belongs in this environment specification.
+datasets==5.0.1
+huggingface-hub==1.26.0
+
