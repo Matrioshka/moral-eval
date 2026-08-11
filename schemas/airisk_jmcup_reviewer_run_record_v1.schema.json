@@ -11,6 +11,10 @@
     "provider",
     "requested_model",
     "resolved_reported_model",
+    "provider_request_id",
+    "provider_generation_id",
+    "actual_routed_provider",
+    "provider_usage",
     "prompt_version",
     "prompt_sha256",
     "response_schema_sha256",
@@ -29,9 +33,18 @@
     "record_schema_version": {"const": "airisk_jmcup_reviewer_run_record_v1"},
     "reviewer_run_id": {"type": "string", "minLength": 1},
     "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
-    "provider": {"type": "string", "enum": ["anthropic", "gemini"]},
+    "provider": {"type": "string", "enum": ["anthropic", "gemini", "openrouter"]},
     "requested_model": {"type": "string", "minLength": 1},
     "resolved_reported_model": {"type": ["string", "null"]},
+    "provider_request_id": {"type": ["string", "null"]},
+    "provider_generation_id": {"type": ["string", "null"]},
+    "actual_routed_provider": {"type": ["string", "null"]},
+    "provider_usage": {
+      "anyOf": [
+        {"type": "object"},
+        {"type": "null"}
+      ]
+    },
     "prompt_version": {"const": "airisk_jmcup_group_semantic_review_v1"},
     "prompt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "response_schema_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -59,7 +72,7 @@
             "details"
           ],
           "properties": {
-            "provider": {"type": "string", "enum": ["anthropic", "gemini"]},
+            "provider": {"type": "string", "enum": ["anthropic", "gemini", "openrouter"]},
             "provider_signal": {"type": "string", "minLength": 1},
             "native_code": {"type": "string", "minLength": 1},
             "category": {"type": ["string", "null"]},
@@ -98,12 +111,11 @@
       },
       "then": {
         "properties": {
-          "provider": {"const": "anthropic"},
+          "provider": {"enum": ["anthropic", "openrouter"]},
           "parsed_structured_response": {"type": "null"},
           "provider_block_metadata": {
             "type": "object",
             "properties": {
-              "provider": {"const": "anthropic"},
               "native_code": {"const": "refusal"}
             }
           }
@@ -117,11 +129,56 @@
       },
       "then": {
         "properties": {
-          "provider": {"const": "gemini"},
+          "provider": {"enum": ["gemini", "openrouter"]},
           "parsed_structured_response": {"type": "null"},
+          "provider_block_metadata": {"type": "object"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "provider": {"const": "anthropic"},
+          "status": {"const": "refused"}
+        },
+        "required": ["provider", "status"]
+      },
+      "then": {
+        "properties": {
           "provider_block_metadata": {
-            "type": "object",
+            "properties": {"provider": {"const": "anthropic"}}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "provider": {"const": "gemini"},
+          "status": {"const": "blocked"}
+        },
+        "required": ["provider", "status"]
+      },
+      "then": {
+        "properties": {
+          "provider_block_metadata": {
             "properties": {"provider": {"const": "gemini"}}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "provider": {"const": "openrouter"},
+          "status": {"enum": ["refused", "blocked"]}
+        },
+        "required": ["provider", "status"]
+      },
+      "then": {
+        "properties": {
+          "provider_block_metadata": {
+            "properties": {"provider": {"const": "openrouter"}}
           }
         }
       }

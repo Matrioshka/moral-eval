@@ -24,6 +24,7 @@ from moral_eval.airisk_semantic_review.execution import ReviewRunConfig, run_rev
 from moral_eval.airisk_semantic_review.providers import (
     AnthropicReviewerAdapter,
     GeminiReviewerAdapter,
+    OpenRouterReviewerAdapter,
     ProviderResult,
     anthropic_transport_schema,
     gemini_transport_schema,
@@ -167,6 +168,10 @@ def review_record(
         "provider": provider,
         "requested_model": "mock-model",
         "resolved_reported_model": "mock-model-revision",
+        "provider_request_id": "mock-request-id",
+        "provider_generation_id": None,
+        "actual_routed_provider": None,
+        "provider_usage": None,
         "prompt_version": core.PROMPT_VERSION,
         "prompt_sha256": "1" * 64,
         "response_schema_sha256": "2" * 64,
@@ -199,6 +204,79 @@ class FakeProvider:
             resolved_reported_model="reported-model",
             provider_request_id=f"request-{len(self.calls)}",
         )
+
+
+class FakeOpenRouterResponse:
+    def __init__(
+        self,
+        body: object,
+        *,
+        status_code: int = 200,
+        headers: dict[str, str] | None = None,
+    ):
+        self._body = body
+        self.status_code = status_code
+        self.headers = headers or {}
+        self.text = json.dumps(body)
+
+    def json(self) -> object:
+        return deepcopy(self._body)
+
+
+class FakeOpenRouterSession:
+    def __init__(self, responses: list[object]):
+        self.responses = list(responses)
+        self.calls: list[dict] = []
+
+    def post(self, url: str, **kwargs) -> FakeOpenRouterResponse:
+        self.calls.append({"url": url, **kwargs})
+        item = self.responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        assert isinstance(item, FakeOpenRouterResponse)
+        return item
+
+
+def openrouter_success(
+    parsed: dict,
+    *,
+    model: str,
+    upstream_provider: str,
+) -> FakeOpenRouterResponse:
+    return FakeOpenRouterResponse(
+        {
+            "id": "openrouter-request-1",
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": json.dumps(parsed),
+                    },
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+            },
+            "openrouter_metadata": {
+                "requested": model,
+                "endpoints": {
+                    "available": [
+                        {
+                            "model": model,
+                            "provider": upstream_provider,
+                            "selected": True,
+                        }
+                    ]
+                },
+            },
+        },
+        headers={"X-Generation-Id": "openrouter-generation-1"},
+    )
 
 
 def write_queue(path: Path, records: list[dict]) -> None:
@@ -509,6 +587,404 @@ def test_gemini_adapter_uses_structured_output_schema_with_mock_client() -> None
     )
     assert calls[0]["store"] is False
     assert "temperature" not in calls[0]["generation_config"]
+
+
+def test_openrouter_key2_loads_from_environment_and_dotenv_without_leakage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("OPENROUTER_API_KEY2", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "OPENROUTER_API_KEY2=dotenv-key2-secret\n"
+        "OPENROUTER_API_KEY=dotenv-key-secret\n",
+        encoding="utf-8",
+    )
+    session = FakeOpenRouterSession(
+        [
+            openrouter_success(
+                response(),
+                model="anthropic/claude-sonnet-5",
+                upstream_provider="Anthropic",
+            )
+        ]
+    )
+    adapter = OpenRouterReviewerAdapter(session=session, env_path=env_path)
+    result = adapter.review(
+        requested_model="anthropic/claude-sonnet-5",
+        rendered_prompt="frozen prompt and payload",
+        response_schema=core.load_schema(core.DEFAULT_RESPONSE_SCHEMA_PATH),
+        model_settings={"temperature": None, "max_output_tokens": 4096},
+    )
+
+    assert session.calls[0]["headers"]["Authorization"] == (
+        "Bearer dotenv-key2-secret"
+    )
+    assert "dotenv-key2-secret" not in core.canonical_json(result.raw_response)
+    assert "dotenv-key-secret" not in core.canonical_json(result.raw_response)
+
+    monkeypatch.setenv("OPENROUTER_API_KEY2", "environment-key2-secret")
+    second_session = FakeOpenRouterSession(
+        [
+            openrouter_success(
+                response(),
+                model="anthropic/claude-sonnet-5",
+                upstream_provider="Anthropic",
+            )
+        ]
+    )
+    second_adapter = OpenRouterReviewerAdapter(
+        session=second_session, env_path=env_path
+    )
+    second_adapter.review(
+        requested_model="anthropic/claude-sonnet-5",
+        rendered_prompt="frozen prompt and payload",
+        response_schema=core.load_schema(core.DEFAULT_RESPONSE_SCHEMA_PATH),
+        model_settings={"temperature": None, "max_output_tokens": 4096},
+    )
+    assert second_session.calls[0]["headers"]["Authorization"] == (
+        "Bearer environment-key2-secret"
+    )
+
+
+def test_openrouter_falls_back_to_openrouter_api_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY2", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fallback-openrouter-secret")
+    session = FakeOpenRouterSession(
+        [
+            openrouter_success(
+                response(),
+                model="google/gemini-3.1-pro-preview",
+                upstream_provider="Google AI Studio",
+            )
+        ]
+    )
+    adapter = OpenRouterReviewerAdapter(
+        session=session, env_path=tmp_path / "absent.env"
+    )
+    adapter.review(
+        requested_model="google/gemini-3.1-pro-preview",
+        rendered_prompt="frozen prompt and payload",
+        response_schema=core.load_schema(core.DEFAULT_RESPONSE_SCHEMA_PATH),
+        model_settings={"temperature": None, "max_output_tokens": 4096},
+    )
+
+    assert session.calls[0]["headers"]["Authorization"] == (
+        "Bearer fallback-openrouter-secret"
+    )
+
+
+@pytest.mark.parametrize(
+    ("model", "upstream_provider", "transport_omissions", "transport_preserved"),
+    [
+        (
+            "anthropic/claude-sonnet-5",
+            "Anthropic",
+            {"minLength", "maxLength", "minimum", "maximum", "uniqueItems"},
+            {"pattern", "const"},
+        ),
+        (
+            "google/gemini-3.1-pro-preview",
+            "Google AI Studio",
+            {"minLength", "maxLength", "pattern", "uniqueItems", "const"},
+            {"$defs", "$ref", "anyOf", "enum"},
+        ),
+    ],
+)
+def test_openrouter_request_is_strict_and_selects_model_family_transport(
+    model: str,
+    upstream_provider: str,
+    transport_omissions: set[str],
+    transport_preserved: set[str],
+) -> None:
+    session = FakeOpenRouterSession(
+        [
+            openrouter_success(
+                response(), model=model, upstream_provider=upstream_provider
+            )
+        ]
+    )
+    adapter = OpenRouterReviewerAdapter(
+        session=session, api_key="not-persisted-openrouter-secret"
+    )
+    result = adapter.review(
+        requested_model=model,
+        rendered_prompt="frozen prompt and payload",
+        response_schema=core.load_schema(core.DEFAULT_RESPONSE_SCHEMA_PATH),
+        model_settings={"temperature": None, "max_output_tokens": 4096},
+    )
+
+    call = session.calls[0]
+    body = call["json"]
+    response_format = body["response_format"]
+    transport = response_format["json_schema"]["schema"]
+    transport_keys = _schema_keys(transport)
+    assert call["url"] == "https://openrouter.ai/api/v1/chat/completions"
+    assert call["headers"]["X-OpenRouter-Metadata"] == "enabled"
+    assert body["model"] == model
+    assert "models" not in body
+    assert response_format["type"] == "json_schema"
+    assert response_format["json_schema"]["name"] == core.RESPONSE_SCHEMA_VERSION
+    assert response_format["json_schema"]["strict"] is True
+    assert body["provider"] == {"require_parameters": True}
+    assert not transport_omissions & transport_keys
+    assert transport_preserved <= transport_keys
+    assert result.resolved_reported_model == model
+    assert result.provider_request_id == "openrouter-request-1"
+    assert result.provider_generation_id == "openrouter-generation-1"
+    assert result.actual_routed_provider == upstream_provider
+    assert result.provider_usage == {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+    }
+
+
+def test_openrouter_no_execute_makes_no_request_and_needs_no_credential(
+    tmp_path: Path,
+) -> None:
+    payload = core.build_blinded_payload(queue_record())
+    queue = tmp_path / "queue.jsonl"
+    write_queue(queue, [queue_record()])
+    fake = FakeProvider([response()])
+
+    result = run_reviews(
+        config=ReviewRunConfig(
+            "openrouter",
+            "anthropic/claude-sonnet-5",
+            "openrouter-safe-default",
+        ),
+        payloads=[payload],
+        queue_path=queue,
+        output_root=tmp_path / "runs",
+        execute=False,
+        resume=False,
+        adapter=fake,
+    )
+
+    assert result["external_api_calls_planned"] == 0
+    assert fake.calls == []
+    assert not (tmp_path / "runs").exists()
+
+
+def test_openrouter_runner_uses_full_canonical_local_validation(
+    tmp_path: Path,
+) -> None:
+    source = queue_record()
+    payload = core.build_blinded_payload(source)
+    queue = tmp_path / "queue.jsonl"
+    write_queue(queue, [source])
+    invalid = response()
+    invalid["review_summary"] = ""
+    session = FakeOpenRouterSession(
+        [
+            openrouter_success(
+                invalid,
+                model="anthropic/claude-sonnet-5",
+                upstream_provider="Anthropic",
+            )
+        ]
+    )
+
+    result = run_reviews(
+        config=ReviewRunConfig(
+            "openrouter",
+            "anthropic/claude-sonnet-5",
+            "openrouter-local-validation",
+            max_retries=0,
+        ),
+        payloads=[payload],
+        queue_path=queue,
+        output_root=tmp_path / "runs",
+        execute=True,
+        resume=False,
+        adapter=OpenRouterReviewerAdapter(
+            session=session, api_key="validation-test-secret"
+        ),
+        sleep_fn=lambda _: None,
+    )
+
+    record = json.loads(Path(result["reviews_path"]).read_text(encoding="utf-8"))
+    assert "minLength" not in _schema_keys(
+        session.calls[0]["json"]["response_format"]["json_schema"]["schema"]
+    )
+    assert record["status"] == "validation_failed"
+    assert record["parsed_structured_response"] is None
+    assert any(
+        "non-empty" in error or "too short" in error
+        for error in record["validation_errors"]
+    )
+
+
+def test_openrouter_run_record_preserves_routing_and_usage_without_key(
+    tmp_path: Path,
+) -> None:
+    source = queue_record()
+    payload = core.build_blinded_payload(source)
+    queue = tmp_path / "queue.jsonl"
+    write_queue(queue, [source])
+    secret = "must-not-be-persisted-openrouter-key"
+    session = FakeOpenRouterSession(
+        [
+            openrouter_success(
+                response(),
+                model="google/gemini-3.1-pro-preview",
+                upstream_provider="Google AI Studio",
+            )
+        ]
+    )
+
+    result = run_reviews(
+        config=ReviewRunConfig(
+            "openrouter",
+            "google/gemini-3.1-pro-preview",
+            "openrouter-provenance",
+            max_retries=0,
+        ),
+        payloads=[payload],
+        queue_path=queue,
+        output_root=tmp_path / "runs",
+        execute=True,
+        resume=False,
+        adapter=OpenRouterReviewerAdapter(session=session, api_key=secret),
+        sleep_fn=lambda _: None,
+    )
+
+    record_text = Path(result["reviews_path"]).read_text(encoding="utf-8")
+    manifest_text = Path(result["run_manifest_path"]).read_text(encoding="utf-8")
+    record = json.loads(record_text)
+    manifest = json.loads(manifest_text)
+    assert secret not in record_text
+    assert secret not in manifest_text
+    assert record["provider"] == "openrouter"
+    assert record["requested_model"] == "google/gemini-3.1-pro-preview"
+    assert record["resolved_reported_model"] == "google/gemini-3.1-pro-preview"
+    assert record["provider_request_id"] == "openrouter-request-1"
+    assert record["provider_generation_id"] == "openrouter-generation-1"
+    assert record["actual_routed_provider"] == "Google AI Studio"
+    assert record["provider_usage"]["total_tokens"] == 150
+    assert record["prompt_sha256"] == core.sha256_path(core.DEFAULT_PROMPT_PATH)
+    assert record["response_schema_sha256"] == core.sha256_path(
+        core.DEFAULT_RESPONSE_SCHEMA_PATH
+    )
+    assert record["input_payload_sha256"] == core.input_payload_sha256(payload)
+    assert record["model_settings"] == {
+        "temperature": None,
+        "max_output_tokens": 4096,
+    }
+    assert manifest["adapter_configuration"]["require_parameters"] is True
+    assert manifest["adapter_configuration"][
+        "alternate_model_fallbacks_requested"
+    ] is False
+    assert manifest["credential_source_order"] == [
+        "OPENROUTER_API_KEY2",
+        "OPENROUTER_API_KEY",
+    ]
+
+
+def test_openrouter_explicit_content_policy_block_is_not_retried(
+    tmp_path: Path,
+) -> None:
+    source = queue_record()
+    payload = core.build_blinded_payload(source)
+    queue = tmp_path / "queue.jsonl"
+    write_queue(queue, [source])
+    block_body = {
+        "id": "openrouter-block-request",
+        "model": "anthropic/claude-sonnet-5",
+        "error": {
+            "code": 400,
+            "message": "Content policy blocked the request.",
+            "metadata": {"error_type": "content_policy_violation"},
+        },
+        "openrouter_metadata": {
+            "requested": "anthropic/claude-sonnet-5",
+            "endpoints": {
+                "available": [
+                    {
+                        "model": "anthropic/claude-sonnet-5",
+                        "provider": "Anthropic",
+                        "selected": True,
+                    }
+                ]
+            },
+        },
+    }
+    session = FakeOpenRouterSession(
+        [FakeOpenRouterResponse(block_body, status_code=400)]
+    )
+
+    result = run_reviews(
+        config=ReviewRunConfig(
+            "openrouter",
+            "anthropic/claude-sonnet-5",
+            "openrouter-block",
+            max_retries=3,
+        ),
+        payloads=[payload],
+        queue_path=queue,
+        output_root=tmp_path / "runs",
+        execute=True,
+        resume=False,
+        adapter=OpenRouterReviewerAdapter(
+            session=session, api_key="block-test-secret"
+        ),
+        sleep_fn=lambda _: pytest.fail("A clear block must not sleep or retry"),
+    )
+
+    record = json.loads(Path(result["reviews_path"]).read_text(encoding="utf-8"))
+    assert len(session.calls) == 1
+    assert record["status"] == "blocked"
+    assert record["parsed_structured_response"] is None
+    assert record["provider_block_metadata"]["provider"] == "openrouter"
+    assert record["provider_block_metadata"]["native_code"] == (
+        "content_policy_violation"
+    )
+    assert record["raw_response"]["body"] == block_body
+    assert record["retry_information"]["attempt_count"] == 1
+
+
+def test_openrouter_ambiguous_forbidden_error_is_not_guessed_as_a_block(
+    tmp_path: Path,
+) -> None:
+    source = queue_record()
+    payload = core.build_blinded_payload(source)
+    queue = tmp_path / "queue.jsonl"
+    write_queue(queue, [source])
+    ambiguous_body = {
+        "error": {
+            "code": 403,
+            "message": "Forbidden",
+        }
+    }
+    session = FakeOpenRouterSession(
+        [FakeOpenRouterResponse(ambiguous_body, status_code=403)]
+    )
+
+    result = run_reviews(
+        config=ReviewRunConfig(
+            "openrouter",
+            "google/gemini-3.1-pro-preview",
+            "openrouter-ambiguous-error",
+            max_retries=0,
+        ),
+        payloads=[payload],
+        queue_path=queue,
+        output_root=tmp_path / "runs",
+        execute=True,
+        resume=False,
+        adapter=OpenRouterReviewerAdapter(
+            session=session, api_key="ambiguous-test-secret"
+        ),
+        sleep_fn=lambda _: None,
+    )
+
+    record = json.loads(Path(result["reviews_path"]).read_text(encoding="utf-8"))
+    assert record["status"] == "provider_error"
+    assert record["provider_block_metadata"] is None
+    assert record["raw_response"]["body"] == ambiguous_body
 
 
 def test_safe_default_makes_no_call_and_creates_no_run_directory(tmp_path: Path) -> None:
@@ -843,6 +1319,41 @@ def test_adjudication_preparation_keeps_reviews_separate_and_does_not_average(
     assert comparison["reviewer_a"]["reviewer_run_id"] == "reviewer-a"
     assert comparison["reviewer_b"]["reviewer_run_id"] == "reviewer-b"
     assert comparison["adjudicator_fields"]["final_classification"] is None
+
+
+def test_adjudication_allows_two_openrouter_runs_with_different_models(
+    tmp_path: Path,
+) -> None:
+    a_path = tmp_path / "openrouter-a.jsonl"
+    b_path = tmp_path / "openrouter-b.jsonl"
+    a_record = review_record("openrouter-claude", response(), provider="openrouter")
+    b_record = review_record("openrouter-gemini", response(), provider="openrouter")
+    a_record["requested_model"] = "anthropic/claude-sonnet-5"
+    a_record["resolved_reported_model"] = "anthropic/claude-sonnet-5"
+    b_record["requested_model"] = "google/gemini-3.1-pro-preview"
+    b_record["resolved_reported_model"] = "google/gemini-3.1-pro-preview"
+    a_path.write_text(core.canonical_json(a_record) + "\n", encoding="utf-8")
+    b_path.write_text(core.canonical_json(b_record) + "\n", encoding="utf-8")
+
+    summary = prepare_adjudication(
+        a_path,
+        b_path,
+        output_dir=tmp_path / "openrouter-adjudication",
+        expected_group_ids=["airisk_generation_group_0000"],
+    )
+    comparison = json.loads(
+        (
+            tmp_path
+            / "openrouter-adjudication"
+            / "criterion_level_comparison.jsonl"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert summary["group_count"] == 1
+    assert comparison["reviewer_a"]["provider"] == "openrouter"
+    assert comparison["reviewer_b"]["provider"] == "openrouter"
+    assert comparison["reviewer_a"]["requested_model"].startswith("anthropic/")
+    assert comparison["reviewer_b"]["requested_model"].startswith("google/")
 
 
 def test_real_v3_queue_builds_1040_blinded_payloads_when_available() -> None:

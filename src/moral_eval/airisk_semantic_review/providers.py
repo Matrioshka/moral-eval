@@ -6,14 +6,24 @@ import json
 import os
 from copy import deepcopy
 from dataclasses import asdict, dataclass, is_dataclass
+from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 
-SUPPORTED_PROVIDERS = ("anthropic", "gemini")
+SUPPORTED_PROVIDERS = ("anthropic", "gemini", "openrouter")
 PROVIDER_ENVIRONMENT_VARIABLES = {
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY2",
 }
+PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES = {
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "gemini": ("GEMINI_API_KEY",),
+    "openrouter": ("OPENROUTER_API_KEY2", "OPENROUTER_API_KEY"),
+}
+REPO_ROOT = Path(__file__).resolve().parents[3]
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_RESPONSE_SCHEMA_NAME = "airisk_jmcup_group_semantic_review_v1"
 
 ANTHROPIC_UNSUPPORTED_SCHEMA_KEYWORDS = frozenset(
     {"minimum", "maximum", "minLength", "maxLength", "uniqueItems"}
@@ -63,6 +73,31 @@ class ProviderAdapterError(RuntimeError):
     """A provider adapter could not return a usable response."""
 
 
+class ProviderResponseError(ProviderAdapterError):
+    """A provider returned an auditable error response that was not a block."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        raw_response: Any,
+        raw_response_text: str | None = None,
+        resolved_reported_model: str | None = None,
+        provider_request_id: str | None = None,
+        provider_generation_id: str | None = None,
+        actual_routed_provider: str | None = None,
+        provider_usage: dict[str, Any] | None = None,
+    ):
+        super().__init__(message)
+        self.raw_response = raw_response
+        self.raw_response_text = raw_response_text
+        self.resolved_reported_model = resolved_reported_model
+        self.provider_request_id = provider_request_id
+        self.provider_generation_id = provider_generation_id
+        self.actual_routed_provider = actual_routed_provider
+        self.provider_usage = provider_usage
+
+
 @dataclass(frozen=True)
 class ProviderResult:
     raw_response: Any
@@ -71,6 +106,9 @@ class ProviderResult:
     provider_request_id: str | None
     terminal_status: str | None = None
     provider_block_metadata: dict[str, Any] | None = None
+    provider_generation_id: str | None = None
+    actual_routed_provider: str | None = None
+    provider_usage: dict[str, Any] | None = None
 
 
 class ReviewerProvider(Protocol):
@@ -177,6 +215,18 @@ def provider_transport_schema(
     raise ProviderAdapterError(f"No transport-schema policy for provider {provider!r}")
 
 
+def openrouter_transport_schema(
+    requested_model: str, schema: Mapping[str, Any]
+) -> dict[str, Any]:
+    if requested_model.startswith("anthropic/"):
+        return anthropic_transport_schema(schema)
+    if requested_model.startswith("google/"):
+        return gemini_transport_schema(schema)
+    raise ProviderAdapterError(
+        "OpenRouter semantic review supports anthropic/* and google/* model slugs"
+    )
+
+
 def serialise_provider_object(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
@@ -209,6 +259,19 @@ def serialise_provider_exception(exc: Exception) -> dict[str, Any]:
         if value is not None:
             raw[name] = serialise_provider_object(value)
     return raw
+
+
+def _redact_secret(value: Any, secret: str) -> Any:
+    if isinstance(value, str):
+        return value.replace(secret, "[REDACTED]")
+    if isinstance(value, Mapping):
+        return {
+            _redact_secret(str(key), secret): _redact_secret(child, secret)
+            for key, child in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_secret(child, secret) for child in value]
+    return value
 
 
 def _mapping_or_attribute(value: Any, name: str) -> Any:
@@ -256,6 +319,140 @@ def _first_message(value: Any) -> str | None:
             candidate = _first_message(child)
             if candidate is not None:
                 return candidate
+    return None
+
+
+def _openrouter_credentials(
+    *,
+    explicit_api_key: str | None,
+    env_path: Path,
+) -> str | None:
+    if explicit_api_key:
+        return explicit_api_key
+    try:
+        from dotenv import dotenv_values
+    except ImportError as exc:  # pragma: no cover - deployment-only branch
+        raise ProviderAdapterError(
+            "Install requirements-airisk-semantic-review.txt for OpenRouter execution"
+        ) from exc
+    dotenv = dotenv_values(env_path) if env_path.is_file() else {}
+    for name in PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES["openrouter"]:
+        value = os.environ.get(name)
+        if isinstance(value, str) and value:
+            return value
+        file_value = dotenv.get(name)
+        if isinstance(file_value, str) and file_value:
+            return file_value
+    return None
+
+
+def _response_header(response: Any, name: str) -> str | None:
+    headers = getattr(response, "headers", None)
+    if not isinstance(headers, Mapping):
+        return None
+    for key, value in headers.items():
+        if str(key).casefold() == name.casefold() and isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _serialise_openrouter_response(response: Any) -> tuple[dict[str, Any], Any, str]:
+    response_text = getattr(response, "text", "")
+    if not isinstance(response_text, str):
+        response_text = str(response_text)
+    try:
+        body = response.json()
+    except (TypeError, ValueError):
+        body = response_text
+    headers = getattr(response, "headers", {})
+    safe_headers = (
+        {str(key): str(value) for key, value in headers.items()}
+        if isinstance(headers, Mapping)
+        else {}
+    )
+    status_code = getattr(response, "status_code", None)
+    return (
+        {
+            "http_status": status_code,
+            "headers": safe_headers,
+            "body": serialise_provider_object(body),
+        },
+        body,
+        response_text,
+    )
+
+
+def _openrouter_actual_provider(body: Any) -> str | None:
+    if not isinstance(body, Mapping):
+        return None
+    direct = body.get("provider")
+    if isinstance(direct, str) and direct:
+        return direct
+    metadata = body.get("openrouter_metadata")
+    endpoints = metadata.get("endpoints") if isinstance(metadata, Mapping) else None
+    available = endpoints.get("available") if isinstance(endpoints, Mapping) else None
+    if isinstance(available, list):
+        for endpoint in available:
+            if not isinstance(endpoint, Mapping) or endpoint.get("selected") is not True:
+                continue
+            provider = endpoint.get("provider")
+            if isinstance(provider, str) and provider:
+                return provider
+    return None
+
+
+def _openrouter_terminal_signal(body: Any) -> tuple[str, str, str] | None:
+    if not isinstance(body, Mapping):
+        return None
+
+    error_locations: list[tuple[str, Any]] = [("$.error", body.get("error"))]
+    choices = body.get("choices")
+    if isinstance(choices, list):
+        for index, choice in enumerate(choices):
+            if not isinstance(choice, Mapping):
+                continue
+            error_locations.append((f"$.choices[{index}].error", choice.get("error")))
+            message = choice.get("message")
+            refusal = message.get("refusal") if isinstance(message, Mapping) else None
+            if isinstance(refusal, str) and refusal:
+                return "refused", f"$.choices[{index}].message.refusal", "refusal"
+            for key in ("finish_reason", "native_finish_reason"):
+                native = choice.get(key)
+                if not isinstance(native, str):
+                    continue
+                normalised = native.casefold()
+                if normalised == "refusal":
+                    return "refused", f"$.choices[{index}].{key}", native
+                if normalised in {
+                    "content_filter",
+                    "content_policy_violation",
+                    "safety",
+                    "recitation",
+                    "prohibited_content",
+                    "blocklist",
+                    "spii",
+                    "escalation",
+                }:
+                    return "blocked", f"$.choices[{index}].{key}", native
+
+    for path, error in error_locations:
+        metadata = error.get("metadata") if isinstance(error, Mapping) else None
+        error_type = metadata.get("error_type") if isinstance(metadata, Mapping) else None
+        if not isinstance(error_type, str):
+            continue
+        if error_type == "refusal":
+            return "refused", f"{path}.metadata.error_type", error_type
+        if error_type == "content_policy_violation":
+            return "blocked", f"{path}.metadata.error_type", error_type
+
+    metadata = body.get("openrouter_metadata")
+    pipeline = metadata.get("pipeline") if isinstance(metadata, Mapping) else None
+    if isinstance(pipeline, list):
+        for index, stage in enumerate(pipeline):
+            data = stage.get("data") if isinstance(stage, Mapping) else None
+            action = data.get("action") if isinstance(data, Mapping) else None
+            if isinstance(action, str) and action.casefold() == "blocked":
+                return "blocked", f"$.openrouter_metadata.pipeline[{index}].data.action", action
     return None
 
 
@@ -465,11 +662,198 @@ class GeminiReviewerAdapter:
         )
 
 
+class OpenRouterReviewerAdapter:
+    provider = "openrouter"
+
+    def __init__(
+        self,
+        session: Any | None = None,
+        *,
+        api_key: str | None = None,
+        env_path: Path | None = None,
+        timeout_seconds: float = 180.0,
+    ):
+        selected_env_path = env_path or (REPO_ROOT / ".env")
+        selected_key = _openrouter_credentials(
+            explicit_api_key=api_key,
+            env_path=selected_env_path,
+        )
+        if not selected_key:
+            raise ProviderAdapterError(
+                "OPENROUTER_API_KEY2 or OPENROUTER_API_KEY is required for --execute"
+            )
+        if session is None:
+            try:
+                import requests
+            except ImportError as exc:  # pragma: no cover - deployment-only branch
+                raise ProviderAdapterError(
+                    "Install requirements-airisk-semantic-review.txt for OpenRouter execution"
+                ) from exc
+            session = requests.Session()
+        self.session = session
+        self._api_key = selected_key
+        self.timeout_seconds = timeout_seconds
+
+    def review(
+        self,
+        *,
+        requested_model: str,
+        rendered_prompt: str,
+        response_schema: Mapping[str, Any],
+        model_settings: Mapping[str, Any],
+    ) -> ProviderResult:
+        transport_schema = openrouter_transport_schema(
+            requested_model, response_schema
+        )
+        request_body: dict[str, Any] = {
+            "model": requested_model,
+            "messages": [{"role": "user", "content": rendered_prompt}],
+            "max_tokens": int(model_settings["max_output_tokens"]),
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": OPENROUTER_RESPONSE_SCHEMA_NAME,
+                    "strict": True,
+                    "schema": transport_schema,
+                },
+            },
+            "provider": {"require_parameters": True},
+            "stream": False,
+        }
+        if model_settings.get("temperature") is not None:
+            request_body["temperature"] = float(model_settings["temperature"])
+        try:
+            response = self.session.post(
+                OPENROUTER_API_URL,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                    "X-OpenRouter-Metadata": "enabled",
+                },
+                json=request_body,
+                timeout=self.timeout_seconds,
+            )
+        except Exception as exc:
+            safe_exception_message = str(exc).replace(self._api_key, "[REDACTED]")
+            raw_error: dict[str, Any] = {
+                "exception_type": type(exc).__name__,
+                "message": safe_exception_message,
+            }
+            error_response = getattr(exc, "response", None)
+            if error_response is not None:
+                raw_response, _, response_text = _serialise_openrouter_response(
+                    error_response
+                )
+                raw_error["response"] = _redact_secret(
+                    raw_response, self._api_key
+                )
+                response_text = response_text.replace(
+                    self._api_key, "[REDACTED]"
+                )
+            else:
+                response_text = None
+            raise ProviderResponseError(
+                f"OpenRouter request failed: {type(exc).__name__}: {safe_exception_message}",
+                raw_response=raw_error,
+                raw_response_text=response_text,
+            ) from exc
+
+        raw_response, body, response_text = _serialise_openrouter_response(response)
+        raw_response = _redact_secret(raw_response, self._api_key)
+        body = _redact_secret(body, self._api_key)
+        response_text = response_text.replace(self._api_key, "[REDACTED]")
+        body_mapping = body if isinstance(body, Mapping) else {}
+        resolved_model = body_mapping.get("model")
+        if not isinstance(resolved_model, str) or not resolved_model:
+            resolved_model = None
+        request_id = body_mapping.get("id")
+        if not isinstance(request_id, str) or not request_id:
+            request_id = _response_header(response, "X-Request-Id")
+        generation_id = _response_header(response, "X-Generation-Id")
+        actual_provider = _openrouter_actual_provider(body)
+        usage_value = body_mapping.get("usage")
+        usage = (
+            serialise_provider_object(usage_value)
+            if isinstance(usage_value, Mapping)
+            else None
+        )
+
+        choices = body_mapping.get("choices")
+        choice = choices[0] if isinstance(choices, list) and choices else None
+        message = choice.get("message") if isinstance(choice, Mapping) else None
+        content = message.get("content") if isinstance(message, Mapping) else None
+        raw_text = content if isinstance(content, str) else None
+        terminal_signal = _openrouter_terminal_signal(body)
+        if terminal_signal is not None:
+            terminal_status, signal_path, native_code = terminal_signal
+            return ProviderResult(
+                raw_response=raw_response,
+                raw_response_text=raw_text,
+                resolved_reported_model=resolved_model,
+                provider_request_id=request_id,
+                terminal_status=terminal_status,
+                provider_block_metadata={
+                    "provider": "openrouter",
+                    "provider_signal": signal_path,
+                    "native_code": native_code,
+                    "category": native_code,
+                    "explanation": _first_message(body),
+                    "details": serialise_provider_object(body),
+                },
+                provider_generation_id=generation_id,
+                actual_routed_provider=actual_provider,
+                provider_usage=usage,
+            )
+
+        status_code = getattr(response, "status_code", None)
+        error = body_mapping.get("error")
+        choice_error = choice.get("error") if isinstance(choice, Mapping) else None
+        if (
+            not isinstance(status_code, int)
+            or not 200 <= status_code < 300
+            or error is not None
+            or choice_error is not None
+        ):
+            message_text = _first_message(body) or f"HTTP status {status_code}"
+            raise ProviderResponseError(
+                f"OpenRouter returned an error: {message_text}",
+                raw_response=raw_response,
+                raw_response_text=response_text,
+                resolved_reported_model=resolved_model,
+                provider_request_id=request_id,
+                provider_generation_id=generation_id,
+                actual_routed_provider=actual_provider,
+                provider_usage=usage,
+            )
+        if raw_text is None or not raw_text:
+            raise ProviderResponseError(
+                "OpenRouter returned no assistant message content",
+                raw_response=raw_response,
+                raw_response_text=response_text,
+                resolved_reported_model=resolved_model,
+                provider_request_id=request_id,
+                provider_generation_id=generation_id,
+                actual_routed_provider=actual_provider,
+                provider_usage=usage,
+            )
+        return ProviderResult(
+            raw_response=raw_response,
+            raw_response_text=raw_text,
+            resolved_reported_model=resolved_model,
+            provider_request_id=request_id,
+            provider_generation_id=generation_id,
+            actual_routed_provider=actual_provider,
+            provider_usage=usage,
+        )
+
+
 def create_provider_adapter(provider: str) -> ReviewerProvider:
     if provider == "anthropic":
         return AnthropicReviewerAdapter()
     if provider == "gemini":
         return GeminiReviewerAdapter()
+    if provider == "openrouter":
+        return OpenRouterReviewerAdapter()
     raise ProviderAdapterError(
         f"Unsupported provider {provider!r}; choose one of {SUPPORTED_PROVIDERS}"
     )

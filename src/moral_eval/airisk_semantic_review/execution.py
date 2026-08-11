@@ -33,6 +33,7 @@ from .core import (
     validate_review_response,
 )
 from .providers import (
+    PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES,
     PROVIDER_ENVIRONMENT_VARIABLES,
     ReviewerProvider,
     create_provider_adapter,
@@ -60,6 +61,12 @@ class ReviewRunConfig:
             raise SemanticReviewError(f"Unsupported provider: {self.provider}")
         if not self.requested_model.strip():
             raise SemanticReviewError("--model must not be empty")
+        if self.provider == "openrouter" and not self.requested_model.startswith(
+            ("anthropic/", "google/")
+        ):
+            raise SemanticReviewError(
+                "OpenRouter reviews require an anthropic/* or google/* model slug"
+            )
         if not RUN_ID_RE.fullmatch(self.reviewer_run_id):
             raise SemanticReviewError(
                 "--run-id must contain only letters, digits, dot, underscore, or hyphen"
@@ -140,12 +147,33 @@ def _run_manifest(
             "anthropic": _sdk_version("anthropic"),
             "google_genai": _sdk_version("google-genai"),
             "jsonschema": _sdk_version("jsonschema"),
+            "python_dotenv": _sdk_version("python-dotenv"),
+            "requests": _sdk_version("requests"),
         },
         "credential_source": PROVIDER_ENVIRONMENT_VARIABLES[config.provider],
+        "credential_source_order": list(
+            PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES[config.provider]
+        ),
         "credentials_persisted": False,
         "independence_statement": (
             "This run receives only frozen prompt text and blinded source payloads. "
             "No other reviewer run or response is loaded or exposed."
+        ),
+        "adapter_configuration": (
+            {
+                "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+                "structured_output": "json_schema_strict",
+                "require_parameters": True,
+                "alternate_model_fallbacks_requested": False,
+                "transport_schema_family": (
+                    "anthropic"
+                    if config.requested_model.startswith("anthropic/")
+                    else "gemini"
+                ),
+                "router_metadata_requested": True,
+            }
+            if config.provider == "openrouter"
+            else None
         ),
     }
 
@@ -168,11 +196,12 @@ def _manifest_identity(manifest: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _redaction_values() -> list[str]:
-    return [
-        value
-        for name in PROVIDER_ENVIRONMENT_VARIABLES.values()
-        if (value := os.environ.get(name))
-    ]
+    names = {
+        name
+        for provider_names in PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES.values()
+        for name in provider_names
+    }
+    return [value for name in names if (value := os.environ.get(name))]
 
 
 def redact_secrets(value: Any) -> Any:
@@ -240,6 +269,10 @@ def _attempt_review(
     final_text: str | None = None
     parsed: dict[str, Any] | None = None
     resolved_model: str | None = None
+    provider_request_id: str | None = None
+    provider_generation_id: str | None = None
+    actual_routed_provider: str | None = None
+    provider_usage: dict[str, Any] | None = None
     final_provider_block_metadata: dict[str, Any] | None = None
     final_validation_errors: list[str] = []
     status = "provider_error"
@@ -258,6 +291,10 @@ def _attempt_review(
             final_raw = redact_secrets(provider_result.raw_response)
             final_text = redact_secrets(provider_result.raw_response_text)
             resolved_model = provider_result.resolved_reported_model
+            provider_request_id = provider_result.provider_request_id
+            provider_generation_id = provider_result.provider_generation_id
+            actual_routed_provider = provider_result.actual_routed_provider
+            provider_usage = redact_secrets(provider_result.provider_usage)
             if provider_result.terminal_status is not None:
                 if provider_result.terminal_status not in {"refused", "blocked"}:
                     raise SemanticReviewError(
@@ -280,6 +317,8 @@ def _attempt_review(
                         "timestamp_utc": attempt_timestamp,
                         "status": status,
                         "provider_request_id": provider_result.provider_request_id,
+                        "provider_generation_id": provider_result.provider_generation_id,
+                        "actual_routed_provider": provider_result.actual_routed_provider,
                         "provider_block_metadata": final_provider_block_metadata,
                         "validation_errors": [],
                         "error_type": None,
@@ -334,6 +373,27 @@ def _attempt_review(
             )
         except Exception as exc:
             message = redact_secrets(str(exc))
+            error_raw_response = getattr(exc, "raw_response", None)
+            if error_raw_response is not None:
+                final_raw = redact_secrets(error_raw_response)
+            error_raw_text = getattr(exc, "raw_response_text", None)
+            if isinstance(error_raw_text, str):
+                final_text = redact_secrets(error_raw_text)
+            error_resolved_model = getattr(exc, "resolved_reported_model", None)
+            if isinstance(error_resolved_model, str):
+                resolved_model = error_resolved_model
+            error_request_id = getattr(exc, "provider_request_id", None)
+            if isinstance(error_request_id, str):
+                provider_request_id = error_request_id
+            error_generation_id = getattr(exc, "provider_generation_id", None)
+            if isinstance(error_generation_id, str):
+                provider_generation_id = error_generation_id
+            error_routed_provider = getattr(exc, "actual_routed_provider", None)
+            if isinstance(error_routed_provider, str):
+                actual_routed_provider = error_routed_provider
+            error_usage = getattr(exc, "provider_usage", None)
+            if isinstance(error_usage, Mapping):
+                provider_usage = redact_secrets(dict(error_usage))
             retry_delay = (
                 config.initial_retry_delay_seconds * (2**attempt_index)
                 if attempt_index < config.max_retries
@@ -346,7 +406,9 @@ def _attempt_review(
                     "attempt_number": attempt_number,
                     "timestamp_utc": attempt_timestamp,
                     "status": "provider_error",
-                    "provider_request_id": None,
+                    "provider_request_id": provider_request_id,
+                    "provider_generation_id": provider_generation_id,
+                    "actual_routed_provider": actual_routed_provider,
                     "validation_errors": [],
                     "error_type": type(exc).__name__,
                     "error_message": message,
@@ -363,6 +425,10 @@ def _attempt_review(
         "provider": config.provider,
         "requested_model": config.requested_model,
         "resolved_reported_model": resolved_model,
+        "provider_request_id": provider_request_id,
+        "provider_generation_id": provider_generation_id,
+        "actual_routed_provider": actual_routed_provider,
+        "provider_usage": provider_usage,
         "prompt_version": PROMPT_VERSION,
         "prompt_sha256": prompt_sha256,
         "response_schema_sha256": response_schema_sha256,
