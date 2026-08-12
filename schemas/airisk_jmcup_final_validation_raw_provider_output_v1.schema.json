@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_final_validation_raw_provider_output_v1.schema.json",
+  "title": "airisk_jmcup_final_validation_raw_provider_output_v1",
+  "description": "Authoritative redacted raw-provider audit representation for one independent final-validation attempt.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_schema_version", "raw_output_id", "final_validation_run_id",
+    "transformation_id", "attempt_number", "provider", "requested_model",
+    "captured_at_utc", "resolved_reported_model", "provider_request_id",
+    "provider_generation_id", "actual_routed_provider", "terminal_status",
+    "output_termination", "provider_usage", "provider_block_metadata",
+    "provider_reasoning", "provider_exception", "raw_response",
+    "raw_response_text", "secrets_redacted", "credential_material_persisted"
+  ],
+  "properties": {
+    "record_schema_version": {"const": "airisk_jmcup_final_validation_raw_provider_output_v1"},
+    "raw_output_id": {"type": "string", "minLength": 1},
+    "final_validation_run_id": {"type": "string", "minLength": 1},
+    "transformation_id": {"type": "string", "pattern": "^airisk_jmcup_transform_[A-Za-z0-9._-]+$"},
+    "attempt_number": {"type": "integer", "minimum": 1},
+    "provider": {"type": "string", "enum": ["anthropic", "gemini", "openrouter"]},
+    "requested_model": {"type": "string", "minLength": 1},
+    "captured_at_utc": {"type": "string", "format": "date-time"},
+    "resolved_reported_model": {"type": ["string", "null"]},
+    "provider_request_id": {"type": ["string", "null"]},
+    "provider_generation_id": {"type": ["string", "null"]},
+    "actual_routed_provider": {"type": ["string", "null"]},
+    "terminal_status": {"type": ["string", "null"], "enum": ["refused", "blocked", "truncated", null]},
+    "output_termination": {"type": ["object", "null"]},
+    "provider_usage": {"type": ["object", "null"]},
+    "provider_block_metadata": {"type": ["object", "null"]},
+    "provider_reasoning": {},
+    "provider_exception": {"type": ["object", "null"]},
+    "raw_response": {},
+    "raw_response_text": {"type": ["string", "null"]},
+    "secrets_redacted": {"const": true},
+    "credential_material_persisted": {"const": false}
+  }
+}

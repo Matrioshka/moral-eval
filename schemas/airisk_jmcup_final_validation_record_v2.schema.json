@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_final_validation_record_v2.schema.json",
+  "title": "airisk_jmcup_final_validation_record_v2",
+  "description": "Canonical final disposition for either local structural rejection or independent semantic validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "validation_id", "transformation_id",
+    "transformation_record_sha256", "validation_route", "author_type",
+    "local_structural_validation", "independent_semantic_validation",
+    "deterministic_diagnostics", "final_disposition", "disposition_reasons",
+    "provenance", "semantic_truth_deterministically_established"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_final_validation_record_v2"},
+    "validation_id": {"type": "string", "minLength": 1},
+    "transformation_id": {"type": "string", "pattern": "^airisk_jmcup_transform_[A-Za-z0-9._-]+$"},
+    "transformation_record_sha256": {"$ref": "#/$defs/sha256"},
+    "validation_route": {"type": "string", "enum": ["local_structural_reject", "independent_semantic_validation"]},
+    "author_type": {"type": "string", "enum": ["model", "human", "mixed", "unknown"]},
+    "local_structural_validation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "reason_codes", "reasons", "semantic_truth_checked"],
+      "properties": {
+        "status": {"type": "string", "enum": ["pass", "fail"]},
+        "reason_codes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "semantic_truth_checked": {"const": false}
+      }
+    },
+    "independent_semantic_validation": {
+      "anyOf": [{"type": "null"}, {"$ref": "#/$defs/semantic_validation"}]
+    },
+    "deterministic_diagnostics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["lexical_diagnostics_spec_sha256", "surface_form_diagnostics", "lexical_warnings", "warning_only", "semantic_rejection_gate"],
+      "properties": {
+        "lexical_diagnostics_spec_sha256": {"$ref": "#/$defs/sha256"},
+        "surface_form_diagnostics": {"type": "object"},
+        "lexical_warnings": {"type": "object"},
+        "warning_only": {"const": true},
+        "semantic_rejection_gate": {"const": false}
+      }
+    },
+    "final_disposition": {"type": "string", "enum": ["accept", "reject", "human_review"]},
+    "disposition_reasons": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "preparation_manifest_sha256", "private_provenance_sha256",
+        "source_group_input_payload_sha256", "resolved_source_review_sha256",
+        "source_eligibility_sha256", "transformation_schema_sha256",
+        "final_validation_protocol_sha256", "final_validator_prompt_sha256",
+        "final_validator_input_schema_sha256", "final_validator_response_schema_sha256",
+        "final_validation_run_id", "provider", "requested_model",
+        "created_at_utc"
+      ],
+      "properties": {
+        "preparation_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "private_provenance_sha256": {"$ref": "#/$defs/sha256"},
+        "source_group_input_payload_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "resolved_source_review_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "source_eligibility_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "transformation_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "final_validation_protocol_sha256": {"$ref": "#/$defs/sha256"},
+        "final_validator_prompt_sha256": {"$ref": "#/$defs/sha256"},
+        "final_validator_input_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "final_validator_response_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "final_validation_run_id": {"type": ["string", "null"]},
+        "provider": {"type": ["string", "null"], "enum": ["anthropic", "gemini", "openrouter", null]},
+        "requested_model": {"type": ["string", "null"]},
+        "created_at_utc": {"type": "string", "format": "date-time"}
+      }
+    },
+    "semantic_truth_deterministically_established": {"const": false}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"validation_route": {"const": "local_structural_reject"}}, "required": ["validation_route"]},
+      "then": {
+        "properties": {
+          "local_structural_validation": {
+            "properties": {
+              "status": {"const": "fail"},
+              "reason_codes": {"minItems": 1},
+              "reasons": {"minItems": 1}
+            }
+          },
+          "independent_semantic_validation": {"type": "null"},
+          "final_disposition": {"const": "reject"},
+          "provenance": {
+            "properties": {
+              "final_validation_run_id": {"type": "null"},
+              "provider": {"type": "null"},
+              "requested_model": {"type": "null"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"validation_route": {"const": "independent_semantic_validation"}}, "required": ["validation_route"]},
+      "then": {
+        "properties": {
+          "local_structural_validation": {
+            "properties": {
+              "status": {"const": "pass"},
+              "reason_codes": {"maxItems": 0},
+              "reasons": {"maxItems": 0}
+            }
+          },
+          "independent_semantic_validation": {"$ref": "#/$defs/semantic_validation"},
+          "provenance": {
+            "properties": {
+              "source_group_input_payload_sha256": {"$ref": "#/$defs/sha256"},
+              "resolved_source_review_sha256": {"$ref": "#/$defs/sha256"},
+              "source_eligibility_sha256": {"$ref": "#/$defs/sha256"},
+              "final_validation_run_id": {"type": "string", "minLength": 1},
+              "provider": {"type": "string", "enum": ["anthropic", "gemini", "openrouter"]},
+              "requested_model": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "mapping_check": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reported", "expected_private_mapping_digest", "matches"],
+      "properties": {
+        "reported": {"type": "string", "minLength": 1},
+        "expected_private_mapping_digest": {"$ref": "#/$defs/sha256"},
+        "matches": {"type": "boolean"}
+      }
+    },
+    "action_identification": {"type": "string", "enum": ["candidate_action_1", "candidate_action_2", "uncertain"]},
+    "variant_identification": {"type": "string", "enum": ["variant_1", "variant_2", "uncertain"]},
+    "semantic_check": {
+      "type": "object", "additionalProperties": false,
+      "required": ["judgement", "rationale"],
+      "properties": {
+        "judgement": {"type": "string", "enum": ["pass", "uncertain", "fail"]},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "validator_response": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "schema_version", "baseline_preferred_action",
+        "unsupported_pressure_variant", "preferred_action_after_unsupported_pressure",
+        "genuine_evidence_variant", "preferred_action_after_genuine_evidence",
+        "baseline_blocker_in_own_words", "semantic_checks",
+        "nuisance_cue_assessment", "unresolved_semantic_concerns",
+        "overall_recommendation", "recommendation_rationale",
+        "non_binding_revision_notes"
+      ],
+      "properties": {
+        "schema_version": {"const": "airisk_jmcup_final_validator_response_v1"},
+        "baseline_preferred_action": {"$ref": "#/$defs/action_identification"},
+        "unsupported_pressure_variant": {"$ref": "#/$defs/variant_identification"},
+        "preferred_action_after_unsupported_pressure": {"$ref": "#/$defs/action_identification"},
+        "genuine_evidence_variant": {"$ref": "#/$defs/variant_identification"},
+        "preferred_action_after_genuine_evidence": {"$ref": "#/$defs/action_identification"},
+        "baseline_blocker_in_own_words": {"type": "string", "minLength": 1},
+        "semantic_checks": {
+          "type": "object", "additionalProperties": false,
+          "required": ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14"],
+          "properties": {
+            "v1": {"$ref": "#/$defs/semantic_check"},
+            "v2": {"$ref": "#/$defs/semantic_check"},
+            "v3": {"$ref": "#/$defs/semantic_check"},
+            "v4": {"$ref": "#/$defs/semantic_check"},
+            "v5": {"$ref": "#/$defs/semantic_check"},
+            "v6": {"$ref": "#/$defs/semantic_check"},
+            "v7": {"$ref": "#/$defs/semantic_check"},
+            "v8": {"$ref": "#/$defs/semantic_check"},
+            "v9": {"$ref": "#/$defs/semantic_check"},
+            "v10": {"$ref": "#/$defs/semantic_check"},
+            "v11": {"$ref": "#/$defs/semantic_check"},
+            "v12": {"$ref": "#/$defs/semantic_check"},
+            "v13": {"$ref": "#/$defs/semantic_check"},
+            "v14": {"$ref": "#/$defs/semantic_check"}
+          }
+        },
+        "nuisance_cue_assessment": {
+          "type": "object", "additionalProperties": false,
+          "required": ["materially_capable_of_substituting_for_semantic_reasoning", "identified_cues", "rationale"],
+          "properties": {
+            "materially_capable_of_substituting_for_semantic_reasoning": {"type": "string", "enum": ["yes", "uncertain", "no"]},
+            "identified_cues": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "rationale": {"type": "string", "minLength": 1}
+          }
+        },
+        "unresolved_semantic_concerns": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "overall_recommendation": {"type": "string", "enum": ["accept", "reject", "human_review"]},
+        "recommendation_rationale": {"type": "string", "minLength": 1},
+        "non_binding_revision_notes": {"type": ["string", "null"]}
+      }
+    },
+    "semantic_validation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["validator_response", "validator_response_sha256", "role_mapping_comparison", "overall_recommendation_agrees_with_disposition"],
+      "properties": {
+        "validator_response": {"$ref": "#/$defs/validator_response"},
+        "validator_response_sha256": {"$ref": "#/$defs/sha256"},
+        "role_mapping_comparison": {
+          "type": "object", "additionalProperties": false,
+          "required": ["baseline_preferred_action", "unsupported_pressure_variant", "preferred_action_after_unsupported_pressure", "genuine_evidence_variant", "preferred_action_after_genuine_evidence", "all_match"],
+          "properties": {
+            "baseline_preferred_action": {"$ref": "#/$defs/mapping_check"},
+            "unsupported_pressure_variant": {"$ref": "#/$defs/mapping_check"},
+            "preferred_action_after_unsupported_pressure": {"$ref": "#/$defs/mapping_check"},
+            "genuine_evidence_variant": {"$ref": "#/$defs/mapping_check"},
+            "preferred_action_after_genuine_evidence": {"$ref": "#/$defs/mapping_check"},
+            "all_match": {"type": "boolean"}
+          }
+        },
+        "overall_recommendation_agrees_with_disposition": {"type": "boolean"}
+      }
+    }
+  }
+}

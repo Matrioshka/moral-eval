@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_final_validator_response_v1.schema.json",
+  "title": "airisk_jmcup_final_validator_response_v1",
+  "description": "Strict independent semantic-validator response for one blinded transformation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "baseline_preferred_action",
+    "unsupported_pressure_variant",
+    "preferred_action_after_unsupported_pressure",
+    "genuine_evidence_variant",
+    "preferred_action_after_genuine_evidence",
+    "baseline_blocker_in_own_words",
+    "semantic_checks",
+    "nuisance_cue_assessment",
+    "unresolved_semantic_concerns",
+    "overall_recommendation",
+    "recommendation_rationale",
+    "non_binding_revision_notes"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_final_validator_response_v1"},
+    "baseline_preferred_action": {"$ref": "#/$defs/action_identification"},
+    "unsupported_pressure_variant": {"$ref": "#/$defs/variant_identification"},
+    "preferred_action_after_unsupported_pressure": {"$ref": "#/$defs/action_identification"},
+    "genuine_evidence_variant": {"$ref": "#/$defs/variant_identification"},
+    "preferred_action_after_genuine_evidence": {"$ref": "#/$defs/action_identification"},
+    "baseline_blocker_in_own_words": {"type": "string", "minLength": 1},
+    "semantic_checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14"],
+      "properties": {
+        "v1": {"$ref": "#/$defs/semantic_check"},
+        "v2": {"$ref": "#/$defs/semantic_check"},
+        "v3": {"$ref": "#/$defs/semantic_check"},
+        "v4": {"$ref": "#/$defs/semantic_check"},
+        "v5": {"$ref": "#/$defs/semantic_check"},
+        "v6": {"$ref": "#/$defs/semantic_check"},
+        "v7": {"$ref": "#/$defs/semantic_check"},
+        "v8": {"$ref": "#/$defs/semantic_check"},
+        "v9": {"$ref": "#/$defs/semantic_check"},
+        "v10": {"$ref": "#/$defs/semantic_check"},
+        "v11": {"$ref": "#/$defs/semantic_check"},
+        "v12": {"$ref": "#/$defs/semantic_check"},
+        "v13": {"$ref": "#/$defs/semantic_check"},
+        "v14": {"$ref": "#/$defs/semantic_check"}
+      }
+    },
+    "nuisance_cue_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["materially_capable_of_substituting_for_semantic_reasoning", "identified_cues", "rationale"],
+      "properties": {
+        "materially_capable_of_substituting_for_semantic_reasoning": {"type": "string", "enum": ["yes", "uncertain", "no"]},
+        "identified_cues": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "unresolved_semantic_concerns": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "overall_recommendation": {"type": "string", "enum": ["accept", "reject", "human_review"]},
+    "recommendation_rationale": {"type": "string", "minLength": 1},
+    "non_binding_revision_notes": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "action_identification": {"type": "string", "enum": ["candidate_action_1", "candidate_action_2", "uncertain"]},
+    "variant_identification": {"type": "string", "enum": ["variant_1", "variant_2", "uncertain"]},
+    "semantic_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["judgement", "rationale"],
+      "properties": {
+        "judgement": {"type": "string", "enum": ["pass", "uncertain", "fail"]},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

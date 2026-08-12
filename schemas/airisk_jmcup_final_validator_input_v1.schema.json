@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_final_validator_input_v1.schema.json",
+  "title": "airisk_jmcup_final_validator_input_v1",
+  "description": "Strict model-visible, role-blinded input for independent final validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "selected_source_material", "transformed_case"],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_final_validator_input_v1"},
+    "selected_source_material": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/source_occurrence"}
+    },
+    "transformed_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shared_scenario_text", "candidate_actions", "baseline", "variants"],
+      "properties": {
+        "shared_scenario_text": {"type": "string", "minLength": 1},
+        "candidate_actions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["candidate_action_1", "candidate_action_2"],
+          "properties": {
+            "candidate_action_1": {"type": "string", "minLength": 1},
+            "candidate_action_2": {"type": "string", "minLength": 1}
+          }
+        },
+        "baseline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["condition_addition_text"],
+          "properties": {"condition_addition_text": {"type": "null"}}
+        },
+        "variants": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["variant_1", "variant_2"],
+          "properties": {
+            "variant_1": {"$ref": "#/$defs/variant"},
+            "variant_2": {"$ref": "#/$defs/variant"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "source_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action_text", "action_body", "context_text"],
+      "properties": {
+        "action_text": {"type": "string"},
+        "action_body": {"type": "string"},
+        "context_text": {"type": "string"}
+      }
+    },
+    "source_occurrence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dilemma_text", "source_actions", "context_texts"],
+      "properties": {
+        "dilemma_text": {"type": "string", "minLength": 1},
+        "source_actions": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/source_action"}
+        },
+        "context_texts": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["condition_addition_text"],
+      "properties": {
+        "condition_addition_text": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
