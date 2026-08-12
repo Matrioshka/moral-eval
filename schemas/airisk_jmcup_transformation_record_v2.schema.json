@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_transformation_record_v2.schema.json",
+  "title": "airisk_jmcup_transformation_record_v2",
+  "description": "Canonical single-copy primitives for one proposed matched baseline, unsupported-pressure and genuine-evidence AIRisk JMCUP case.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "transformation_id",
+    "generation_group_id",
+    "record_status",
+    "resolved_source_review_sha256",
+    "source_eligibility_sha256",
+    "source_group_input_payload_sha256",
+    "author_input_payload_sha256",
+    "author_response_sha256",
+    "source_occurrence_ids_used",
+    "transformation_family",
+    "shared_scenario_text",
+    "bounded_action",
+    "broader_action",
+    "baseline_blocker",
+    "pressure_text",
+    "pressure_type",
+    "evidence_text",
+    "evidence_type",
+    "evidence_strength",
+    "source_fidelity_notes",
+    "rewrite_notes",
+    "matching_declarations",
+    "surface_form_diagnostics",
+    "lexical_warnings",
+    "coverage_metadata",
+    "provenance",
+    "semantic_truth_deterministically_established"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_transformation_record_v2"},
+    "transformation_id": {"type": "string", "pattern": "^airisk_jmcup_transform_airisk_generation_group_[0-9]{4}$"},
+    "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
+    "record_status": {"const": "proposal_pending_validation"},
+    "resolved_source_review_sha256": {"$ref": "#/$defs/sha256"},
+    "source_eligibility_sha256": {"$ref": "#/$defs/sha256"},
+    "source_group_input_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "author_input_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "author_response_sha256": {"$ref": "#/$defs/sha256"},
+    "source_occurrence_ids_used": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^airisk_pair_[0-9]{5}$"}
+    },
+    "transformation_family": {"type": "string", "minLength": 1},
+    "shared_scenario_text": {"type": "string", "minLength": 1},
+    "bounded_action": {"type": "string", "minLength": 1},
+    "broader_action": {"type": "string", "minLength": 1},
+    "baseline_blocker": {"type": "string", "minLength": 1},
+    "pressure_text": {"type": "string", "minLength": 1},
+    "pressure_type": {"type": "string", "minLength": 1},
+    "evidence_text": {"type": "string", "minLength": 1},
+    "evidence_type": {"type": "string", "minLength": 1},
+    "evidence_strength": {"type": "string", "minLength": 1},
+    "source_fidelity_notes": {"type": "string", "minLength": 1},
+    "rewrite_notes": {"type": "string", "minLength": 1},
+    "matching_declarations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "same_decision_axis",
+        "pressure_changes_no_relevant_facts",
+        "evidence_resolves_same_blocker",
+        "same_bounded_to_broader_transition",
+        "evidence_is_substantive_not_answer_key",
+        "rationales",
+        "semantic_assessment_only"
+      ],
+      "properties": {
+        "same_decision_axis": {"const": true},
+        "pressure_changes_no_relevant_facts": {"const": true},
+        "evidence_resolves_same_blocker": {"const": true},
+        "same_bounded_to_broader_transition": {"const": true},
+        "evidence_is_substantive_not_answer_key": {"const": true},
+        "rationales": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "same_decision_axis",
+            "pressure_changes_no_relevant_facts",
+            "evidence_resolves_same_blocker",
+            "same_bounded_to_broader_transition",
+            "evidence_is_substantive_not_answer_key"
+          ],
+          "properties": {
+            "same_decision_axis": {"type": "string", "minLength": 1},
+            "pressure_changes_no_relevant_facts": {"type": "string", "minLength": 1},
+            "evidence_resolves_same_blocker": {"type": "string", "minLength": 1},
+            "same_bounded_to_broader_transition": {"type": "string", "minLength": 1},
+            "evidence_is_substantive_not_answer_key": {"type": "string", "minLength": 1}
+          }
+        },
+        "semantic_assessment_only": {"const": true}
+      }
+    },
+    "surface_form_diagnostics": {"$ref": "#/$defs/surface_diagnostics"},
+    "lexical_warnings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["specification_version", "answer_key_marker_hits", "answer_key_leakage_warning", "formulaic_detection_method", "warning_only", "exclusion_criterion", "semantic_rejection_gate"],
+      "properties": {
+        "specification_version": {"const": "airisk_jmcup_transformation_lexical_diagnostics_v1"},
+        "answer_key_marker_hits": {"type": "array", "items": {"$ref": "#/$defs/marker_hit"}},
+        "answer_key_leakage_warning": {"type": "boolean"},
+        "formulaic_detection_method": {"const": "approved_literal_marker_list_only"},
+        "warning_only": {"const": true},
+        "exclusion_criterion": {"const": false},
+        "semantic_rejection_gate": {"const": false}
+      }
+    },
+    "coverage_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain_labels", "risk_labels"],
+      "properties": {
+        "domain_labels": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "risk_labels": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_review_stage_manifest_sha256",
+        "transformation_run_id",
+        "transformation_author_type",
+        "transformation_author_id",
+        "provider",
+        "requested_model",
+        "transformation_prompt_sha256",
+        "author_response_schema_sha256",
+        "canonical_transformation_schema_sha256",
+        "lexical_diagnostics_spec_sha256",
+        "pressure_taxonomy_version",
+        "evidence_taxonomy_version",
+        "created_at_utc"
+      ],
+      "properties": {
+        "source_review_stage_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "transformation_run_id": {"type": "string", "minLength": 1},
+        "transformation_author_type": {"const": "model"},
+        "transformation_author_id": {"type": "string", "minLength": 1},
+        "provider": {"type": "string", "enum": ["anthropic", "gemini", "openrouter"]},
+        "requested_model": {"type": "string", "minLength": 1},
+        "transformation_prompt_sha256": {"$ref": "#/$defs/sha256"},
+        "author_response_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "canonical_transformation_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "lexical_diagnostics_spec_sha256": {"$ref": "#/$defs/sha256"},
+        "pressure_taxonomy_version": {"type": "string", "minLength": 1},
+        "evidence_taxonomy_version": {"type": "string", "minLength": 1},
+        "created_at_utc": {"type": "string", "format": "date-time"}
+      }
+    },
+    "semantic_truth_deterministically_established": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "marker_hit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "marker_id", "matched_literal"],
+      "properties": {
+        "field": {"type": "string", "enum": ["shared_scenario_text", "bounded_action", "broader_action", "baseline_blocker", "pressure_text", "evidence_text"]},
+        "marker_id": {"type": "string", "minLength": 1},
+        "matched_literal": {"type": "string", "minLength": 1}
+      }
+    },
+    "text_metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["character_count", "word_count", "sentence_count", "line_count", "bullet_count", "heading_count", "contains_markdown", "semantic_marker_categories"],
+      "properties": {
+        "character_count": {"type": "integer", "minimum": 1},
+        "word_count": {"type": "integer", "minimum": 1},
+        "sentence_count": {"type": "integer", "minimum": 1},
+        "line_count": {"type": "integer", "minimum": 1},
+        "bullet_count": {"type": "integer", "minimum": 0},
+        "heading_count": {"type": "integer", "minimum": 0},
+        "contains_markdown": {"type": "boolean"},
+        "semantic_marker_categories": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/semantic_category_count"}
+        }
+      }
+    },
+    "marker_count": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["marker", "count"],
+      "properties": {
+        "marker": {"type": "string", "minLength": 1},
+        "count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "semantic_category_count": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "semantic_marker_family", "expected_side", "occurrence_count", "marker_counts"],
+      "properties": {
+        "category": {"type": "string", "enum": ["authority", "urgency", "reputation", "social_consensus", "reassurance", "verification", "certification"]},
+        "semantic_marker_family": {"type": "string", "enum": ["pressure_semantic", "evidence_semantic"]},
+        "expected_side": {"type": "string", "enum": ["pressure", "evidence"]},
+        "occurrence_count": {"type": "integer", "minimum": 0},
+        "marker_counts": {"type": "array", "items": {"$ref": "#/$defs/marker_count"}}
+      }
+    },
+    "semantic_presence_difference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "semantic_marker_family", "expected_side", "pressure_present", "evidence_present", "pressure_count", "evidence_count"],
+      "properties": {
+        "category": {"type": "string", "minLength": 1},
+        "semantic_marker_family": {"type": "string", "enum": ["pressure_semantic", "evidence_semantic"]},
+        "expected_side": {"type": "string", "enum": ["pressure", "evidence"]},
+        "pressure_present": {"type": "boolean"},
+        "evidence_present": {"type": "boolean"},
+        "pressure_count": {"type": "integer", "minimum": 0},
+        "evidence_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "unexpected_side_hit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "semantic_marker_family", "expected_side", "unexpected_side", "occurrence_count"],
+      "properties": {
+        "category": {"type": "string", "minLength": 1},
+        "semantic_marker_family": {"type": "string", "enum": ["pressure_semantic", "evidence_semantic"]},
+        "expected_side": {"type": "string", "enum": ["pressure", "evidence"]},
+        "unexpected_side": {"type": "string", "enum": ["pressure", "evidence"]},
+        "occurrence_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "heuristic_thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["length_ratio_max", "absolute_word_count_difference_max", "absolute_sentence_count_difference_max"],
+      "properties": {
+        "length_ratio_max": {"const": 1.75},
+        "absolute_word_count_difference_max": {"const": 35},
+        "absolute_sentence_count_difference_max": {"const": 2}
+      }
+    },
+    "surface_diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["specification_version", "calibration_status", "heuristic_thresholds", "thresholds_validated", "pressure", "evidence", "comparison", "warnings", "warning_only", "exclusion_criterion", "semantic_rejection_gate"],
+      "properties": {
+        "specification_version": {"const": "airisk_jmcup_transformation_lexical_diagnostics_v1"},
+        "calibration_status": {"const": "uncalibrated_heuristic"},
+        "heuristic_thresholds": {"$ref": "#/$defs/heuristic_thresholds"},
+        "thresholds_validated": {"const": false},
+        "pressure": {"$ref": "#/$defs/text_metrics"},
+        "evidence": {"$ref": "#/$defs/text_metrics"},
+        "comparison": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["character_count_difference", "word_count_difference", "sentence_count_difference", "length_ratio", "line_count_match", "bullet_count_match", "heading_count_match", "markdown_presence_match", "semantic_category_presence_differences", "unexpected_side_semantic_marker_hits"],
+          "properties": {
+            "character_count_difference": {"type": "integer", "minimum": 0},
+            "word_count_difference": {"type": "integer", "minimum": 0},
+            "sentence_count_difference": {"type": "integer", "minimum": 0},
+            "length_ratio": {"type": "number", "minimum": 1},
+            "line_count_match": {"type": "boolean"},
+            "bullet_count_match": {"type": "boolean"},
+            "heading_count_match": {"type": "boolean"},
+            "markdown_presence_match": {"type": "boolean"},
+            "semantic_category_presence_differences": {"type": "array", "items": {"$ref": "#/$defs/semantic_presence_difference"}},
+            "unexpected_side_semantic_marker_hits": {"type": "array", "items": {"$ref": "#/$defs/unexpected_side_hit"}}
+          }
+        },
+        "warnings": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "warning_only": {"const": true},
+        "exclusion_criterion": {"const": false},
+        "semantic_rejection_gate": {"const": false}
+      }
+    }
+  }
+}

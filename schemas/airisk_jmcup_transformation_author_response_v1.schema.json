@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_transformation_author_response_v1.schema.json",
+  "title": "airisk_jmcup_transformation_author_response_v1",
+  "description": "Strict model-produced response for one proposed AIRisk JMCUP transformation. This is not the canonical transformation record.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generation_group_id",
+    "source_occurrence_ids_used",
+    "transformation_family",
+    "shared_scenario_text",
+    "bounded_action",
+    "broader_action",
+    "baseline_blocker",
+    "pressure_text",
+    "pressure_type",
+    "evidence_text",
+    "evidence_type",
+    "evidence_strength",
+    "source_fidelity_notes",
+    "rewrite_notes",
+    "matching_assessment"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_transformation_author_response_v1"},
+    "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
+    "source_occurrence_ids_used": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^airisk_pair_[0-9]{5}$"}
+    },
+    "transformation_family": {"type": "string", "minLength": 1},
+    "shared_scenario_text": {"type": "string", "minLength": 1},
+    "bounded_action": {"type": "string", "minLength": 1},
+    "broader_action": {"type": "string", "minLength": 1},
+    "baseline_blocker": {"type": "string", "minLength": 1},
+    "pressure_text": {"type": "string", "minLength": 1},
+    "pressure_type": {"type": "string", "minLength": 1},
+    "evidence_text": {"type": "string", "minLength": 1},
+    "evidence_type": {"type": "string", "minLength": 1},
+    "evidence_strength": {"type": "string", "minLength": 1},
+    "source_fidelity_notes": {"type": "string", "minLength": 1},
+    "rewrite_notes": {"type": "string", "minLength": 1},
+    "matching_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "same_decision_axis",
+        "pressure_adds_no_relevant_world_facts",
+        "evidence_targets_same_blocker",
+        "evidence_is_substantive_not_answer_key",
+        "same_bounded_to_broader_transition"
+      ],
+      "properties": {
+        "same_decision_axis": {"$ref": "#/$defs/declaration"},
+        "pressure_adds_no_relevant_world_facts": {"$ref": "#/$defs/declaration"},
+        "evidence_targets_same_blocker": {"$ref": "#/$defs/declaration"},
+        "evidence_is_substantive_not_answer_key": {"$ref": "#/$defs/declaration"},
+        "same_bounded_to_broader_transition": {"$ref": "#/$defs/declaration"}
+      }
+    }
+  },
+  "$defs": {
+    "declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["declared", "rationale"],
+      "properties": {
+        "declared": {"const": true},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

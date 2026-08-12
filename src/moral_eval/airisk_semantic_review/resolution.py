@@ -27,9 +27,9 @@ from .core import (
 )
 
 
-RESOLVED_SOURCE_REVIEW_SCHEMA_VERSION = "airisk_jmcup_resolved_source_review_v1"
+RESOLVED_SOURCE_REVIEW_SCHEMA_VERSION = "airisk_jmcup_resolved_source_review_v2"
 SOURCE_ELIGIBILITY_SCHEMA_VERSION = "airisk_jmcup_source_eligibility_v1"
-RESOLUTION_MANIFEST_VERSION = "airisk_jmcup_source_resolution_manifest_v1"
+RESOLUTION_MANIFEST_VERSION = "airisk_jmcup_source_resolution_manifest_v2"
 DEFAULT_RESOLVED_SCHEMA_PATH = (
     REPO_ROOT / "schemas" / f"{RESOLVED_SOURCE_REVIEW_SCHEMA_VERSION}.schema.json"
 )
@@ -47,6 +47,9 @@ DEFAULT_OPUS_RESPONSE_SCHEMA_PATH = (
 )
 DEFAULT_ADJUDICATOR_RUN_RECORD_SCHEMA_PATH = (
     REPO_ROOT / "schemas" / "airisk_jmcup_adjudicator_run_record_v1.schema.json"
+)
+DEFAULT_SOURCE_GROUP_INPUT_SCHEMA_PATH = (
+    REPO_ROOT / "schemas" / "airisk_jmcup_group_semantic_review_input_v1.schema.json"
 )
 
 FIDELITY_ORDER = {"low": 0, "moderate": 1, "high": 2}
@@ -302,6 +305,8 @@ def _base_record(
     sampling_manifest_sha256: str,
     private_provenance_sha256: str,
     deterministic_seed_sha256: str,
+    source_group_input_schema_sha256: str,
+    source_group_input_payload_sha256: str,
 ) -> dict[str, Any]:
     review_a = comparison["reviewer_a"]["response"]
     review_b = comparison["reviewer_b"]["response"]
@@ -355,6 +360,8 @@ def _base_record(
             "sampling_manifest_sha256": sampling_manifest_sha256,
             "private_provenance_sha256": private_provenance_sha256,
             "deterministic_seed_sha256": deterministic_seed_sha256,
+            "source_group_input_schema_sha256": source_group_input_schema_sha256,
+            "source_group_input_payload_sha256": source_group_input_payload_sha256,
         },
         "semantic_truth_deterministically_established": False,
     }
@@ -368,6 +375,8 @@ def resolve_comparison(
     sampling_manifest_sha256: str,
     private_provenance_sha256: str,
     deterministic_seed_sha256: str,
+    source_group_input_schema_sha256: str,
+    source_group_input_payload_sha256: str,
 ) -> dict[str, Any]:
     """Resolve one comparison without averaging criteria or model verdicts."""
 
@@ -376,6 +385,8 @@ def resolve_comparison(
         sampling_manifest_sha256=sampling_manifest_sha256,
         private_provenance_sha256=private_provenance_sha256,
         deterministic_seed_sha256=deterministic_seed_sha256,
+        source_group_input_schema_sha256=source_group_input_schema_sha256,
+        source_group_input_payload_sha256=source_group_input_payload_sha256,
     )
     review_a = comparison["reviewer_a"]["response"]
     review_b = comparison["reviewer_b"]["response"]
@@ -529,12 +540,14 @@ def merge_resolved_source_reviews(
     sampling_manifest_path: Path,
     private_provenance_path: Path,
     opus_payloads_path: Path,
+    blinded_source_payloads_path: Path,
     output_dir: Path,
     adjudication_records_path: Path | None = None,
     comparison_schema_path: Path = DEFAULT_COMPARISON_SCHEMA_PATH,
     opus_input_schema_path: Path = DEFAULT_OPUS_INPUT_SCHEMA_PATH,
     opus_response_schema_path: Path = DEFAULT_OPUS_RESPONSE_SCHEMA_PATH,
     adjudicator_run_record_schema_path: Path = DEFAULT_ADJUDICATOR_RUN_RECORD_SCHEMA_PATH,
+    source_group_input_schema_path: Path = DEFAULT_SOURCE_GROUP_INPUT_SCHEMA_PATH,
     resolved_schema_path: Path = DEFAULT_RESOLVED_SCHEMA_PATH,
     eligibility_schema_path: Path = DEFAULT_ELIGIBILITY_SCHEMA_PATH,
     overwrite: bool = False,
@@ -543,6 +556,7 @@ def merge_resolved_source_reviews(
     sampling_manifest = read_json(sampling_manifest_path)
     private_provenance = read_json(private_provenance_path)
     payloads = read_jsonl(opus_payloads_path)
+    source_payloads = read_jsonl(blinded_source_payloads_path)
     if not comparisons:
         raise SemanticReviewError("Comparison corpus is empty")
     seed = private_provenance.get("deterministic_seed")
@@ -560,6 +574,19 @@ def merge_resolved_source_reviews(
         if group_id in comparison_by_id:
             raise SemanticReviewError(f"Duplicate comparison for {group_id}")
         comparison_by_id[group_id] = item
+
+    source_input_schema = load_schema(source_group_input_schema_path)
+    source_payload_by_id: dict[str, dict[str, Any]] = {}
+    for payload in source_payloads:
+        validate_instance(payload, source_input_schema, label="blinded source payload")
+        group_id = payload["generation_group_id"]
+        if group_id in source_payload_by_id:
+            raise SemanticReviewError(f"Duplicate blinded source payload for {group_id}")
+        source_payload_by_id[group_id] = payload
+    if set(source_payload_by_id) != set(comparison_by_id):
+        raise SemanticReviewError(
+            "Blinded source payload group set differs from comparison corpus"
+        )
 
     opus_input_schema = load_schema(opus_input_schema_path)
     payload_by_id: dict[str, dict[str, Any]] = {}
@@ -616,7 +643,11 @@ def merge_resolved_source_reviews(
     manifest_sha = sha256_path(sampling_manifest_path)
     private_sha = sha256_path(private_provenance_path)
     resolved = []
+    source_input_schema_sha = sha256_path(source_group_input_schema_path)
     for group_id in sorted(comparison_by_id):
+        source_payload_sha = sha256_text(
+            canonical_json(source_payload_by_id[group_id])
+        )
         record = resolve_comparison(
             comparison_by_id[group_id],
             selection_reason=selection_reason.get(group_id),
@@ -624,6 +655,8 @@ def merge_resolved_source_reviews(
             sampling_manifest_sha256=manifest_sha,
             private_provenance_sha256=private_sha,
             deterministic_seed_sha256=seed_sha,
+            source_group_input_schema_sha256=source_input_schema_sha,
+            source_group_input_payload_sha256=source_payload_sha,
         )
         resolved.append(record)
 
@@ -678,6 +711,9 @@ def merge_resolved_source_reviews(
             sha256_path(adjudication_records_path)
             if adjudication_records_path is not None else None
         ),
+        "blinded_source_payloads_path": str(blinded_source_payloads_path.resolve()),
+        "blinded_source_payloads_sha256": sha256_path(blinded_source_payloads_path),
+        "source_group_input_schema_sha256": source_input_schema_sha,
         "resolved_schema_sha256": sha256_path(resolved_schema_path),
         "eligibility_schema_sha256": sha256_path(eligibility_schema_path),
         "resolved_source_reviews_path": str(paths["resolved"]),

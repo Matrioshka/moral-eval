@@ -1895,6 +1895,7 @@ def prepare_smoke_downstream(tmp_path: Path, *, seed: str = "smoke-fixture-seed"
     core.write_jsonl(claude_path, claude)
     core.write_jsonl(gemini_path, gemini)
     output = tmp_path / "prepared"
+    core.write_jsonl(output / "source_payloads.jsonl", payloads)
     prepare_adjudication(
         claude_path,
         gemini_path,
@@ -2077,6 +2078,7 @@ def test_consensus_reject_keeps_disputed_criterion_unresolved(tmp_path: Path) ->
         sampling_manifest_path=prepared / "opus_adjudication_manifest.json",
         private_provenance_path=prepared / "opus_adjudication_private_provenance.json",
         opus_payloads_path=prepared / "opus_adjudication_payloads.jsonl",
+        blinded_source_payloads_path=prepared / "source_payloads.jsonl",
         output_dir=tmp_path / "resolved",
     )
     resolved = core.read_jsonl(Path(result["resolved_source_reviews_path"]))
@@ -2129,6 +2131,7 @@ def test_opus_qc_confirmation_is_evidence_and_does_not_supersede_consensus(
         sampling_manifest_path=prepared / "opus_adjudication_manifest.json",
         private_provenance_path=prepared / "opus_adjudication_private_provenance.json",
         opus_payloads_path=prepared / "opus_adjudication_payloads.jsonl",
+        blinded_source_payloads_path=prepared / "source_payloads.jsonl",
         adjudication_records_path=records_path,
         output_dir=tmp_path / "qc-resolved",
     )
@@ -2174,6 +2177,7 @@ def test_opus_qc_disagreement_triggers_pending_human_review(tmp_path: Path) -> N
         sampling_manifest_path=prepared / "opus_adjudication_manifest.json",
         private_provenance_path=prepared / "opus_adjudication_private_provenance.json",
         opus_payloads_path=prepared / "opus_adjudication_payloads.jsonl",
+        blinded_source_payloads_path=prepared / "source_payloads.jsonl",
         adjudication_records_path=records_path,
         output_dir=tmp_path / "qc-conflict-resolved",
     )
@@ -2213,6 +2217,7 @@ def test_needs_adjudication_is_resolved_independently_without_voting(
         sampling_manifest_path=prepared / "opus_adjudication_manifest.json",
         private_provenance_path=prepared / "opus_adjudication_private_provenance.json",
         opus_payloads_path=prepared / "opus_adjudication_payloads.jsonl",
+        blinded_source_payloads_path=prepared / "source_payloads.jsonl",
         adjudication_records_path=records_path,
         output_dir=tmp_path / "needs-resolved",
     )

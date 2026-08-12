@@ -21,7 +21,7 @@ from .core import (
 )
 
 
-TRANSFORMATION_SCHEMA_VERSION = "airisk_jmcup_transformation_record_v1"
+TRANSFORMATION_SCHEMA_VERSION = "airisk_jmcup_transformation_record_v2"
 POST_TRANSFORMATION_AUDIT_SCHEMA_VERSION = (
     "airisk_jmcup_post_transformation_audit_v1"
 )
@@ -45,6 +45,10 @@ def validate_transformation_record(
     from .core import validation_errors
 
     errors = validation_errors(record, schema)
+    if record.get("schema_version") == "airisk_jmcup_transformation_record_v2":
+        from .transformation import validate_canonical_transformation_record
+
+        return validate_canonical_transformation_record(record, schema)
     conditions = record.get("conditions")
     if not isinstance(conditions, Mapping):
         return sorted(set(errors))
@@ -97,15 +101,25 @@ def _normalise_text(value: str) -> str:
 
 
 def _audit_text(record: Mapping[str, Any]) -> str:
-    conditions = record["conditions"]
-    fields = [
-        record["bounded_action"],
-        record["broader_action"],
-        record["baseline_blocker"],
-        conditions["matched_baseline"]["scenario_text"],
-        conditions["unsupported_pressure"]["pressure_text"],
-        conditions["genuine_evidence"]["evidence_text"],
-    ]
+    if record.get("schema_version") == "airisk_jmcup_transformation_record_v2":
+        fields = [
+            record["bounded_action"],
+            record["broader_action"],
+            record["baseline_blocker"],
+            record["shared_scenario_text"],
+            record["pressure_text"],
+            record["evidence_text"],
+        ]
+    else:
+        conditions = record["conditions"]
+        fields = [
+            record["bounded_action"],
+            record["broader_action"],
+            record["baseline_blocker"],
+            conditions["matched_baseline"]["scenario_text"],
+            conditions["unsupported_pressure"]["pressure_text"],
+            conditions["genuine_evidence"]["evidence_text"],
+        ]
     return "\n".join(_normalise_text(value) for value in fields)
 
 
@@ -212,21 +226,32 @@ def audit_transformation_file(
     transformations_path: Path,
     output_path: Path,
     near_duplicate_threshold: float = DEFAULT_NEAR_DUPLICATE_THRESHOLD,
-    transformation_schema_path: Path = DEFAULT_TRANSFORMATION_SCHEMA_PATH,
+    transformation_schema_path: Path | None = None,
     audit_schema_path: Path = DEFAULT_AUDIT_SCHEMA_PATH,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     if output_path.exists() and not overwrite:
         raise SemanticReviewError(f"Refusing to overwrite audit: {output_path}")
     records = read_jsonl(transformations_path)
-    transformation_schema = load_schema(transformation_schema_path)
     seen = set()
     for record in records:
         transformation_id = record.get("transformation_id")
         if transformation_id in seen:
             raise SemanticReviewError(f"Duplicate transformation ID: {transformation_id}")
         seen.add(transformation_id)
-        errors = validate_transformation_record(record, transformation_schema)
+        if transformation_schema_path is None:
+            version = record.get("schema_version")
+            if version not in {
+                "airisk_jmcup_transformation_record_v1",
+                "airisk_jmcup_transformation_record_v2",
+            }:
+                raise SemanticReviewError(
+                    f"Unsupported transformation schema version: {version!r}"
+                )
+            schema_path = REPO_ROOT / "schemas" / f"{version}.schema.json"
+        else:
+            schema_path = transformation_schema_path
+        errors = validate_transformation_record(record, load_schema(schema_path))
         if errors:
             raise SemanticReviewError(
                 f"Transformation {transformation_id} failed local structural "
