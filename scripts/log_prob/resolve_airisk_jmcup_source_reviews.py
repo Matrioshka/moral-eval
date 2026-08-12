@@ -27,7 +27,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--private-provenance", type=Path, required=True)
     parser.add_argument("--opus-payloads", type=Path, required=True)
     parser.add_argument("--blinded-source-payloads", type=Path, required=True)
+    parser.add_argument("--blinded-source-payloads-provenance", type=Path)
     parser.add_argument("--adjudications", type=Path)
+    parser.add_argument("--adjudication-run-manifest", type=Path)
+    parser.add_argument("--adjudication-audit", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--overwrite", action="store_true")
     return parser
@@ -42,7 +45,12 @@ def main(argv: list[str] | None = None) -> int:
             private_provenance_path=args.private_provenance,
             opus_payloads_path=args.opus_payloads,
             blinded_source_payloads_path=args.blinded_source_payloads,
+            blinded_source_payloads_provenance_path=(
+                args.blinded_source_payloads_provenance
+            ),
             adjudication_records_path=args.adjudications,
+            adjudication_run_manifest_path=args.adjudication_run_manifest,
+            adjudication_audit_path=args.adjudication_audit,
             output_dir=args.output_dir,
             overwrite=args.overwrite,
         )

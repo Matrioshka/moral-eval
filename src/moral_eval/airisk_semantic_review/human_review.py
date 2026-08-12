@@ -18,6 +18,7 @@ from .core import (
     SemanticReviewError,
     canonical_json,
     load_schema,
+    read_json,
     read_jsonl,
     sha256_path,
     sha256_text,
@@ -502,6 +503,7 @@ def prepare_source_human_review_bundle(
     eligibility_path: Path,
     comparisons_path: Path,
     output_dir: Path,
+    source_resolution_manifest_path: Path | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     sources = _read_validated_index(
@@ -520,6 +522,54 @@ def prepare_source_human_review_bundle(
         comparisons_path, schema_path=DEFAULT_COMPARISON_SCHEMA_PATH,
         key="generation_group_id", label="review comparison",
     )
+    terminal_provider_block_ids: set[str] = set()
+    operational_reasons: dict[str, list[str]] = {}
+    if source_resolution_manifest_path is not None:
+        resolution_manifest = read_json(source_resolution_manifest_path)
+        expected_hashes = {
+            "resolved_source_reviews_sha256": resolved_reviews_path,
+            "source_eligibility_sha256": eligibility_path,
+            "comparison_sha256": comparisons_path,
+            "blinded_source_payloads_sha256": source_payloads_path,
+        }
+        for field, path in expected_hashes.items():
+            if resolution_manifest.get(field) != sha256_path(path):
+                raise SemanticReviewError(
+                    f"Source-resolution manifest {field} differs from supplied artefact"
+                )
+        terminal_raw = resolution_manifest.get(
+            "terminal_provider_block_group_ids", []
+        )
+        if not isinstance(terminal_raw, list) or any(
+            not isinstance(group_id, str) for group_id in terminal_raw
+        ):
+            raise SemanticReviewError(
+                "Invalid terminal-provider-block groups in source-resolution manifest"
+            )
+        terminal_provider_block_ids = set(terminal_raw)
+        if len(terminal_provider_block_ids) != len(terminal_raw):
+            raise SemanticReviewError(
+                "Duplicate terminal-provider-block group in source-resolution manifest"
+            )
+        reasons_raw = resolution_manifest.get(
+            "pending_human_review_operational_reasons", {}
+        )
+        if not isinstance(reasons_raw, Mapping):
+            raise SemanticReviewError(
+                "Invalid operational reasons in source-resolution manifest"
+            )
+        for group_id, reasons in reasons_raw.items():
+            if not isinstance(group_id, str) or not isinstance(reasons, list) or any(
+                not isinstance(reason, str) or not reason for reason in reasons
+            ):
+                raise SemanticReviewError(
+                    "Invalid group/reason in source-resolution operational reasons"
+                )
+            operational_reasons[group_id] = list(reasons)
+        if set(operational_reasons) != terminal_provider_block_ids:
+            raise SemanticReviewError(
+                "Terminal-block groups and operational reason groups differ"
+            )
     source_response_schema = load_schema(DEFAULT_SOURCE_RESPONSE_SCHEMA_PATH)
     pending_resolved = {
         key for key, value in resolved.items()
@@ -577,13 +627,25 @@ def prepare_source_human_review_bundle(
             if item["reviewer_a"] != item["reviewer_b"]
         )
         reasons = ["resolved_source_pending_human_review"]
+        reasons.extend(operational_reasons.get(group_id, []))
         reasons.extend(f"unresolved_criterion:{key}" for key in unresolved)
         reasons.extend(f"reviewer_disagreement:{key}" for key in disputed)
         if review["source_fidelity"]["resolution_status"] == "unresolved":
             reasons.append("source_fidelity_unresolved")
         if review["rewrite_level"]["resolution_status"] == "unresolved":
             reasons.append("rewrite_level_unresolved")
-        if review.get("qc_evidence") is not None:
+        if group_id in terminal_provider_block_ids:
+            if (
+                review.get("qc_evidence") is not None
+                or review.get("adjudication_evidence") is not None
+                or review["resolved_disposition"] != "unresolved"
+                or review["resolution_source"] != "pending"
+            ):
+                raise SemanticReviewError(
+                    f"Terminal provider block has fabricated semantic resolution for {group_id}"
+                )
+            route = "unresolved_model_resolution"
+        elif review.get("qc_evidence") is not None:
             reasons.append(f"qc_outcome:{review['qc_evidence']['qc_outcome']}")
             route = "consensus_qc_disagreement"
         elif review.get("adjudication_evidence") is not None:
@@ -639,6 +701,10 @@ def prepare_source_human_review_bundle(
             ("resolved_source_reviews", resolved_reviews_path),
             ("source_eligibility", eligibility_path),
             ("review_comparisons", comparisons_path),
+            *(
+                (("source_resolution_manifest", source_resolution_manifest_path),)
+                if source_resolution_manifest_path is not None else ()
+            ),
         ),
         queue_schema_path=DEFAULT_SOURCE_QUEUE_SCHEMA_PATH,
         submission_schema_path=DEFAULT_SOURCE_SUBMISSION_SCHEMA_PATH,

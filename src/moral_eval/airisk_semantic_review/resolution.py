@@ -10,6 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from .adjudication import TRANSFORMATION_FIELDS
+from .adjudication_audit import (
+    AUDIT_PROTOCOL_VERSION,
+    AUDIT_SCHEMA_VERSION,
+    DEFAULT_AUDIT_SCHEMA_PATH,
+    DEFAULT_RUN_MANIFEST_SCHEMA_PATH,
+    TERMINAL_BLOCK_RULE_VERSION,
+)
 from .adjudication_execution import validate_adjudication_response
 from .core import (
     CRITERION_KEYS,
@@ -609,8 +616,11 @@ def merge_resolved_source_reviews(
     private_provenance_path: Path,
     opus_payloads_path: Path,
     blinded_source_payloads_path: Path,
+    blinded_source_payloads_provenance_path: Path | None = None,
     output_dir: Path,
     adjudication_records_path: Path | None = None,
+    adjudication_run_manifest_path: Path | None = None,
+    adjudication_audit_path: Path | None = None,
     comparison_schema_path: Path = DEFAULT_COMPARISON_SCHEMA_PATH,
     opus_input_schema_path: Path = DEFAULT_OPUS_INPUT_SCHEMA_PATH,
     opus_response_schema_path: Path = DEFAULT_OPUS_RESPONSE_SCHEMA_PATH,
@@ -618,6 +628,8 @@ def merge_resolved_source_reviews(
     source_group_input_schema_path: Path = DEFAULT_SOURCE_GROUP_INPUT_SCHEMA_PATH,
     resolved_schema_path: Path = DEFAULT_RESOLVED_SCHEMA_PATH,
     eligibility_schema_path: Path = DEFAULT_ELIGIBILITY_SCHEMA_PATH,
+    adjudication_run_manifest_schema_path: Path = DEFAULT_RUN_MANIFEST_SCHEMA_PATH,
+    adjudication_audit_schema_path: Path = DEFAULT_AUDIT_SCHEMA_PATH,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     comparisons = read_jsonl(comparison_path)
@@ -627,6 +639,33 @@ def merge_resolved_source_reviews(
     source_payloads = read_jsonl(blinded_source_payloads_path)
     if not comparisons:
         raise SemanticReviewError("Comparison corpus is empty")
+    source_payloads_provenance: dict[str, Any] | None = None
+    if blinded_source_payloads_provenance_path is not None:
+        source_payloads_provenance = read_json(
+            blinded_source_payloads_provenance_path
+        )
+        if (
+            source_payloads_provenance.get("dry_run") is not True
+            or source_payloads_provenance.get("external_api_calls") != 0
+            or source_payloads_provenance.get("payload_count") != len(source_payloads)
+            or source_payloads_provenance.get("unique_generation_group_id_count")
+            != len(source_payloads)
+        ):
+            raise SemanticReviewError("Invalid blinded source-payload provenance report")
+        output_provenance = source_payloads_provenance.get("outputs")
+        if not isinstance(output_provenance, Mapping) or output_provenance.get(
+            "blinded_payloads_sha256"
+        ) != sha256_path(blinded_source_payloads_path):
+            raise SemanticReviewError(
+                "Blinded source-payload provenance hash differs from supplied corpus"
+            )
+        schema_provenance = source_payloads_provenance.get("schemas")
+        if not isinstance(schema_provenance, Mapping) or schema_provenance.get(
+            "input_sha256"
+        ) != sha256_path(source_group_input_schema_path):
+            raise SemanticReviewError(
+                "Blinded source-payload provenance uses a different input schema"
+            )
     seed = private_provenance.get("deterministic_seed")
     seed_sha = private_provenance.get("deterministic_seed_sha256")
     if not isinstance(seed, str) or not seed or sha256_text(seed) != seed_sha:
@@ -669,6 +708,13 @@ def merge_resolved_source_reviews(
         raise SemanticReviewError("Opus payloads do not match sampling manifest")
     if not selected_ids <= set(comparison_by_id):
         raise SemanticReviewError("Sampling manifest contains unknown comparison groups")
+    for group_id, payload in payload_by_id.items():
+        if canonical_json(payload["source_group"]) != canonical_json(
+            source_payload_by_id[group_id]
+        ):
+            raise SemanticReviewError(
+                f"Opus and blinded-corpus source payloads differ for {group_id}"
+            )
 
     private_mapping = {
         item["generation_group_id"]: item
@@ -681,8 +727,89 @@ def merge_resolved_source_reviews(
         for group_id in selected_ids
     }
 
+    supplied_adjudication_artifacts = (
+        adjudication_records_path,
+        adjudication_run_manifest_path,
+        adjudication_audit_path,
+    )
+    if any(path is not None for path in supplied_adjudication_artifacts) and not all(
+        path is not None for path in supplied_adjudication_artifacts
+    ):
+        raise SemanticReviewError(
+            "Adjudication journal, run manifest, and offline audit must be supplied together"
+        )
+
     adjudication_by_id: dict[str, dict[str, Any]] = {}
+    terminal_provider_block_ids: set[str] = set()
+    adjudication_audit: dict[str, Any] | None = None
+    adjudication_run_manifest: dict[str, Any] | None = None
     if adjudication_records_path is not None:
+        assert adjudication_run_manifest_path is not None
+        assert adjudication_audit_path is not None
+        adjudication_run_manifest = read_json(adjudication_run_manifest_path)
+        validate_instance(
+            adjudication_run_manifest,
+            load_schema(adjudication_run_manifest_schema_path),
+            label="adjudicator run manifest",
+        )
+        if adjudication_run_manifest["selected_generation_group_ids"] != sampling_manifest[
+            "selected_group_ids"
+        ]:
+            raise SemanticReviewError(
+                "Adjudicator run-manifest group order differs from sampling manifest"
+            )
+        adjudication_audit = read_json(adjudication_audit_path)
+        validate_instance(
+            adjudication_audit,
+            load_schema(adjudication_audit_schema_path),
+            label="adjudicator run audit",
+        )
+        if adjudication_audit["audit_protocol_version"] != AUDIT_PROTOCOL_VERSION:
+            raise SemanticReviewError("Unexpected adjudicator audit protocol")
+        if adjudication_audit["terminal_provider_block_rule"]["version"] != (
+            TERMINAL_BLOCK_RULE_VERSION
+        ):
+            raise SemanticReviewError("Unexpected terminal-provider-block rule")
+        if adjudication_audit["adjudicator_run_id"] != adjudication_run_manifest[
+            "adjudicator_run_id"
+        ]:
+            raise SemanticReviewError("Audit and run-manifest run IDs differ")
+        for field in ("provider", "requested_model", "model_settings"):
+            if adjudication_audit[field] != adjudication_run_manifest[field]:
+                raise SemanticReviewError(
+                    f"Audit {field} differs from adjudicator run manifest"
+                )
+        expected_audit_artifacts = {
+            "preparation_manifest": sampling_manifest_path,
+            "adjudication_payloads": opus_payloads_path,
+            "run_manifest": adjudication_run_manifest_path,
+            "adjudication_journal": adjudication_records_path,
+        }
+        for role, path in expected_audit_artifacts.items():
+            artifact = adjudication_audit["artifacts"][role]
+            if artifact["sha256"] != sha256_path(path):
+                raise SemanticReviewError(
+                    f"Adjudicator audit {role} hash differs from supplied artefact"
+                )
+        audit_selected_partition = (
+            set(adjudication_audit["completed_group_ids"])
+            | set(adjudication_audit["terminal_provider_block_group_ids"])
+            | set(adjudication_audit["nonterminal_unresolved_group_ids"])
+        )
+        if audit_selected_partition != selected_ids:
+            raise SemanticReviewError(
+                "Adjudicator audit group partition differs from sampling manifest"
+            )
+        if (
+            set(adjudication_audit["terminal_provider_block_group_ids"])
+            & set(adjudication_audit["completed_group_ids"])
+        ):
+            raise SemanticReviewError(
+                "Adjudicator audit marks a completed group as terminally blocked"
+            )
+        terminal_provider_block_ids = set(
+            adjudication_audit["terminal_provider_block_group_ids"]
+        )
         run_schema = load_schema(adjudicator_run_record_schema_path)
         response_schema = load_schema(opus_response_schema_path)
         for item in read_jsonl(adjudication_records_path):
@@ -707,6 +834,10 @@ def merge_resolved_source_reviews(
                     f"Completed adjudication is invalid for {group_id}: {errors}"
                 )
             adjudication_by_id[group_id] = item
+        if set(adjudication_by_id) != set(adjudication_audit["completed_group_ids"]):
+            raise SemanticReviewError(
+                "Completed adjudications differ from the audited completed group set"
+            )
 
     manifest_sha = sha256_path(sampling_manifest_path)
     private_sha = sha256_path(private_provenance_path)
@@ -726,6 +857,17 @@ def merge_resolved_source_reviews(
             source_group_input_schema_sha256=source_input_schema_sha,
             source_group_input_payload_sha256=source_payload_sha,
         )
+        if group_id in terminal_provider_block_ids:
+            # This is an operational route, not a semantic adjudication.  Preserve
+            # reviewer evidence already present in the base record but attach no
+            # fabricated Opus judgement or QC evidence.
+            record.update(
+                resolution_status="pending_human_review",
+                resolved_disposition="unresolved",
+                resolution_source="pending",
+                adjudication_evidence=None,
+                qc_evidence=None,
+            )
         resolved.append(record)
 
     resolved_schema = load_schema(resolved_schema_path)
@@ -779,8 +921,51 @@ def merge_resolved_source_reviews(
             sha256_path(adjudication_records_path)
             if adjudication_records_path is not None else None
         ),
+        "adjudication_run_manifest_path": (
+            str(adjudication_run_manifest_path.resolve())
+            if adjudication_run_manifest_path is not None else None
+        ),
+        "adjudication_run_manifest_sha256": (
+            sha256_path(adjudication_run_manifest_path)
+            if adjudication_run_manifest_path is not None else None
+        ),
+        "adjudication_run_manifest_schema_sha256": (
+            sha256_path(adjudication_run_manifest_schema_path)
+            if adjudication_run_manifest_path is not None else None
+        ),
+        "adjudication_audit_path": (
+            str(adjudication_audit_path.resolve())
+            if adjudication_audit_path is not None else None
+        ),
+        "adjudication_audit_sha256": (
+            sha256_path(adjudication_audit_path)
+            if adjudication_audit_path is not None else None
+        ),
+        "adjudication_audit_schema_version": (
+            AUDIT_SCHEMA_VERSION if adjudication_audit is not None else None
+        ),
+        "adjudication_audit_schema_sha256": (
+            sha256_path(adjudication_audit_schema_path)
+            if adjudication_audit_path is not None else None
+        ),
+        "terminal_provider_block_rule_version": (
+            TERMINAL_BLOCK_RULE_VERSION if adjudication_audit is not None else None
+        ),
+        "terminal_provider_block_group_ids": sorted(terminal_provider_block_ids),
+        "pending_human_review_operational_reasons": {
+            group_id: ["adjudication_terminal_provider_block"]
+            for group_id in sorted(terminal_provider_block_ids)
+        },
         "blinded_source_payloads_path": str(blinded_source_payloads_path.resolve()),
         "blinded_source_payloads_sha256": sha256_path(blinded_source_payloads_path),
+        "blinded_source_payloads_provenance_path": (
+            str(blinded_source_payloads_provenance_path.resolve())
+            if blinded_source_payloads_provenance_path is not None else None
+        ),
+        "blinded_source_payloads_provenance_sha256": (
+            sha256_path(blinded_source_payloads_provenance_path)
+            if blinded_source_payloads_provenance_path is not None else None
+        ),
         "source_group_input_schema_sha256": source_input_schema_sha,
         "resolved_schema_sha256": sha256_path(resolved_schema_path),
         "eligibility_schema_sha256": sha256_path(eligibility_schema_path),

@@ -30,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("--resolved-reviews", type=Path, required=True)
     source.add_argument("--eligibility", type=Path, required=True)
     source.add_argument("--comparisons", type=Path, required=True)
+    source.add_argument("--source-resolution-manifest", type=Path)
     source.add_argument("--output-dir", type=Path, required=True)
     source.add_argument("--overwrite", action="store_true")
 
@@ -53,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
                 resolved_reviews_path=args.resolved_reviews,
                 eligibility_path=args.eligibility,
                 comparisons_path=args.comparisons,
+                source_resolution_manifest_path=args.source_resolution_manifest,
                 output_dir=args.output_dir,
                 overwrite=args.overwrite,
             )

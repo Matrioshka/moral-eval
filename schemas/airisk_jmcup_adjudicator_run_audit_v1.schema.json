@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_adjudicator_run_audit_v1.schema.json",
+  "title": "airisk_jmcup_adjudicator_run_audit_v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "audit_protocol_version", "adjudicator_run_id", "provider",
+    "requested_model", "model_settings", "terminal_provider_block_rule",
+    "selected_group_count", "unique_completed_group_count",
+    "unique_unresolved_group_count", "journal_record_count", "record_status_counts",
+    "attempt_status_counts", "failure_status_counts", "groups_with_retry_or_resume_histories",
+    "groups_with_blocked_histories_later_completed", "completed_group_ids",
+    "terminal_provider_block_group_ids", "nonterminal_unresolved_group_ids",
+    "terminal_unresolved_groups", "retry_attempt_distribution", "usage",
+    "token_distributions", "artifacts", "invariants", "external_api_calls",
+    "semantic_content_interpreted", "semantic_truth_deterministically_established"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_adjudicator_run_audit_v1"},
+    "audit_protocol_version": {"const": "airisk_jmcup_adjudicator_run_audit_protocol_v1"},
+    "adjudicator_run_id": {"type": "string", "minLength": 1},
+    "provider": {"type": "string", "enum": ["anthropic", "openrouter"]},
+    "requested_model": {"const": "anthropic/claude-opus-5"},
+    "model_settings": {"type": "object"},
+    "terminal_provider_block_rule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "minimum_persisted_records", "records_examined", "required_final_statuses", "explicit_provider_signal_required", "semantic_judgement"],
+      "properties": {
+        "version": {"const": "airisk_jmcup_terminal_provider_block_rule_v1"},
+        "minimum_persisted_records": {"const": 2},
+        "records_examined": {"const": "latest_two_persisted_records"},
+        "required_final_statuses": {"type": "array", "const": ["blocked", "refused"]},
+        "explicit_provider_signal_required": {"const": true},
+        "semantic_judgement": {"const": false}
+      }
+    },
+    "selected_group_count": {"type": "integer", "minimum": 1},
+    "unique_completed_group_count": {"type": "integer", "minimum": 0},
+    "unique_unresolved_group_count": {"type": "integer", "minimum": 0},
+    "journal_record_count": {"type": "integer", "minimum": 0},
+    "record_status_counts": {"$ref": "#/$defs/counts"},
+    "attempt_status_counts": {"$ref": "#/$defs/counts"},
+    "failure_status_counts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["record", "attempt"],
+      "properties": {"record": {"$ref": "#/$defs/counts"}, "attempt": {"$ref": "#/$defs/counts"}}
+    },
+    "groups_with_retry_or_resume_histories": {"type": "array", "items": {"$ref": "#/$defs/history"}},
+    "groups_with_blocked_histories_later_completed": {"type": "array", "items": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"}, "uniqueItems": true},
+    "completed_group_ids": {"type": "array", "items": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"}, "uniqueItems": true},
+    "terminal_provider_block_group_ids": {"type": "array", "items": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"}, "uniqueItems": true},
+    "nonterminal_unresolved_group_ids": {"type": "array", "items": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"}, "uniqueItems": true},
+    "terminal_unresolved_groups": {"type": "array", "items": {"$ref": "#/$defs/terminal_group"}},
+    "retry_attempt_distribution": {"$ref": "#/$defs/counts"},
+    "usage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["all_journal_records", "completed_journal_records", "completed_attempts", "aggregation_method"],
+      "properties": {
+        "all_journal_records": {"$ref": "#/$defs/usage_total"},
+        "completed_journal_records": {"$ref": "#/$defs/usage_total"},
+        "completed_attempts": {"$ref": "#/$defs/usage_total"},
+        "aggregation_method": {"type": "string", "minLength": 1}
+      }
+    },
+    "token_distributions": {
+      "type": "object", "additionalProperties": false,
+      "required": ["all_attempts", "completed_attempts"],
+      "properties": {
+        "all_attempts": {"$ref": "#/$defs/token_distribution_set"},
+        "completed_attempts": {"$ref": "#/$defs/token_distribution_set"}
+      }
+    },
+    "artifacts": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "preparation_manifest", "adjudication_payloads", "run_manifest",
+        "adjudication_journal", "audit_protocol", "audit_schema", "run_manifest_schema",
+        "prompt", "input_schema", "response_schema", "run_record_schema",
+        "reviewer_input_schema", "reviewer_response_schema"
+      ],
+      "properties": {
+        "preparation_manifest": {"$ref": "#/$defs/artifact"},
+        "adjudication_payloads": {"$ref": "#/$defs/artifact"},
+        "run_manifest": {"$ref": "#/$defs/artifact"},
+        "adjudication_journal": {"$ref": "#/$defs/artifact"},
+        "audit_protocol": {"$ref": "#/$defs/artifact"},
+        "audit_schema": {"$ref": "#/$defs/artifact"},
+        "run_manifest_schema": {"$ref": "#/$defs/artifact"},
+        "prompt": {"$ref": "#/$defs/artifact"},
+        "input_schema": {"$ref": "#/$defs/artifact"},
+        "response_schema": {"$ref": "#/$defs/artifact"},
+        "run_record_schema": {"$ref": "#/$defs/artifact"},
+        "reviewer_input_schema": {"$ref": "#/$defs/artifact"},
+        "reviewer_response_schema": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "invariants": {
+      "type": "object", "additionalProperties": false,
+      "required": ["selected_sets_exact", "ordered_selected_ids_exact", "unknown_groups", "duplicate_completed_groups", "bad_input_hash_groups", "invalid_completed_groups", "usage_double_counting_detected"],
+      "properties": {
+        "selected_sets_exact": {"const": true},
+        "ordered_selected_ids_exact": {"const": true},
+        "unknown_groups": {"type": "array", "maxItems": 0},
+        "duplicate_completed_groups": {"type": "array", "maxItems": 0},
+        "bad_input_hash_groups": {"type": "array", "maxItems": 0},
+        "invalid_completed_groups": {"type": "array", "maxItems": 0},
+        "usage_double_counting_detected": {"const": false}
+      }
+    },
+    "external_api_calls": {"const": 0},
+    "semantic_content_interpreted": {"const": false},
+    "semantic_truth_deterministically_established": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "artifact": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "history": {"type": "object", "additionalProperties": false, "required": ["generation_group_id", "journal_record_count", "attempt_count", "record_statuses", "attempt_statuses"], "properties": {
+      "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
+      "journal_record_count": {"type": "integer", "minimum": 1}, "attempt_count": {"type": "integer", "minimum": 1},
+      "record_statuses": {"type": "array", "items": {"type": "string"}}, "attempt_statuses": {"type": "array", "items": {"type": "string"}}
+    }},
+    "terminal_group": {"type": "object", "additionalProperties": false, "required": ["generation_group_id", "terminal_status", "journal_record_count", "latest_two_record_statuses", "latest_two_attempt_statuses", "provider_signals", "output_terminations", "semantic_judgement"], "properties": {
+      "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"}, "terminal_status": {"const": "terminal_provider_block"},
+      "journal_record_count": {"type": "integer", "minimum": 2}, "latest_two_record_statuses": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"enum": ["blocked", "refused"]}},
+      "latest_two_attempt_statuses": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"enum": ["blocked", "refused"]}},
+      "provider_signals": {"type": "array", "minItems": 2, "items": {"type": "object"}}, "output_terminations": {"type": "array", "minItems": 2}, "semantic_judgement": {"const": false}
+    }},
+    "usage_total": {"type": "object", "additionalProperties": false, "required": ["prompt_tokens", "completion_tokens", "reasoning_tokens", "cached_tokens", "total_tokens", "cost", "reported_contribution_counts", "attempt_contribution_count", "aggregate_fallback_record_count"], "properties": {
+      "prompt_tokens": {"type": ["integer", "null"], "minimum": 0}, "completion_tokens": {"type": ["integer", "null"], "minimum": 0}, "reasoning_tokens": {"type": ["integer", "null"], "minimum": 0},
+      "cached_tokens": {"type": ["integer", "null"], "minimum": 0}, "total_tokens": {"type": ["integer", "null"], "minimum": 0}, "cost": {"type": ["number", "null"], "minimum": 0},
+      "reported_contribution_counts": {"$ref": "#/$defs/counts"}, "attempt_contribution_count": {"type": "integer", "minimum": 0}, "aggregate_fallback_record_count": {"type": "integer", "minimum": 0}
+    }},
+    "distribution": {"type": "object", "additionalProperties": false, "required": ["count", "sum", "minimum", "maximum", "mean", "median"], "properties": {
+      "count": {"type": "integer", "minimum": 0}, "sum": {"type": ["number", "null"]}, "minimum": {"type": ["number", "null"]}, "maximum": {"type": ["number", "null"]}, "mean": {"type": ["number", "null"]}, "median": {"type": ["number", "null"]}
+    }},
+    "token_distribution_set": {"type": "object", "additionalProperties": false, "required": ["prompt_tokens", "completion_tokens", "reasoning_tokens", "cached_tokens", "total_tokens", "cost"], "properties": {
+      "prompt_tokens": {"$ref": "#/$defs/distribution"}, "completion_tokens": {"$ref": "#/$defs/distribution"}, "reasoning_tokens": {"$ref": "#/$defs/distribution"},
+      "cached_tokens": {"$ref": "#/$defs/distribution"}, "total_tokens": {"$ref": "#/$defs/distribution"}, "cost": {"$ref": "#/$defs/distribution"}
+    }}
+  }
+}

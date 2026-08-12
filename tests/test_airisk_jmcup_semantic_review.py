@@ -28,6 +28,9 @@ from moral_eval.airisk_semantic_review.adjudication_execution import (
     run_adjudications,
     validate_adjudication_response,
 )
+from moral_eval.airisk_semantic_review.adjudication_audit import (
+    audit_adjudicator_run,
+)
 from moral_eval.airisk_semantic_review.execution import ReviewRunConfig, run_reviews
 from moral_eval.airisk_semantic_review.providers import (
     AnthropicReviewerAdapter,
@@ -1997,9 +2000,9 @@ def adjudicator_record(payload: dict, parsed: dict) -> dict:
         "record_schema_version": "airisk_jmcup_adjudicator_run_record_v1",
         "adjudicator_run_id": "opus-smoke-fixture",
         "generation_group_id": payload["generation_group_id"],
-        "provider": "anthropic",
-        "requested_model": "claude-opus-test",
-        "resolved_reported_model": "claude-opus-test-revision",
+        "provider": "openrouter",
+        "requested_model": "anthropic/claude-opus-5",
+        "resolved_reported_model": "anthropic/claude-opus-5",
         "provider_request_id": "fixture-request",
         "provider_generation_id": None,
         "actual_routed_provider": "Anthropic",
@@ -2008,8 +2011,12 @@ def adjudicator_record(payload: dict, parsed: dict) -> dict:
         "output_termination": None,
         "provider_reasoning": None,
         "prompt_version": "airisk_jmcup_opus_adjudication_v1",
-        "prompt_sha256": "4" * 64,
-        "response_schema_sha256": "5" * 64,
+        "prompt_sha256": core.sha256_path(
+            adjudication_execution.DEFAULT_ADJUDICATION_PROMPT_PATH
+        ),
+        "response_schema_sha256": core.sha256_path(
+            adjudication_execution.DEFAULT_ADJUDICATION_RESPONSE_SCHEMA_PATH
+        ),
         "input_payload_sha256": core.sha256_text(core.canonical_json(payload)),
         "status": "completed",
         "raw_response": parsed,
@@ -2021,6 +2028,61 @@ def adjudicator_record(payload: dict, parsed: dict) -> dict:
         "retry_information": {"max_retries": 0, "attempt_count": 1, "attempts": []},
         "validation_errors": [],
         "semantic_truth_deterministically_established": False,
+    }
+
+
+def audited_resolution_arguments(
+    prepared: Path, records_path: Path, output_dir: Path
+) -> dict[str, Path]:
+    sampling = json.loads(
+        (prepared / "opus_adjudication_manifest.json").read_text(encoding="utf-8")
+    )
+    run_manifest_path = output_dir / "run_manifest.json"
+    audit_path = output_dir / "adjudication_audit.json"
+    run_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    run_manifest = {
+        "schema_version": "airisk_jmcup_adjudicator_run_manifest_v1",
+        "created_at_utc": "2026-08-12T00:00:00+00:00",
+        "adjudicator_run_id": "opus-smoke-fixture",
+        "provider": "openrouter",
+        "requested_model": "anthropic/claude-opus-5",
+        "selected_generation_group_ids": sampling["selected_group_ids"],
+        "prompt_version": "airisk_jmcup_opus_adjudication_v1",
+        "prompt_sha256": core.sha256_path(
+            adjudication_execution.DEFAULT_ADJUDICATION_PROMPT_PATH
+        ),
+        "input_schema_sha256": core.sha256_path(
+            adjudication_execution.DEFAULT_ADJUDICATION_INPUT_SCHEMA_PATH
+        ),
+        "response_schema_sha256": core.sha256_path(
+            adjudication_execution.DEFAULT_ADJUDICATION_RESPONSE_SCHEMA_PATH
+        ),
+        "run_record_schema_sha256": core.sha256_path(
+            adjudication_execution.DEFAULT_ADJUDICATOR_RUN_RECORD_SCHEMA_PATH
+        ),
+        "reviewer_input_schema_sha256": core.sha256_path(
+            core.DEFAULT_INPUT_SCHEMA_PATH
+        ),
+        "reviewer_response_schema_sha256": core.sha256_path(
+            core.DEFAULT_RESPONSE_SCHEMA_PATH
+        ),
+        "model_settings": {"temperature": 0.0, "max_output_tokens": 8192},
+        "max_retries": 0,
+        "semantic_truth_deterministically_established": False,
+    }
+    run_manifest_path.write_text(
+        json.dumps(run_manifest, indent=2) + "\n", encoding="utf-8"
+    )
+    audit_adjudicator_run(
+        preparation_manifest_path=prepared / "opus_adjudication_manifest.json",
+        adjudication_payloads_path=prepared / "opus_adjudication_payloads.jsonl",
+        run_manifest_path=run_manifest_path,
+        adjudication_records_path=records_path,
+        output_path=audit_path,
+    )
+    return {
+        "adjudication_run_manifest_path": run_manifest_path,
+        "adjudication_audit_path": audit_path,
     }
 
 
@@ -2133,6 +2195,7 @@ def test_opus_qc_confirmation_is_evidence_and_does_not_supersede_consensus(
         opus_payloads_path=prepared / "opus_adjudication_payloads.jsonl",
         blinded_source_payloads_path=prepared / "source_payloads.jsonl",
         adjudication_records_path=records_path,
+        **audited_resolution_arguments(prepared, records_path, tmp_path / "qc-audit"),
         output_dir=tmp_path / "qc-resolved",
     )
     resolved = {
@@ -2179,6 +2242,9 @@ def test_opus_qc_disagreement_triggers_pending_human_review(tmp_path: Path) -> N
         opus_payloads_path=prepared / "opus_adjudication_payloads.jsonl",
         blinded_source_payloads_path=prepared / "source_payloads.jsonl",
         adjudication_records_path=records_path,
+        **audited_resolution_arguments(
+            prepared, records_path, tmp_path / "qc-conflict-audit"
+        ),
         output_dir=tmp_path / "qc-conflict-resolved",
     )
     resolved = {
@@ -2219,6 +2285,9 @@ def test_needs_adjudication_is_resolved_independently_without_voting(
         opus_payloads_path=prepared / "opus_adjudication_payloads.jsonl",
         blinded_source_payloads_path=prepared / "source_payloads.jsonl",
         adjudication_records_path=records_path,
+        **audited_resolution_arguments(
+            prepared, records_path, tmp_path / "needs-audit"
+        ),
         output_dir=tmp_path / "needs-resolved",
     )
     resolved = {
