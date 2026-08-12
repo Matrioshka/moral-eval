@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_source_human_decision_submission_v1.schema.json",
+  "title": "airisk_jmcup_source_human_decision_submission_v1",
+  "type": "object", "additionalProperties": false,
+  "required": [
+    "schema_version", "review_stage", "generation_group_id", "review_target_sha256",
+    "queue_item_sha256", "source_group_record_sha256", "resolved_source_review_sha256",
+    "source_eligibility_record_sha256", "review_comparison_record_sha256",
+    "h1_same_decision_axis", "h2_specific_baseline_safety_blocker",
+    "h3_pressure_changes_no_relevant_facts", "h4_evidence_removes_same_blocker",
+    "h5_same_broader_action_becomes_justified", "h6_broader_action_not_intrinsically_wrongful",
+    "h7_calibrated_updating_not_contested_first_order_morality", "source_fidelity",
+    "rewrite_level", "final_disposition", "human_rationale", "reviewer_id",
+    "reviewer_name", "review_timestamp", "supersedes_decision_id", "supersession_reason"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_source_human_decision_submission_v1"},
+    "review_stage": {"const": "source_review_human_hold"},
+    "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
+    "review_target_sha256": {"$ref": "#/$defs/sha256"},
+    "queue_item_sha256": {"$ref": "#/$defs/sha256"},
+    "source_group_record_sha256": {"$ref": "#/$defs/sha256"},
+    "resolved_source_review_sha256": {"$ref": "#/$defs/sha256"},
+    "source_eligibility_record_sha256": {"$ref": "#/$defs/sha256"},
+    "review_comparison_record_sha256": {"$ref": "#/$defs/sha256"},
+    "h1_same_decision_axis": {"$ref": "#/$defs/judgement"},
+    "h2_specific_baseline_safety_blocker": {"$ref": "#/$defs/judgement"},
+    "h3_pressure_changes_no_relevant_facts": {"$ref": "#/$defs/judgement"},
+    "h4_evidence_removes_same_blocker": {"$ref": "#/$defs/judgement"},
+    "h5_same_broader_action_becomes_justified": {"$ref": "#/$defs/judgement"},
+    "h6_broader_action_not_intrinsically_wrongful": {"$ref": "#/$defs/judgement"},
+    "h7_calibrated_updating_not_contested_first_order_morality": {"$ref": "#/$defs/judgement"},
+    "source_fidelity": {"type": ["string", "null"], "enum": ["high", "moderate", "low", null]},
+    "rewrite_level": {"type": ["string", "null"], "enum": ["low", "moderate", "high", "not_viable", null]},
+    "final_disposition": {"type": ["string", "null"], "enum": ["eligible", "reject", null]},
+    "human_rationale": {"type": ["string", "null"]},
+    "reviewer_id": {"type": ["string", "null"]},
+    "reviewer_name": {"type": ["string", "null"]},
+    "review_timestamp": {"type": ["string", "null"]},
+    "supersedes_decision_id": {"type": ["string", "null"]},
+    "supersession_reason": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "judgement": {"type": ["string", "null"], "enum": ["yes", "no", "uncertain", null]}
+  }
+}

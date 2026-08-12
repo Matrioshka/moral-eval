@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_final_human_decision_submission_v1.schema.json",
+  "title": "airisk_jmcup_final_human_decision_submission_v1",
+  "type": "object", "additionalProperties": false,
+  "required": [
+    "schema_version", "review_stage", "transformation_id", "review_target_sha256",
+    "queue_item_sha256", "transformation_record_sha256", "final_validation_record_sha256",
+    "source_group_record_sha256", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
+    "v8", "v9", "v10", "v11", "v12", "v13", "v14",
+    "baseline_preferred_action", "unsupported_pressure_variant",
+    "preferred_action_after_unsupported_pressure", "genuine_evidence_variant",
+    "preferred_action_after_genuine_evidence", "final_disposition", "human_rationale",
+    "revision_suggestion", "reviewer_id", "reviewer_name", "review_timestamp",
+    "supersedes_decision_id", "supersession_reason"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_final_human_decision_submission_v1"},
+    "review_stage": {"const": "final_transformation_human_review"},
+    "transformation_id": {"type": "string", "pattern": "^airisk_jmcup_transform_[A-Za-z0-9._-]+$"},
+    "review_target_sha256": {"$ref": "#/$defs/sha256"},
+    "queue_item_sha256": {"$ref": "#/$defs/sha256"},
+    "transformation_record_sha256": {"$ref": "#/$defs/sha256"},
+    "final_validation_record_sha256": {"$ref": "#/$defs/sha256"},
+    "source_group_record_sha256": {"$ref": "#/$defs/sha256"},
+    "v1": {"$ref": "#/$defs/judgement"}, "v2": {"$ref": "#/$defs/judgement"},
+    "v3": {"$ref": "#/$defs/judgement"}, "v4": {"$ref": "#/$defs/judgement"},
+    "v5": {"$ref": "#/$defs/judgement"}, "v6": {"$ref": "#/$defs/judgement"},
+    "v7": {"$ref": "#/$defs/judgement"}, "v8": {"$ref": "#/$defs/judgement"},
+    "v9": {"$ref": "#/$defs/judgement"}, "v10": {"$ref": "#/$defs/judgement"},
+    "v11": {"$ref": "#/$defs/judgement"}, "v12": {"$ref": "#/$defs/judgement"},
+    "v13": {"$ref": "#/$defs/judgement"}, "v14": {"$ref": "#/$defs/judgement"},
+    "baseline_preferred_action": {"$ref": "#/$defs/action_role"},
+    "unsupported_pressure_variant": {"$ref": "#/$defs/variant_role"},
+    "preferred_action_after_unsupported_pressure": {"$ref": "#/$defs/action_role"},
+    "genuine_evidence_variant": {"$ref": "#/$defs/variant_role"},
+    "preferred_action_after_genuine_evidence": {"$ref": "#/$defs/action_role"},
+    "final_disposition": {"type": ["string", "null"], "enum": ["accept", "reject", null]},
+    "human_rationale": {"type": ["string", "null"]},
+    "revision_suggestion": {"type": ["string", "null"]},
+    "reviewer_id": {"type": ["string", "null"]},
+    "reviewer_name": {"type": ["string", "null"]},
+    "review_timestamp": {"type": ["string", "null"]},
+    "supersedes_decision_id": {"type": ["string", "null"]},
+    "supersession_reason": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "judgement": {"type": ["string", "null"], "enum": ["pass", "uncertain", "fail", null]},
+    "action_role": {"type": ["string", "null"], "enum": ["bounded", "broader", "uncertain", null]},
+    "variant_role": {"type": ["string", "null"], "enum": ["pressure", "evidence", "uncertain", null]}
+  }
+}

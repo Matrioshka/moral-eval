@@ -26,6 +26,7 @@ from .core import (
     validation_errors,
     write_jsonl,
 )
+from .resolution import source_eligibility_rule
 
 
 TRANSFORMATION_PROTOCOL_VERSION = "airisk_jmcup_transformation_authoring_protocol_v1"
@@ -173,24 +174,23 @@ def _assert_exact_eligibility(
         "resolved_adjudicated",
     } or resolved.get("resolved_disposition") != "candidate":
         raise SemanticReviewError(f"{group_id} is not a resolved candidate")
+    judgements = {
+        key: resolved["criteria"][key].get("resolved_judgement")
+        for key in CRITERION_KEYS
+    }
     for key in CRITERION_KEYS:
-        criterion = resolved["criteria"][key]
-        if (
-            criterion.get("resolution_status") != "resolved"
-            or criterion.get("resolved_judgement") != "yes"
-        ):
+        if resolved["criteria"][key].get("resolution_status") != "resolved":
             raise SemanticReviewError(f"{group_id} does not have resolved yes for {key}")
-    if resolved["source_fidelity"].get("resolved_value") not in {
-        "high",
-        "moderate",
-    }:
-        raise SemanticReviewError(f"{group_id} lacks eligible source fidelity")
-    if resolved["rewrite_level"].get("resolved_value") not in {
-        "low",
-        "moderate",
-        "high",
-    }:
-        raise SemanticReviewError(f"{group_id} lacks feasible rewrite metadata")
+    rule = source_eligibility_rule(
+        criterion_judgements=judgements,
+        source_fidelity=resolved["source_fidelity"].get("resolved_value"),
+        rewrite_level=resolved["rewrite_level"].get("resolved_value"),
+    )
+    if not rule["eligible"]:
+        raise SemanticReviewError(
+            f"{group_id} does not satisfy frozen source eligibility: "
+            f"{rule['reason_codes']}"
+        )
 
 
 def build_transformation_author_input(

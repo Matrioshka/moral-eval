@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_human_review_bundle_manifest_v1.schema.json",
+  "title": "airisk_jmcup_human_review_bundle_manifest_v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "review_stage", "selection_rule", "record_count", "ordered_case_ids", "input_artifacts", "schema_artifacts", "output_artifacts", "canonical_authoritative_format", "external_api_calls", "runtime_artifact_discovery_used"],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_human_review_bundle_manifest_v1"},
+    "review_stage": {"type": "string", "enum": ["source_review_human_hold", "final_transformation_human_review"]},
+    "selection_rule": {"type": "string", "minLength": 1},
+    "record_count": {"type": "integer", "minimum": 0},
+    "ordered_case_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "input_artifacts": {"$ref": "#/$defs/artifacts"},
+    "schema_artifacts": {"$ref": "#/$defs/artifacts"},
+    "output_artifacts": {"$ref": "#/$defs/artifacts"},
+    "canonical_authoritative_format": {"const": "jsonl"},
+    "external_api_calls": {"const": 0},
+    "runtime_artifact_discovery_used": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "artifact": {"type": "object", "additionalProperties": false, "required": ["role", "sha256"], "properties": {"role": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "artifacts": {"type": "array", "items": {"$ref": "#/$defs/artifact"}}
+  }
+}

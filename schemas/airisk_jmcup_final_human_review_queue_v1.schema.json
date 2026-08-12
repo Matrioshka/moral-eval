@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_final_human_review_queue_v1.schema.json",
+  "title": "airisk_jmcup_final_human_review_queue_v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "review_stage", "transformation_id", "generation_group_id",
+    "queue_reason_codes", "transformation", "rendered_triplet", "source_occurrences",
+    "final_validation", "provenance", "semantic_truth_deterministically_established"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_final_human_review_queue_v1"},
+    "review_stage": {"const": "final_transformation_human_review"},
+    "transformation_id": {"type": "string", "pattern": "^airisk_jmcup_transform_[A-Za-z0-9._-]+$"},
+    "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
+    "queue_reason_codes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "transformation": {"type": "object"},
+    "rendered_triplet": {"type": "object"},
+    "source_occurrences": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+    "final_validation": {"type": "object"},
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "review_target_sha256", "transformation_record_sha256",
+        "final_validation_record_sha256", "source_group_record_sha256",
+        "transformation_schema_sha256", "final_validation_schema_sha256",
+        "source_group_schema_sha256"
+      ],
+      "properties": {
+        "review_target_sha256": {"$ref": "#/$defs/sha256"},
+        "transformation_record_sha256": {"$ref": "#/$defs/sha256"},
+        "final_validation_record_sha256": {"$ref": "#/$defs/sha256"},
+        "source_group_record_sha256": {"$ref": "#/$defs/sha256"},
+        "transformation_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "final_validation_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "source_group_schema_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "semantic_truth_deterministically_established": {"const": false}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

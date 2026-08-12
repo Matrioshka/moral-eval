@@ -56,6 +56,75 @@ FIDELITY_ORDER = {"low": 0, "moderate": 1, "high": 2}
 REWRITE_ORDER = {"low": 0, "moderate": 1, "high": 2, "not_viable": 3}
 
 
+def source_eligibility_rule(
+    *,
+    criterion_judgements: Mapping[str, Any],
+    source_fidelity: Any,
+    rewrite_level: Any,
+) -> dict[str, Any]:
+    """Evaluate the frozen source-eligibility predicate from resolved values.
+
+    The rewrite rule deliberately refers to the canonical taxonomy already used
+    by source review: every recognised value except ``not_viable`` is feasible.
+    Keeping this predicate here lets machine and human resolution share one rule.
+    """
+
+    unknown_criteria = sorted(set(criterion_judgements) - set(CRITERION_KEYS))
+    missing_criteria = sorted(set(CRITERION_KEYS) - set(criterion_judgements))
+    if unknown_criteria or missing_criteria:
+        raise SemanticReviewError(
+            "Source eligibility criteria differ from H1-H7; "
+            f"missing={missing_criteria}, unknown={unknown_criteria}"
+        )
+    invalid_judgements = sorted(
+        key
+        for key, value in criterion_judgements.items()
+        if value not in {"yes", "uncertain", "no", None}
+    )
+    if invalid_judgements:
+        raise SemanticReviewError(
+            f"Invalid source-eligibility judgements: {invalid_judgements}"
+        )
+    if source_fidelity not in FIDELITY_ORDER and source_fidelity is not None:
+        raise SemanticReviewError(
+            f"Unknown source-fidelity value {source_fidelity!r}"
+        )
+    if rewrite_level not in REWRITE_ORDER and rewrite_level is not None:
+        raise SemanticReviewError(f"Unknown rewrite-level value {rewrite_level!r}")
+
+    values = [criterion_judgements[key] for key in CRITERION_KEYS]
+    all_h1_h7_yes = None if any(value is None for value in values) else all(
+        value == "yes" for value in values
+    )
+    fidelity_acceptable = source_fidelity in {"high", "moderate"}
+    rewrite_viable = (
+        rewrite_level in REWRITE_ORDER and rewrite_level != "not_viable"
+    )
+    eligible = bool(all_h1_h7_yes and fidelity_acceptable and rewrite_viable)
+    reasons: list[str] = []
+    if all_h1_h7_yes is True:
+        reasons.append("all_h1_h7_yes")
+    elif any(value == "no" for value in values):
+        reasons.append("one_or_more_h1_h7_no")
+    elif any(value in {"uncertain", None} for value in values):
+        reasons.append("one_or_more_h1_h7_unresolved_or_uncertain")
+    if fidelity_acceptable:
+        reasons.append("source_fidelity_high_or_moderate")
+    elif source_fidelity == "low":
+        reasons.append("source_fidelity_low")
+    if rewrite_viable:
+        reasons.append("rewrite_feasible")
+    elif rewrite_level == "not_viable":
+        reasons.append("rewrite_not_viable")
+    return {
+        "all_h1_h7_yes": all_h1_h7_yes,
+        "source_fidelity_acceptable": fidelity_acceptable,
+        "rewrite_viable": rewrite_viable,
+        "eligible": eligible,
+        "reason_codes": sorted(set(reasons)),
+    }
+
+
 def _write_json(path: Path, value: Mapping[str, Any]) -> None:
     path.write_text(
         json.dumps(value, indent=2, ensure_ascii=False) + "\n",
@@ -486,12 +555,18 @@ def resolve_comparison(
 
 
 def source_eligibility(record: Mapping[str, Any]) -> dict[str, Any]:
-    values = [record["criteria"][key]["resolved_judgement"] for key in CRITERION_KEYS]
-    all_yes = None if any(value is None for value in values) else all(
-        value == "yes" for value in values
-    )
+    judgements = {
+        key: record["criteria"][key]["resolved_judgement"]
+        for key in CRITERION_KEYS
+    }
     fidelity = record["source_fidelity"]["resolved_value"]
     rewrite = record["rewrite_level"]["resolved_value"]
+    rule = source_eligibility_rule(
+        criterion_judgements=judgements,
+        source_fidelity=fidelity,
+        rewrite_level=rewrite,
+    )
+    all_yes = rule["all_h1_h7_yes"]
     status = record["resolution_status"]
     reasons: list[str] = []
     if status == "pending_adjudication":
@@ -500,21 +575,14 @@ def source_eligibility(record: Mapping[str, Any]) -> dict[str, Any]:
     elif status == "pending_human_review":
         eligibility = "pending_human_review"
         reasons.append("model_resolution_requires_human_review")
-    elif record["resolved_disposition"] == "candidate" and all_yes is True:
+    elif record["resolved_disposition"] == "candidate" and rule["eligible"]:
         eligibility = "eligible"
-        reasons.append("all_h1_h7_yes")
-        reasons.append("source_fidelity_high_or_moderate")
-        reasons.append("rewrite_feasible")
+        reasons.extend(rule["reason_codes"])
     else:
         eligibility = "ineligible"
         if record["resolution_source"] == "consensus_reject":
             reasons.append("consensus_reject")
-        if any(value == "no" for value in values):
-            reasons.append("one_or_more_h1_h7_no")
-        if fidelity == "low":
-            reasons.append("source_fidelity_low")
-        if rewrite == "not_viable":
-            reasons.append("rewrite_not_viable")
+        reasons.extend(rule["reason_codes"])
         if not reasons:
             reasons.append("resolved_disposition_not_candidate")
     return {
