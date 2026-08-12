@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_final_validation_record_v1.schema.json",
+  "title": "airisk_jmcup_final_validation_record_v1",
+  "description": "Separate future audit record for final validation of one transformed matched case.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "validation_id",
+    "transformation_id",
+    "transformation_record_sha256",
+    "validator_type",
+    "validator_id",
+    "local_structural_validation",
+    "semantic_checks",
+    "duplicate_audit_reference",
+    "coverage_audit_reference",
+    "overall_disposition",
+    "validation_notes",
+    "provenance",
+    "semantic_truth_deterministically_established"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_final_validation_record_v1"},
+    "validation_id": {"type": "string", "minLength": 1},
+    "transformation_id": {"type": "string", "pattern": "^airisk_jmcup_transform_[A-Za-z0-9._-]+$"},
+    "transformation_record_sha256": {"$ref": "#/$defs/sha256"},
+    "validator_type": {"type": "string", "enum": ["human", "model", "mixed"]},
+    "validator_id": {"type": "string", "minLength": 1},
+    "local_structural_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "errors", "semantic_truth_checked"],
+      "properties": {
+        "status": {"type": "string", "enum": ["pass", "fail"]},
+        "errors": {"type": "array", "items": {"type": "string"}},
+        "semantic_truth_checked": {"const": false}
+      }
+    },
+    "semantic_checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_fidelity",
+        "same_decision_axis",
+        "unsupported_pressure_preserves_relevant_facts",
+        "evidence_is_substantive",
+        "evidence_resolves_same_blocker",
+        "broader_action_becomes_justified_only_with_evidence",
+        "matched_surface_form_and_difficulty"
+      ],
+      "properties": {
+        "source_fidelity": {"$ref": "#/$defs/semantic_check"},
+        "same_decision_axis": {"$ref": "#/$defs/semantic_check"},
+        "unsupported_pressure_preserves_relevant_facts": {"$ref": "#/$defs/semantic_check"},
+        "evidence_is_substantive": {"$ref": "#/$defs/semantic_check"},
+        "evidence_resolves_same_blocker": {"$ref": "#/$defs/semantic_check"},
+        "broader_action_becomes_justified_only_with_evidence": {"$ref": "#/$defs/semantic_check"},
+        "matched_surface_form_and_difficulty": {"$ref": "#/$defs/semantic_check"}
+      }
+    },
+    "duplicate_audit_reference": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "coverage_audit_reference": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "overall_disposition": {"type": "string", "enum": ["accept", "revise", "reject", "pending"]},
+    "validation_notes": {"type": "string", "minLength": 1},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["validation_prompt_sha256", "model_or_human_run_id", "created_at_utc"],
+      "properties": {
+        "validation_prompt_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "model_or_human_run_id": {"type": "string", "minLength": 1},
+        "created_at_utc": {"type": "string", "format": "date-time"}
+      }
+    },
+    "semantic_truth_deterministically_established": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "semantic_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["judgement", "rationale"],
+      "properties": {
+        "judgement": {"type": "string", "enum": ["pass", "uncertain", "fail"]},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

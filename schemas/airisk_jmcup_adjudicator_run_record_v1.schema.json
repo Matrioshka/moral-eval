@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_adjudicator_run_record_v1.schema.json",
+  "title": "airisk_jmcup_adjudicator_run_record_v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_schema_version",
+    "adjudicator_run_id",
+    "generation_group_id",
+    "provider",
+    "requested_model",
+    "resolved_reported_model",
+    "provider_request_id",
+    "provider_generation_id",
+    "actual_routed_provider",
+    "provider_usage",
+    "aggregate_usage",
+    "output_termination",
+    "provider_reasoning",
+    "prompt_version",
+    "prompt_sha256",
+    "response_schema_sha256",
+    "input_payload_sha256",
+    "status",
+    "raw_response",
+    "raw_response_text",
+    "parsed_structured_response",
+    "provider_block_metadata",
+    "timestamp_utc",
+    "model_settings",
+    "retry_information",
+    "validation_errors",
+    "semantic_truth_deterministically_established"
+  ],
+  "properties": {
+    "record_schema_version": {"const": "airisk_jmcup_adjudicator_run_record_v1"},
+    "adjudicator_run_id": {"type": "string", "minLength": 1},
+    "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
+    "provider": {"type": "string", "enum": ["anthropic", "openrouter"]},
+    "requested_model": {"type": "string", "minLength": 1},
+    "resolved_reported_model": {"type": ["string", "null"]},
+    "provider_request_id": {"type": ["string", "null"]},
+    "provider_generation_id": {"type": ["string", "null"]},
+    "actual_routed_provider": {"type": ["string", "null"]},
+    "provider_usage": {"anyOf": [{"type": "object"}, {"type": "null"}]},
+    "aggregate_usage": {"type": "object"},
+    "output_termination": {"anyOf": [{"type": "object"}, {"type": "null"}]},
+    "provider_reasoning": {},
+    "prompt_version": {"const": "airisk_jmcup_opus_adjudication_v1"},
+    "prompt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "response_schema_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "input_payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "status": {"type": "string", "enum": ["completed", "validation_failed", "provider_error", "refused", "blocked", "truncated"]},
+    "raw_response": {},
+    "raw_response_text": {"type": ["string", "null"]},
+    "parsed_structured_response": {"anyOf": [{"type": "object"}, {"type": "null"}]},
+    "provider_block_metadata": {"anyOf": [{"type": "object"}, {"type": "null"}]},
+    "timestamp_utc": {"type": "string", "format": "date-time"},
+    "model_settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["temperature", "max_output_tokens"],
+      "properties": {
+        "temperature": {"type": ["number", "null"]},
+        "max_output_tokens": {"type": "integer", "minimum": 1}
+      }
+    },
+    "retry_information": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_retries", "attempt_count", "attempts"],
+      "properties": {
+        "max_retries": {"type": "integer", "minimum": 0},
+        "attempt_count": {"type": "integer", "minimum": 1},
+        "attempts": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "validation_errors": {"type": "array", "items": {"type": "string"}},
+    "semantic_truth_deterministically_established": {"const": false}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "completed"}}, "required": ["status"]},
+      "then": {"properties": {"parsed_structured_response": {"type": "object"}}}
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["refused", "blocked", "truncated"]}}, "required": ["status"]},
+      "then": {"properties": {"parsed_structured_response": {"type": "null"}}}
+    }
+  ]
+}

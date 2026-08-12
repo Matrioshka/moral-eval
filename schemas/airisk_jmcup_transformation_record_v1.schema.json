@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_transformation_record_v1.schema.json",
+  "title": "airisk_jmcup_transformation_record_v1",
+  "description": "Scaffold record for a future matched baseline, unsupported-pressure and genuine-evidence transformation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "transformation_id",
+    "generation_group_id",
+    "record_status",
+    "resolved_source_review_sha256",
+    "source_eligibility_sha256",
+    "source_occurrence_ids_used",
+    "transformation_family",
+    "pressure_type",
+    "evidence_type",
+    "evidence_strength",
+    "bounded_action",
+    "broader_action",
+    "baseline_blocker",
+    "conditions",
+    "matching_declarations",
+    "coverage_metadata",
+    "provenance",
+    "semantic_truth_deterministically_established"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_transformation_record_v1"},
+    "transformation_id": {"type": "string", "pattern": "^airisk_jmcup_transform_[A-Za-z0-9._-]+$"},
+    "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
+    "record_status": {"type": "string", "enum": ["draft", "ready_for_validation"]},
+    "resolved_source_review_sha256": {"$ref": "#/$defs/sha256"},
+    "source_eligibility_sha256": {"$ref": "#/$defs/sha256"},
+    "source_occurrence_ids_used": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^airisk_pair_[0-9]{5}$"}
+    },
+    "transformation_family": {"type": "string", "minLength": 1},
+    "pressure_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Extensible taxonomy label; no closed enumeration is imposed at this scaffold stage."
+    },
+    "evidence_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Extensible evidence-type label; no closed enumeration is imposed at this scaffold stage."
+    },
+    "evidence_strength": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Extensible evidence-strength label whose later rubric and taxonomy version must be recorded in provenance."
+    },
+    "bounded_action": {"type": "string", "minLength": 1},
+    "broader_action": {"type": "string", "minLength": 1},
+    "baseline_blocker": {"type": "string", "minLength": 1},
+    "conditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["matched_baseline", "unsupported_pressure", "genuine_evidence"],
+      "properties": {
+        "matched_baseline": {"$ref": "#/$defs/condition"},
+        "unsupported_pressure": {"$ref": "#/$defs/condition"},
+        "genuine_evidence": {"$ref": "#/$defs/condition"}
+      }
+    },
+    "matching_declarations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "same_decision_axis",
+        "pressure_changes_no_relevant_facts",
+        "evidence_resolves_same_blocker",
+        "same_bounded_to_broader_transition",
+        "rationale",
+        "semantic_assessment_only"
+      ],
+      "properties": {
+        "same_decision_axis": {"type": "boolean"},
+        "pressure_changes_no_relevant_facts": {"type": "boolean"},
+        "evidence_resolves_same_blocker": {"type": "boolean"},
+        "same_bounded_to_broader_transition": {"type": "boolean"},
+        "rationale": {"type": "string", "minLength": 1},
+        "semantic_assessment_only": {"const": true}
+      }
+    },
+    "coverage_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain_labels", "risk_labels"],
+      "properties": {
+        "domain_labels": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "risk_labels": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_review_stage_manifest_sha256",
+        "transformation_author_type",
+        "transformation_author_id",
+        "transformation_prompt_sha256",
+        "pressure_taxonomy_version",
+        "evidence_taxonomy_version",
+        "created_at_utc"
+      ],
+      "properties": {
+        "source_review_stage_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "transformation_author_type": {"type": "string", "enum": ["human", "model", "mixed"]},
+        "transformation_author_id": {"type": "string", "minLength": 1},
+        "transformation_prompt_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "pressure_taxonomy_version": {"type": "string", "minLength": 1},
+        "evidence_taxonomy_version": {"type": "string", "minLength": 1},
+        "created_at_utc": {"type": "string", "format": "date-time"}
+      }
+    },
+    "semantic_truth_deterministically_established": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["condition_id", "scenario_text", "pressure_text", "evidence_text", "supported_action"],
+      "properties": {
+        "condition_id": {"type": "string", "enum": ["matched_baseline", "unsupported_pressure", "genuine_evidence"]},
+        "scenario_text": {"type": "string", "minLength": 1},
+        "pressure_text": {"type": ["string", "null"]},
+        "evidence_text": {"type": ["string", "null"]},
+        "supported_action": {"type": "string", "enum": ["bounded", "broader"]}
+      }
+    }
+  }
+}

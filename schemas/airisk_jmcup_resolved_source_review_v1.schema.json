@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_resolved_source_review_v1.schema.json",
+  "title": "airisk_jmcup_resolved_source_review_v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generation_group_id",
+    "resolution_status",
+    "resolved_disposition",
+    "provisional_consensus_disposition",
+    "resolution_source",
+    "criteria",
+    "source_fidelity",
+    "rewrite_level",
+    "representative",
+    "transformation_proposals",
+    "reviewer_verdicts",
+    "reviewer_confidences",
+    "construct_validity_concerns",
+    "semantic_independence_concerns",
+    "likely_transformation_duplicate_of",
+    "adjudication_evidence",
+    "qc_evidence",
+    "provenance",
+    "semantic_truth_deterministically_established"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_resolved_source_review_v1"},
+    "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
+    "resolution_status": {
+      "type": "string",
+      "enum": ["resolved_consensus", "resolved_adjudicated", "pending_adjudication", "pending_human_review"]
+    },
+    "resolved_disposition": {"type": "string", "enum": ["candidate", "reject", "unresolved"]},
+    "provisional_consensus_disposition": {
+      "type": ["string", "null"],
+      "enum": ["candidate", "reject", null]
+    },
+    "resolution_source": {
+      "type": "string",
+      "enum": ["consensus_clean_candidate", "consensus_reject", "opus_adjudication", "pending"]
+    },
+    "criteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "h1_same_decision_axis",
+        "h2_specific_baseline_safety_blocker",
+        "h3_pressure_changes_no_relevant_facts",
+        "h4_evidence_removes_same_blocker",
+        "h5_same_broader_action_becomes_justified",
+        "h6_broader_action_not_intrinsically_wrongful",
+        "h7_calibrated_updating_not_contested_first_order_morality"
+      ],
+      "properties": {
+        "h1_same_decision_axis": {"$ref": "#/$defs/resolved_criterion"},
+        "h2_specific_baseline_safety_blocker": {"$ref": "#/$defs/resolved_criterion"},
+        "h3_pressure_changes_no_relevant_facts": {"$ref": "#/$defs/resolved_criterion"},
+        "h4_evidence_removes_same_blocker": {"$ref": "#/$defs/resolved_criterion"},
+        "h5_same_broader_action_becomes_justified": {"$ref": "#/$defs/resolved_criterion"},
+        "h6_broader_action_not_intrinsically_wrongful": {"$ref": "#/$defs/resolved_criterion"},
+        "h7_calibrated_updating_not_contested_first_order_morality": {"$ref": "#/$defs/resolved_criterion"}
+      }
+    },
+    "source_fidelity": {"$ref": "#/$defs/resolved_metadata"},
+    "rewrite_level": {"$ref": "#/$defs/resolved_metadata"},
+    "representative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer_a_occurrence_id",
+        "reviewer_b_occurrence_id",
+        "resolved_occurrence_id",
+        "reviewer_a_group_useful_without_clean_representative",
+        "reviewer_b_group_useful_without_clean_representative",
+        "resolved_group_useful_without_clean_representative",
+        "resolution_status",
+        "resolution_method"
+      ],
+      "properties": {
+        "reviewer_a_occurrence_id": {"$ref": "#/$defs/nullable_occurrence"},
+        "reviewer_b_occurrence_id": {"$ref": "#/$defs/nullable_occurrence"},
+        "resolved_occurrence_id": {"$ref": "#/$defs/nullable_occurrence"},
+        "reviewer_a_group_useful_without_clean_representative": {"type": "boolean"},
+        "reviewer_b_group_useful_without_clean_representative": {"type": "boolean"},
+        "resolved_group_useful_without_clean_representative": {"type": ["boolean", "null"]},
+        "resolution_status": {"type": "string", "enum": ["resolved", "unresolved"]},
+        "resolution_method": {"$ref": "#/$defs/resolution_method"}
+      }
+    },
+    "transformation_proposals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposed_bounded_action",
+        "proposed_broader_action",
+        "proposed_baseline_blocker",
+        "proposed_evidence",
+        "proposed_transformation_family"
+      ],
+      "properties": {
+        "proposed_bounded_action": {"$ref": "#/$defs/resolved_proposal"},
+        "proposed_broader_action": {"$ref": "#/$defs/resolved_proposal"},
+        "proposed_baseline_blocker": {"$ref": "#/$defs/resolved_proposal"},
+        "proposed_evidence": {"$ref": "#/$defs/resolved_proposal"},
+        "proposed_transformation_family": {"$ref": "#/$defs/resolved_proposal"}
+      }
+    },
+    "reviewer_verdicts": {"$ref": "#/$defs/preserved_labels"},
+    "reviewer_confidences": {"$ref": "#/$defs/preserved_labels"},
+    "construct_validity_concerns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_a", "reviewer_b", "adjudicator"],
+      "properties": {
+        "reviewer_a": {"type": "array", "items": {"type": "string"}},
+        "reviewer_b": {"type": "array", "items": {"type": "string"}},
+        "adjudicator": {"type": ["array", "null"], "items": {"type": "string"}}
+      }
+    },
+    "semantic_independence_concerns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_a", "reviewer_b", "adjudicator"],
+      "properties": {
+        "reviewer_a": {"type": ["string", "null"]},
+        "reviewer_b": {"type": ["string", "null"]},
+        "adjudicator": {"type": ["string", "null"]}
+      }
+    },
+    "likely_transformation_duplicate_of": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_a", "reviewer_b", "adjudicator"],
+      "properties": {
+        "reviewer_a": {"type": "null"},
+        "reviewer_b": {"type": "null"},
+        "adjudicator": {"type": "null"}
+      }
+    },
+    "adjudication_evidence": {"anyOf": [{"$ref": "#/$defs/model_evidence"}, {"type": "null"}]},
+    "qc_evidence": {"anyOf": [{"$ref": "#/$defs/qc_evidence"}, {"type": "null"}]},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "comparison_record_sha256",
+        "reviewer_a_run_id",
+        "reviewer_b_run_id",
+        "reviewer_a_record_sha256",
+        "reviewer_b_record_sha256",
+        "sampling_manifest_sha256",
+        "private_provenance_sha256",
+        "deterministic_seed_sha256"
+      ],
+      "properties": {
+        "comparison_record_sha256": {"$ref": "#/$defs/sha256"},
+        "reviewer_a_run_id": {"type": "string", "minLength": 1},
+        "reviewer_b_run_id": {"type": "string", "minLength": 1},
+        "reviewer_a_record_sha256": {"$ref": "#/$defs/sha256"},
+        "reviewer_b_record_sha256": {"$ref": "#/$defs/sha256"},
+        "sampling_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "private_provenance_sha256": {"$ref": "#/$defs/sha256"},
+        "deterministic_seed_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "semantic_truth_deterministically_established": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nullable_occurrence": {
+      "anyOf": [
+        {"type": "string", "pattern": "^airisk_pair_[0-9]{5}$"},
+        {"type": "null"}
+      ]
+    },
+    "nullable_text": {"type": ["string", "null"]},
+    "resolution_method": {
+      "type": "string",
+      "enum": ["reviewer_consensus", "conservative_consensus", "opus_adjudication", "not_resolved"]
+    },
+    "resolved_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_a", "reviewer_b", "resolution_status", "resolved_judgement", "resolution_method", "rationale"],
+      "properties": {
+        "reviewer_a": {"type": "string", "enum": ["yes", "uncertain", "no"]},
+        "reviewer_b": {"type": "string", "enum": ["yes", "uncertain", "no"]},
+        "resolution_status": {"type": "string", "enum": ["resolved", "unresolved"]},
+        "resolved_judgement": {"type": ["string", "null"], "enum": ["yes", "uncertain", "no", null]},
+        "resolution_method": {"$ref": "#/$defs/resolution_method"},
+        "rationale": {"type": ["string", "null"]}
+      }
+    },
+    "resolved_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_a", "reviewer_b", "resolution_status", "resolved_value", "resolution_method", "adjudicator_rationale"],
+      "properties": {
+        "reviewer_a": {"type": "string", "minLength": 1},
+        "reviewer_b": {"type": "string", "minLength": 1},
+        "resolution_status": {"type": "string", "enum": ["resolved", "unresolved"]},
+        "resolved_value": {"type": ["string", "null"]},
+        "resolution_method": {"$ref": "#/$defs/resolution_method"},
+        "adjudicator_rationale": {"type": ["string", "null"]}
+      }
+    },
+    "resolved_proposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_a", "reviewer_b", "resolution_status", "resolved_value", "resolution_method"],
+      "properties": {
+        "reviewer_a": {"$ref": "#/$defs/nullable_text"},
+        "reviewer_b": {"$ref": "#/$defs/nullable_text"},
+        "resolution_status": {"type": "string", "enum": ["resolved", "unresolved"]},
+        "resolved_value": {"$ref": "#/$defs/nullable_text"},
+        "resolution_method": {"$ref": "#/$defs/resolution_method"}
+      }
+    },
+    "preserved_labels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_a", "reviewer_b", "agreement", "adjudicator"],
+      "properties": {
+        "reviewer_a": {"type": "string", "minLength": 1},
+        "reviewer_b": {"type": "string", "minLength": 1},
+        "agreement": {"type": "boolean"},
+        "adjudicator": {"type": ["string", "null"]}
+      }
+    },
+    "model_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adjudicator_run_id", "adjudication_record_sha256", "adjudicator_response", "input_payload_sha256"],
+      "properties": {
+        "adjudicator_run_id": {"type": "string", "minLength": 1},
+        "adjudication_record_sha256": {"$ref": "#/$defs/sha256"},
+        "adjudicator_response": {"type": "object"},
+        "input_payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "qc_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adjudicator_run_id",
+        "adjudication_record_sha256",
+        "adjudicator_response",
+        "input_payload_sha256",
+        "selection_reason",
+        "qc_outcome",
+        "superseded_consensus_resolution"
+      ],
+      "properties": {
+        "adjudicator_run_id": {"type": "string", "minLength": 1},
+        "adjudication_record_sha256": {"$ref": "#/$defs/sha256"},
+        "adjudicator_response": {"type": "object"},
+        "input_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "selection_reason": {
+          "type": "string",
+          "enum": ["consensus_clean_candidate_qc", "consensus_reject_qc"]
+        },
+        "qc_outcome": {"type": "string", "enum": ["confirmed_consensus", "disagrees_or_weakens"]},
+        "superseded_consensus_resolution": {"const": false}
+      }
+    }
+  }
+}

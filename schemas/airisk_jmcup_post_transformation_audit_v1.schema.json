@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_post_transformation_audit_v1.schema.json",
+  "title": "airisk_jmcup_post_transformation_audit_v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "created_at_utc",
+    "transformation_count",
+    "duplicate_audit",
+    "coverage_audit",
+    "target_dataset_n_applied",
+    "automatic_duplicate_exclusion_performed",
+    "semantic_truth_deterministically_established"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_post_transformation_audit_v1"},
+    "created_at_utc": {"type": "string", "format": "date-time"},
+    "transformation_count": {"type": "integer", "minimum": 0},
+    "duplicate_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normalisation", "near_duplicate_method", "near_duplicate_threshold", "exact_duplicate_clusters", "near_duplicate_pairs"],
+      "properties": {
+        "normalisation": {"type": "string", "minLength": 1},
+        "near_duplicate_method": {"const": "token_set_jaccard"},
+        "near_duplicate_threshold": {"type": "number", "minimum": 0, "maximum": 1},
+        "exact_duplicate_clusters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["content_sha256", "transformation_ids"],
+            "properties": {
+              "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "transformation_ids": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string"}}
+            }
+          }
+        },
+        "near_duplicate_pairs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["left_transformation_id", "right_transformation_id", "token_jaccard_similarity", "review_required"],
+            "properties": {
+              "left_transformation_id": {"type": "string"},
+              "right_transformation_id": {"type": "string"},
+              "token_jaccard_similarity": {"type": "number", "minimum": 0, "maximum": 1},
+              "review_required": {"const": true}
+            }
+          }
+        }
+      }
+    },
+    "coverage_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["by_transformation_family", "by_pressure_type", "by_evidence_type", "by_evidence_strength", "by_domain_label", "by_risk_label"],
+      "properties": {
+        "by_transformation_family": {"$ref": "#/$defs/count_map"},
+        "by_pressure_type": {"$ref": "#/$defs/count_map"},
+        "by_evidence_type": {"$ref": "#/$defs/count_map"},
+        "by_evidence_strength": {"$ref": "#/$defs/count_map"},
+        "by_domain_label": {"$ref": "#/$defs/count_map"},
+        "by_risk_label": {"$ref": "#/$defs/count_map"}
+      }
+    },
+    "target_dataset_n_applied": {"const": false},
+    "automatic_duplicate_exclusion_performed": {"const": false},
+    "semantic_truth_deterministically_established": {"const": false}
+  },
+  "$defs": {
+    "count_map": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    }
+  }
+}

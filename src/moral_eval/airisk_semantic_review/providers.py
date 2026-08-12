@@ -747,6 +747,9 @@ class OpenRouterReviewerAdapter:
         transport_schema = openrouter_transport_schema(
             requested_model, response_schema
         )
+        schema_name = response_schema.get("title", OPENROUTER_RESPONSE_SCHEMA_NAME)
+        if not isinstance(schema_name, str) or not schema_name:
+            schema_name = OPENROUTER_RESPONSE_SCHEMA_NAME
         request_body: dict[str, Any] = {
             "model": requested_model,
             "messages": [{"role": "user", "content": rendered_prompt}],
@@ -754,7 +757,7 @@ class OpenRouterReviewerAdapter:
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": OPENROUTER_RESPONSE_SCHEMA_NAME,
+                    "name": schema_name,
                     "strict": True,
                     "schema": transport_schema,
                 },

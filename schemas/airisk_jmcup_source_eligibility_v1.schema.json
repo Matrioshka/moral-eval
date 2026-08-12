@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_source_eligibility_v1.schema.json",
+  "title": "airisk_jmcup_source_eligibility_v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generation_group_id",
+    "eligibility",
+    "basis",
+    "resolved_source_review_sha256",
+    "resolved_disposition",
+    "all_h1_h7_yes",
+    "source_fidelity",
+    "rewrite_level",
+    "reason_codes",
+    "target_dataset_n_applied",
+    "model_verdict_used_as_eligibility_rule",
+    "model_confidence_used_as_eligibility_rule"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_source_eligibility_v1"},
+    "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
+    "eligibility": {"type": "string", "enum": ["eligible", "ineligible", "pending_adjudication", "pending_human_review"]},
+    "basis": {"const": "resolved_h1_h7_source_fidelity_and_rewrite_feasibility"},
+    "resolved_source_review_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "resolved_disposition": {"type": "string", "enum": ["candidate", "reject", "unresolved"]},
+    "all_h1_h7_yes": {"type": ["boolean", "null"]},
+    "source_fidelity": {"type": ["string", "null"], "enum": ["high", "moderate", "low", null]},
+    "rewrite_level": {"type": ["string", "null"], "enum": ["low", "moderate", "high", "not_viable", null]},
+    "reason_codes": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "target_dataset_n_applied": {"const": false},
+    "model_verdict_used_as_eligibility_rule": {"const": false},
+    "model_confidence_used_as_eligibility_rule": {"const": false}
+  }
+}

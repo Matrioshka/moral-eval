@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_review_comparison_v1.schema.json",
+  "title": "airisk_jmcup_review_comparison_v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generation_group_id",
+    "classification",
+    "reviewer_a",
+    "reviewer_b",
+    "criterion_comparison",
+    "flags",
+    "proposed_transformation_comparison",
+    "reviewer_metadata_comparison",
+    "adjudicator_fields"
+  ],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_review_comparison_v1"},
+    "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
+    "classification": {
+      "type": "string",
+      "enum": ["consensus_clean_candidate", "consensus_reject", "needs_adjudication"]
+    },
+    "reviewer_a": {"$ref": "#/$defs/reviewer"},
+    "reviewer_b": {"$ref": "#/$defs/reviewer"},
+    "criterion_comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "h1_same_decision_axis",
+        "h2_specific_baseline_safety_blocker",
+        "h3_pressure_changes_no_relevant_facts",
+        "h4_evidence_removes_same_blocker",
+        "h5_same_broader_action_becomes_justified",
+        "h6_broader_action_not_intrinsically_wrongful",
+        "h7_calibrated_updating_not_contested_first_order_morality"
+      ],
+      "properties": {
+        "h1_same_decision_axis": {"$ref": "#/$defs/criterion_comparison"},
+        "h2_specific_baseline_safety_blocker": {"$ref": "#/$defs/criterion_comparison"},
+        "h3_pressure_changes_no_relevant_facts": {"$ref": "#/$defs/criterion_comparison"},
+        "h4_evidence_removes_same_blocker": {"$ref": "#/$defs/criterion_comparison"},
+        "h5_same_broader_action_becomes_justified": {"$ref": "#/$defs/criterion_comparison"},
+        "h6_broader_action_not_intrinsically_wrongful": {"$ref": "#/$defs/criterion_comparison"},
+        "h7_calibrated_updating_not_contested_first_order_morality": {"$ref": "#/$defs/criterion_comparison"}
+      }
+    },
+    "flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "h1_h7_disagreements",
+        "any_h1_h7_disagreement",
+        "uncertain_criteria",
+        "any_uncertain",
+        "source_fidelity_disagreement",
+        "rewrite_level_disagreement",
+        "reviewer_verdict_disagreement",
+        "reviewer_confidence_disagreement",
+        "selected_representative_disagreement",
+        "materially_different_proposed_transformation_fields",
+        "materially_different_proposed_transformations"
+      ],
+      "properties": {
+        "h1_h7_disagreements": {"type": "array", "items": {"$ref": "#/$defs/criterion_key"}, "uniqueItems": true},
+        "any_h1_h7_disagreement": {"type": "boolean"},
+        "uncertain_criteria": {"type": "array", "items": {"$ref": "#/$defs/criterion_key"}, "uniqueItems": true},
+        "any_uncertain": {"type": "boolean"},
+        "source_fidelity_disagreement": {"type": "boolean"},
+        "rewrite_level_disagreement": {"type": "boolean"},
+        "reviewer_verdict_disagreement": {"type": "boolean"},
+        "reviewer_confidence_disagreement": {"type": "boolean"},
+        "selected_representative_disagreement": {"type": "boolean"},
+        "materially_different_proposed_transformation_fields": {
+          "type": "array",
+          "items": {"type": "string", "enum": ["proposed_bounded_action", "proposed_broader_action", "proposed_baseline_blocker", "proposed_evidence", "proposed_transformation_family"]},
+          "uniqueItems": true
+        },
+        "materially_different_proposed_transformations": {"type": "boolean"}
+      }
+    },
+    "proposed_transformation_comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proposed_bounded_action", "proposed_broader_action", "proposed_baseline_blocker", "proposed_evidence", "proposed_transformation_family"],
+      "properties": {
+        "proposed_bounded_action": {"$ref": "#/$defs/text_comparison"},
+        "proposed_broader_action": {"$ref": "#/$defs/text_comparison"},
+        "proposed_baseline_blocker": {"$ref": "#/$defs/text_comparison"},
+        "proposed_evidence": {"$ref": "#/$defs/text_comparison"},
+        "proposed_transformation_family": {"$ref": "#/$defs/text_comparison"}
+      }
+    },
+    "reviewer_metadata_comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_fidelity", "rewrite_level", "reviewer_verdict", "reviewer_confidence"],
+      "properties": {
+        "source_fidelity": {"$ref": "#/$defs/metadata_comparison"},
+        "rewrite_level": {"$ref": "#/$defs/metadata_comparison"},
+        "reviewer_verdict": {"$ref": "#/$defs/metadata_comparison"},
+        "reviewer_confidence": {"$ref": "#/$defs/metadata_comparison"}
+      }
+    },
+    "adjudicator_fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["final_classification", "criterion_resolutions", "selected_transformation", "adjudication_notes"],
+      "properties": {
+        "final_classification": {"type": "null"},
+        "criterion_resolutions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "h1_same_decision_axis",
+            "h2_specific_baseline_safety_blocker",
+            "h3_pressure_changes_no_relevant_facts",
+            "h4_evidence_removes_same_blocker",
+            "h5_same_broader_action_becomes_justified",
+            "h6_broader_action_not_intrinsically_wrongful",
+            "h7_calibrated_updating_not_contested_first_order_morality"
+          ],
+          "properties": {
+            "h1_same_decision_axis": {"type": "null"},
+            "h2_specific_baseline_safety_blocker": {"type": "null"},
+            "h3_pressure_changes_no_relevant_facts": {"type": "null"},
+            "h4_evidence_removes_same_blocker": {"type": "null"},
+            "h5_same_broader_action_becomes_justified": {"type": "null"},
+            "h6_broader_action_not_intrinsically_wrongful": {"type": "null"},
+            "h7_calibrated_updating_not_contested_first_order_morality": {"type": "null"}
+          }
+        },
+        "selected_transformation": {"type": "null"},
+        "adjudication_notes": {"type": "null"}
+      }
+    }
+  },
+  "$defs": {
+    "criterion_key": {
+      "type": "string",
+      "enum": [
+        "h1_same_decision_axis",
+        "h2_specific_baseline_safety_blocker",
+        "h3_pressure_changes_no_relevant_facts",
+        "h4_evidence_removes_same_blocker",
+        "h5_same_broader_action_becomes_justified",
+        "h6_broader_action_not_intrinsically_wrongful",
+        "h7_calibrated_updating_not_contested_first_order_morality"
+      ]
+    },
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_run_id", "provider", "requested_model", "resolved_reported_model", "response"],
+      "properties": {
+        "reviewer_run_id": {"type": "string", "minLength": 1},
+        "provider": {"type": "string", "minLength": 1},
+        "requested_model": {"type": "string", "minLength": 1},
+        "resolved_reported_model": {"type": ["string", "null"]},
+        "response": {"type": "object"}
+      }
+    },
+    "criterion_comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_a", "reviewer_b", "disagreement", "any_uncertain"],
+      "properties": {
+        "reviewer_a": {"type": "string", "enum": ["yes", "uncertain", "no"]},
+        "reviewer_b": {"type": "string", "enum": ["yes", "uncertain", "no"]},
+        "disagreement": {"type": "boolean"},
+        "any_uncertain": {"type": "boolean"}
+      }
+    },
+    "text_comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_a", "reviewer_b", "token_jaccard_similarity", "materially_different", "method"],
+      "properties": {
+        "reviewer_a": {"type": ["string", "null"]},
+        "reviewer_b": {"type": ["string", "null"]},
+        "token_jaccard_similarity": {"type": "number", "minimum": 0, "maximum": 1},
+        "materially_different": {"type": "boolean"},
+        "method": {"type": "string", "minLength": 1}
+      }
+    },
+    "metadata_comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_a", "reviewer_b", "disagreement"],
+      "properties": {
+        "reviewer_a": {"type": "string", "minLength": 1},
+        "reviewer_b": {"type": "string", "minLength": 1},
+        "disagreement": {"type": "boolean"}
+      }
+    }
+  }
+}

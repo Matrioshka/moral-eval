@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moral-eval.local/schemas/airisk_jmcup_opus_adjudication_input_v1.schema.json",
+  "title": "airisk_jmcup_opus_adjudication_input_v1",
+  "description": "Model-visible blinded input for independent AIRisk JMCUP adjudication.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generation_group_id", "source_group", "reviewer_a_response", "reviewer_b_response"],
+  "properties": {
+    "schema_version": {"const": "airisk_jmcup_opus_adjudication_input_v1"},
+    "generation_group_id": {"type": "string", "pattern": "^airisk_generation_group_[0-9]{4}$"},
+    "source_group": {"type": "object"},
+    "reviewer_a_response": {"type": "object"},
+    "reviewer_b_response": {"type": "object"}
+  }
+}
