@@ -25,9 +25,13 @@ from .core import (
     utc_now,
     validate_instance,
     validation_errors,
-    write_jsonl,
 )
-from .execution import _aggregate_attempt_usage, _attempt_record, redact_secrets
+from .execution import (
+    _aggregate_attempt_usage,
+    _append_checkpoint,
+    _attempt_record,
+    redact_secrets,
+)
 from .providers import ReviewerProvider, create_provider_adapter, parse_response_json
 
 
@@ -554,25 +558,30 @@ def run_adjudications(
             sleep_fn=sleep_fn,
         )
 
-    records = []
+    records: list[dict[str, Any]] = []
+    status_counts: dict[str, int] = {}
+
+    def checkpoint(record: dict[str, Any]) -> None:
+        # Only this parent/as-completed thread writes the shared JSONL. The
+        # imported append helper flushes and fsyncs before returning.
+        _append_checkpoint(records_path, record)
+        records.append(record)
+        status = record["status"]
+        status_counts[status] = status_counts.get(status, 0) + 1
+
     if config.concurrency == 1:
-        records = [one(payload) for payload in pending]
+        for payload in pending:
+            checkpoint(one(payload))
     else:
         with ThreadPoolExecutor(max_workers=config.concurrency) as executor:
             futures = {executor.submit(one, payload): payload for payload in pending}
             for future in as_completed(futures):
-                records.append(future.result())
-    if records:
-        existing_records = read_jsonl(records_path) if records_path.exists() else []
-        write_jsonl(records_path, [*existing_records, *records])
+                checkpoint(future.result())
     return {
         **plan,
         "completed_before_resume": len(completed),
         "new_records_written": len(records),
-        "status_counts": dict(sorted(
-            (status, sum(record["status"] == status for record in records))
-            for status in {record["status"] for record in records}
-        )),
+        "status_counts": dict(sorted(status_counts.items())),
         "records_path": str(records_path),
         "manifest_path": str(manifest_path),
     }

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
+import time
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from moral_eval.airisk_semantic_review import core
+from moral_eval.airisk_semantic_review import adjudication_execution
 from moral_eval.airisk_semantic_review.adjudication import (
     classify_pair,
     compare_review_pair,
@@ -234,6 +237,47 @@ class FakeProvider:
             raw_response_text=json.dumps(parsed),
             resolved_reported_model="reported-model",
             provider_request_id=f"request-{len(self.calls)}",
+        )
+
+
+class KeyedAdjudicationProvider:
+    provider = "anthropic"
+
+    def __init__(
+        self,
+        outputs: dict[str, dict],
+        *,
+        slow_group_id: str | None = None,
+        slow_started: threading.Event | None = None,
+        release_slow: threading.Event | None = None,
+    ):
+        self.outputs = outputs
+        self.slow_group_id = slow_group_id
+        self.slow_started = slow_started
+        self.release_slow = release_slow
+        self.calls: list[str] = []
+        self._lock = threading.Lock()
+
+    def review(self, **kwargs) -> ProviderResult:
+        rendered_prompt = kwargs["rendered_prompt"]
+        group_id = next(
+            group_id for group_id in self.outputs if group_id in rendered_prompt
+        )
+        with self._lock:
+            self.calls.append(group_id)
+            request_number = len(self.calls)
+        if group_id == self.slow_group_id:
+            assert self.slow_started is not None
+            assert self.release_slow is not None
+            self.slow_started.set()
+            if not self.release_slow.wait(timeout=10):
+                raise RuntimeError("Timed out waiting to release slow fixture response")
+        parsed = deepcopy(self.outputs[group_id])
+        return ProviderResult(
+            raw_response={"model": "reported-opus", "content": parsed},
+            raw_response_text=json.dumps(parsed),
+            resolved_reported_model="reported-opus",
+            provider_request_id=f"request-{request_number}",
         )
 
 
@@ -1932,6 +1976,21 @@ def opus_response_for(
     }
 
 
+def opus_outputs_for(prepared: Path, payloads: list[dict]) -> dict[str, dict]:
+    comparisons = {
+        item["generation_group_id"]: item
+        for item in core.read_jsonl(prepared / "criterion_level_comparison.jsonl")
+    }
+    return {
+        payload["generation_group_id"]: opus_response_for(
+            payload,
+            comparisons[payload["generation_group_id"]],
+            disposition="candidate",
+        )
+        for payload in payloads
+    }
+
+
 def adjudicator_record(payload: dict, parsed: dict) -> dict:
     return {
         "record_schema_version": "airisk_jmcup_adjudicator_run_record_v1",
@@ -2227,6 +2286,226 @@ def test_opus_runner_mocked_execution_validates_complete_response(
     assert manifest["run_record_schema_sha256"] == core.sha256_path(
         ROOT / "schemas" / "airisk_jmcup_adjudicator_run_record_v1.schema.json"
     )
+
+
+def test_concurrent_opus_runner_checkpoints_before_all_futures_finish(
+    tmp_path: Path,
+) -> None:
+    prepared = prepare_smoke_downstream(tmp_path)
+    payloads = core.read_jsonl(prepared / "opus_adjudication_payloads.jsonl")[:2]
+    outputs = opus_outputs_for(prepared, payloads)
+    slow_group_id = payloads[1]["generation_group_id"]
+    slow_started = threading.Event()
+    release_slow = threading.Event()
+    provider = KeyedAdjudicationProvider(
+        outputs,
+        slow_group_id=slow_group_id,
+        slow_started=slow_started,
+        release_slow=release_slow,
+    )
+    output_root = tmp_path / "concurrent-adjudicator-runs"
+    config = AdjudicationRunConfig(
+        provider="anthropic",
+        requested_model="claude-opus-test",
+        adjudicator_run_id="concurrent-checkpoint",
+        concurrency=2,
+        max_retries=0,
+    )
+    outcome: dict[str, object] = {}
+
+    def run_in_thread() -> None:
+        try:
+            outcome["result"] = run_adjudications(
+                config=config,
+                payloads=payloads,
+                output_root=output_root,
+                execute=True,
+                resume=False,
+                adapter=provider,
+                sleep_fn=lambda _: None,
+            )
+        except BaseException as exc:  # pragma: no cover - assertion reports it
+            outcome["error"] = exc
+
+    runner = threading.Thread(target=run_in_thread, daemon=True)
+    runner.start()
+    records_path = (
+        output_root
+        / "anthropic"
+        / "concurrent-checkpoint"
+        / "adjudications.jsonl"
+    )
+    try:
+        assert slow_started.wait(timeout=5)
+        deadline = time.monotonic() + 5
+        checkpointed: list[dict] = []
+        while time.monotonic() < deadline:
+            if records_path.exists():
+                checkpointed = core.read_jsonl(records_path)
+                if checkpointed:
+                    break
+            time.sleep(0.01)
+        assert len(checkpointed) == 1
+        assert checkpointed[0]["status"] == "completed"
+        assert checkpointed[0]["generation_group_id"] != slow_group_id
+        assert runner.is_alive()
+    finally:
+        release_slow.set()
+        runner.join(timeout=10)
+
+    assert not runner.is_alive()
+    assert "error" not in outcome
+    result = outcome["result"]
+    assert isinstance(result, dict)
+    assert result["new_records_written"] == 2
+    assert result["status_counts"] == {"completed": 2}
+    assert len(core.read_jsonl(records_path)) == 2
+
+
+def test_interrupted_concurrent_opus_run_resumes_without_duplicate_completed_groups(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = prepare_smoke_downstream(tmp_path)
+    payloads = core.read_jsonl(prepared / "opus_adjudication_payloads.jsonl")[:2]
+    outputs = opus_outputs_for(prepared, payloads)
+    output_root = tmp_path / "interrupted-adjudicator-runs"
+    config = AdjudicationRunConfig(
+        provider="anthropic",
+        requested_model="claude-opus-test",
+        adjudicator_run_id="interrupted-checkpoint",
+        concurrency=2,
+        max_retries=0,
+    )
+    original_append = adjudication_execution._append_checkpoint
+    append_count = 0
+
+    class SimulatedInterruption(RuntimeError):
+        pass
+
+    def append_then_interrupt(path: Path, record: dict) -> None:
+        nonlocal append_count
+        original_append(path, record)
+        append_count += 1
+        if append_count == 1:
+            raise SimulatedInterruption("interrupted after durable checkpoint")
+
+    monkeypatch.setattr(
+        adjudication_execution, "_append_checkpoint", append_then_interrupt
+    )
+    first_provider = KeyedAdjudicationProvider(outputs)
+    with pytest.raises(SimulatedInterruption):
+        run_adjudications(
+            config=config,
+            payloads=payloads,
+            output_root=output_root,
+            execute=True,
+            resume=False,
+            adapter=first_provider,
+            sleep_fn=lambda _: None,
+        )
+
+    records_path = (
+        output_root
+        / "anthropic"
+        / "interrupted-checkpoint"
+        / "adjudications.jsonl"
+    )
+    checkpointed = core.read_jsonl(records_path)
+    assert len(checkpointed) == 1
+    completed_group_id = checkpointed[0]["generation_group_id"]
+    assert checkpointed[0]["status"] == "completed"
+
+    monkeypatch.setattr(
+        adjudication_execution, "_append_checkpoint", original_append
+    )
+    resume_provider = KeyedAdjudicationProvider(outputs)
+    resumed = run_adjudications(
+        config=config,
+        payloads=payloads,
+        output_root=output_root,
+        execute=True,
+        resume=True,
+        adapter=resume_provider,
+        sleep_fn=lambda _: None,
+    )
+
+    final_records = core.read_jsonl(records_path)
+    assert resumed["completed_before_resume"] == 1
+    assert resumed["new_records_written"] == 1
+    assert resumed["status_counts"] == {"completed": 1}
+    assert resume_provider.calls == [
+        next(
+            payload["generation_group_id"]
+            for payload in payloads
+            if payload["generation_group_id"] != completed_group_id
+        )
+    ]
+    assert len(final_records) == 2
+    assert len(
+        {record["generation_group_id"] for record in final_records}
+    ) == 2
+
+
+def test_opus_resume_preserves_noncompleted_record_and_retries_once(
+    tmp_path: Path,
+) -> None:
+    prepared = prepare_smoke_downstream(tmp_path)
+    payload = core.read_jsonl(prepared / "opus_adjudication_payloads.jsonl")[0]
+    output_root = tmp_path / "noncompleted-adjudicator-runs"
+    config = AdjudicationRunConfig(
+        provider="anthropic",
+        requested_model="claude-opus-test",
+        adjudicator_run_id="noncompleted-resume",
+        max_retries=0,
+    )
+    first_provider = FakeProvider([{}])
+    first = run_adjudications(
+        config=config,
+        payloads=[payload],
+        output_root=output_root,
+        execute=True,
+        resume=False,
+        adapter=first_provider,
+        sleep_fn=lambda _: None,
+    )
+    records_path = Path(first["records_path"])
+    assert [item["status"] for item in core.read_jsonl(records_path)] == [
+        "validation_failed"
+    ]
+
+    outputs = opus_outputs_for(prepared, [payload])
+    second_provider = KeyedAdjudicationProvider(outputs)
+    second = run_adjudications(
+        config=config,
+        payloads=[payload],
+        output_root=output_root,
+        execute=True,
+        resume=True,
+        adapter=second_provider,
+        sleep_fn=lambda _: None,
+    )
+    third_provider = KeyedAdjudicationProvider(outputs)
+    third = run_adjudications(
+        config=config,
+        payloads=[payload],
+        output_root=output_root,
+        execute=True,
+        resume=True,
+        adapter=third_provider,
+        sleep_fn=lambda _: None,
+    )
+
+    records = core.read_jsonl(records_path)
+    assert [item["status"] for item in records] == [
+        "validation_failed",
+        "completed",
+    ]
+    assert second["completed_before_resume"] == 0
+    assert second["new_records_written"] == 1
+    assert third["completed_before_resume"] == 1
+    assert third["new_records_written"] == 0
+    assert third_provider.calls == []
 
 
 def test_openrouter_uses_opus_schema_title_for_adjudication_transport() -> None:
